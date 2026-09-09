@@ -1,0 +1,159 @@
+0000000000000000000000000000000000000000 22b9c9b16eac123e5e007a71352e9a1eaf73a501 ericwuname <874659639@qq.com> 1785268149 +0800	commit (initial): v3.0 Post-Freeze — P1/P2/P3 合入主干
+22b9c9b16eac123e5e007a71352e9a1eaf73a501 d59582d84c804ce556bcc45d65c50d4f564c1230 ericwuname <874659639@qq.com> 1785271439 +0800	commit: v4.0-v4.1 hardening + production-ready
+d59582d84c804ce556bcc45d65c50d4f564c1230 7e6ec5f6b5c680695dbe1fdd4ac4dc4022907a5e ericwuname <874659639@qq.com> 1785277456 +0800	commit: v5.0 complete — CLI + E1/E2/E3/E4 all phases delivered
+7e6ec5f6b5c680695dbe1fdd4ac4dc4022907a5e cc31b68dc5f902f2499022d80995e44abcc6be50 ericwuname <874659639@qq.com> 1785299456 +0800	commit: v6.0 complete — Provider v2 + Bridge + Civilization + Work Line
+cc31b68dc5f902f2499022d80995e44abcc6be50 13a57f94e2d70f44b33d88f66b26f7b183e3dc4b ericwuname <874659639@qq.com> 1785302715 +0800	commit: v6.1 complete — Bridge集成 + Civ自动触发 + WorkLine调度器
+13a57f94e2d70f44b33d88f66b26f7b183e3dc4b 31d90a3e5c6fc717d629c88912ceccdc37944d2c ericwuname <874659639@qq.com> 1785305815 +0800	commit: v7.0.3.5 CLIPPY归零: FMT=0 CLIPPY=0 TEST=149/0
+31d90a3e5c6fc717d629c88912ceccdc37944d2c c6e77b0d78af700bef280dd1d0ae47c919f34a08 ericwuname <874659639@qq.com> 1785306835 +0800	commit: v7.0 complete: structured logging + telemetry + replay + coverage
+c6e77b0d78af700bef280dd1d0ae47c919f34a08 ab7b82171c10bb115d7e7f321c52f47bb8623e9c ericwuname <874659639@qq.com> 1785309275 +0800	commit: v8.0.1: multi-user (UserStore + crate path fix)
+ab7b82171c10bb115d7e7f321c52f47bb8623e9c b33b42edb669af53e837733acff69bcd46d3cb55 ericwuname <874659639@qq.com> 1785309791 +0800	commit: v8.0 multi-user: UserStore + PerUserStore + Templates
+b33b42edb669af53e837733acff69bcd46d3cb55 8d3efb261c312fee64470b001d59e2f95b25c171 ericwuname <874659639@qq.com> 1785310099 +0800	commit: v8.0.4: Webhook通知 (register + fire via curl)
+8d3efb261c312fee64470b001d59e2f95b25c171 2fe73fa6c6c1a8ca21b2a2fdf9a3446389665041 ericwuname <874659639@qq.com> 1785310680 +0800	commit: v9.0.1: 自主任务编排引擎 (TaskOrchestrator)
+2fe73fa6c6c1a8ca21b2a2fdf9a3446389665041 337effd1825157526bbda6e3025e2294ef485327 ericwuname <874659639@qq.com> 1785310913 +0800	commit: v9.0.2: Pipeline工具链 (变量替换 + 串联执行)
+337effd1825157526bbda6e3025e2294ef485327 4b979279a792d13ba4fa16d396739547bc85144d ericwuname <874659639@qq.com> 1785310981 +0800	commit: v9.0 complete: 自主任务编排引擎
+4b979279a792d13ba4fa16d396739547bc85144d f52ae42d1c3d8d8c1ad27f1de805a19aa873a77a ericwuname <874659639@qq.com> 1785311857 +0800	commit: v9.0 final: 自主任务编排 — ALL GREEN 156/0
+f52ae42d1c3d8d8c1ad27f1de805a19aa873a77a 2803cc398b5bd432ad1fe1d41937f5b30cf0046a ericwuname <874659639@qq.com> 1785313223 +0800	commit: gatekeeper audit: v9.0 final (15057 LOC, 156 tests, 438 assertions)
+2803cc398b5bd432ad1fe1d41937f5b30cf0046a 0fe8b49b39e8ebd1cedbd15434eff79b90af43a8 ericwuname <874659639@qq.com> 1785314819 +0800	commit: v10.0 10A-ready: PerUser接线 (闭合 v9.0 🟡)
+0fe8b49b39e8ebd1cedbd15434eff79b90af43a8 c70ea66954fc0a4828181b40349a41f950a021c0 ericwuname <874659639@qq.com> 1785314910 +0800	commit: v10.0 10A: 编号系统 (instance_id + PID文件)
+c70ea66954fc0a4828181b40349a41f950a021c0 dc99c38e345e8b0d84977b52c5a3bf03a7cf65c7 ericwuname <874659639@qq.com> 1785315100 +0800	commit: v10.0 10B-core: 资源监测 (resource-monitor crate)
+dc99c38e345e8b0d84977b52c5a3bf03a7cf65c7 4b0e00e4bacbefb985e40447d7f6589c18281081 ericwuname <874659639@qq.com> 1785315265 +0800	commit: v10.0 10C: 基因宪法 (constitution.md + constitution_prompt)
+4b0e00e4bacbefb985e40447d7f6589c18281081 9e3afe27c503e0258e596c77616dafab9f83c84f ericwuname <874659639@qq.com> 1785315859 +0800	commit: v10.0 final: observer bg task + whoami + template CLI
+9e3afe27c503e0258e596c77616dafab9f83c84f 3ce1396669384927516747b495e0f6855c6e01da ericwuname <874659639@qq.com> 1785316124 +0800	commit: v10.0 final audit: ALL GREEN 156/0 — 定版
+3ce1396669384927516747b495e0f6855c6e01da 05b7abe474b9522f9b45cfa2cd6e540b164c9f7f ericwuname <874659639@qq.com> 1785318301 +0800	commit: v10.1: execute_plan + ROI + resource alerts
+05b7abe474b9522f9b45cfa2cd6e540b164c9f7f c33dd3712d25581926045b9d9b31abad4dcc4572 ericwuname <874659639@qq.com> 1785318350 +0800	commit: v10.1: P1+P2 done — execute_plan + ROI + critical alerts
+c33dd3712d25581926045b9d9b31abad4dcc4572 d89363755bd483821944aef80cf9b30602563a88 ericwuname <874659639@qq.com> 1785319986 +0800	commit: v10.2: 神经系统打通经脉 — NervousSystem bridges brain ↔ body
+d89363755bd483821944aef80cf9b30602563a88 4d309c3a591f8203475472dd1d0111f2cd98356f ericwuname <874659639@qq.com> 1785320033 +0800	commit: v10.2 final: 神经系统打通经脉 + panorama + audit
+4d309c3a591f8203475472dd1d0111f2cd98356f 47d173f5e0b32a0aa4f58ad74607d84f0baa3d92 ericwuname <874659639@qq.com> 1785321343 +0800	commit: v10.2.1: 全景图虚线补全 — cost→nervous + CIV_ALERT + crate audit
+47d173f5e0b32a0aa4f58ad74607d84f0baa3d92 44e8023eab888431dbc4af9d0997973589dc5676 ericwuname <874659639@qq.com> 1785321369 +0800	commit: v10.2.1 final: 完工审计报告
+44e8023eab888431dbc4af9d0997973589dc5676 71b6af141cb5c792a74648ee822e449e342fde67 ericwuname <874659639@qq.com> 1785323594 +0800	commit: v10.3: 四刀真接 — 结束虚假修复时代
+71b6af141cb5c792a74648ee822e449e342fde67 fb57984ece5b7b646ea4dc52f988734a1508d60e ericwuname <874659639@qq.com> 1785323634 +0800	commit: v10.3 final: 完工审计报告
+fb57984ece5b7b646ea4dc52f988734a1508d60e a84731d9b9de11a904b329c190da21ae40f2c998 ericwuname <874659639@qq.com> 1785325024 +0800	commit: v10.4: 六刀真接 — 全部 grep 可证
+a84731d9b9de11a904b329c190da21ae40f2c998 f50e159d24f374c86538211c49ab15e639d3f01e ericwuname <874659639@qq.com> 1785328051 +0800	commit: v10.4 final: 九条 grep 链全部可证 — 8/9 debt closed
+f50e159d24f374c86538211c49ab15e639d3f01e f805eda955eb5fc7fc78f172e8dbb7915af5eddc ericwuname <874659639@qq.com> 1785328088 +0800	commit: v10.4 最终审计: 8/9 清仓, 0 API壳, 全部grep可证
+f805eda955eb5fc7fc78f172e8dbb7915af5eddc 6c506703234d5e7a5bed81bee7f7775efdd3485b ericwuname <874659639@qq.com> 1785329697 +0800	commit: v10.4 final: FMT gate passed — 4 main.rs diffs resolved
+6c506703234d5e7a5bed81bee7f7775efdd3485b 6d0b39b50c97881f1da77b630ee8f453c4fd50ad ericwuname <874659639@qq.com> 1785330230 +0800	commit: v10.4 final: orchestrator production wire → do_act
+6d0b39b50c97881f1da77b630ee8f453c4fd50ad 0a2dc1f35c5bdfbebba3fdb45c3e07a295ff0d93 ericwuname <874659639@qq.com> 1785331355 +0800	commit: v10.4 final: retriever real index + orchestrator production wire
+0a2dc1f35c5bdfbebba3fdb45c3e07a295ff0d93 1026872c3cc7ba924aa4b9378dacfac1495262fe ericwuname <874659639@qq.com> 1785332057 +0800	commit: v10.5: tool ecosystem — search/install/auto-discover
+1026872c3cc7ba924aa4b9378dacfac1495262fe 5e14aa392ae71c7327c8db26117430981d038c97 ericwuname <874659639@qq.com> 1785332783 +0800	commit: v10.5 final: safe template fallback + panorama v10.5
+5e14aa392ae71c7327c8db26117430981d038c97 7a0023c7138293e2950897d9c2287e7fe7f17c74 ericwuname <874659639@qq.com> 1785332985 +0800	commit: v10.5 final audit — 全盘审计通过，可打包备份
+7a0023c7138293e2950897d9c2287e7fe7f17c74 153b07da88484c47065797da8ce22287310180a8 ericwuname <874659639@qq.com> 1785336770 +0800	commit: v10.5 fix: FMT 8 diffs + budget test + disk cleanup
+153b07da88484c47065797da8ce22287310180a8 46e701a0572f117f6d582208b1224f3415ffc303 ericwuname <874659639@qq.com> 1785339511 +0800	commit: v11.0: experience self-evolution thin vertical slice
+46e701a0572f117f6d582208b1224f3415ffc303 924e30d0f0bb39d15dcad14948de91e068650307 ericwuname <874659639@qq.com> 1785340154 +0800	commit: v11.1+v11.2: embedding+cosine+env_match+prune+upgrade
+924e30d0f0bb39d15dcad14948de91e068650307 036afa6d5555181e770575ee5b366bfdd65d7a34 ericwuname <874659639@qq.com> 1785340856 +0800	commit: v11.3: Phase 5 autonomous closed loop
+036afa6d5555181e770575ee5b366bfdd65d7a34 6e7b40af866ecb18755e228faf0d55cf9a9c71ab ericwuname <874659639@qq.com> 1785341122 +0800	commit: v11.3 final audit — 22 crates / 174 tests / ALL GREEN
+6e7b40af866ecb18755e228faf0d55cf9a9c71ab 7600e4bcbfedda50f4f767873e654413c991dbed ericwuname <874659639@qq.com> 1785342323 +0800	commit: v11.4 Phase 0: subconscious layer — token halving
+7600e4bcbfedda50f4f767873e654413c991dbed 63f00da957cc0c9fec27e6342fb079478b16bb38 ericwuname <874659639@qq.com> 1785342492 +0800	commit: v11.4 final audit — 23 crates / 181 tests / 100% gatekeeper coverage
+63f00da957cc0c9fec27e6342fb079478b16bb38 5c8003eaa30feabe23f452fb2a8d71605d864887 ericwuname <874659639@qq.com> 1785343945 +0800	commit: v11.4 fix: FMT pull from VM — 7 diffs → 0
+5c8003eaa30feabe23f452fb2a8d71605d864887 3669f6859c44cd8161fb21f934a2fd4514ca9c5a ericwuname <874659639@qq.com> 1785347437 +0800	commit: v11.5: xray gaps fixed — constitution re-linked + telemetry deleted + subconscious signals real
+3669f6859c44cd8161fb21f934a2fd4514ca9c5a 05b67dbb71b56657a50b3328c6ea6cee140ccad7 ericwuname <874659639@qq.com> 1785348832 +0800	commit: v11.5-b1: CostGuard in gate + nervous drain unbounded accumulation
+05b67dbb71b56657a50b3328c6ea6cee140ccad7 782d65a7971d3e5c0458b1f11585704d74b8a9a2 ericwuname <874659639@qq.com> 1785349262 +0800	commit: v11.5-b2: Doubao (豆包) provider registered via env var
+782d65a7971d3e5c0458b1f11585704d74b8a9a2 2abd0a175664d6071a884e0a3bcd0f751762040b ericwuname <874659639@qq.com> 1785349826 +0800	commit: v11.5-b3: DeepSeek-V4-Flash live test — 1020ms, working
+2abd0a175664d6071a884e0a3bcd0f751762040b 00cb475f0bea494225b9e156b1b43543ce1268dd ericwuname <874659639@qq.com> 1785350031 +0800	commit: v11.5 final audit — 22 crates / 180 tests / ALL GREEN
+00cb475f0bea494225b9e156b1b43543ce1268dd 89abe2921caf3c08598e65b8b0e9aa453aacdfa1 ericwuname <874659639@qq.com> 1785351299 +0800	commit: v12-be: T00 smoke + runner skeleton + forge execution feedback loop
+89abe2921caf3c08598e65b8b0e9aa453aacdfa1 a4965477e38d8da986ff1959312d70ee6d37bf8c ericwuname <874659639@qq.com> 1785353337 +0800	commit: v12-be: B3 gate attempted — blocked by GET /sessions/{id} 404 bug
+a4965477e38d8da986ff1959312d70ee6d37bf8c 5a8e91fe546126a3813ecf2074654addad7a18e2 ericwuname <874659639@qq.com> 1785353892 +0800	commit: v12-b3: Agnes AI + ZhiPu (智谱) providers registered
+5a8e91fe546126a3813ecf2074654addad7a18e2 24c7309a1dd1fe5d052527a3e105fa0ac91705b9 ericwuname <874659639@qq.com> 1785354866 +0800	commit: v12-fix: GET /sessions/{id} routing — {id}→:id in axum 0.7
+24c7309a1dd1fe5d052527a3e105fa0ac91705b9 eafc0743c6198b67d1160bbcb432cecd8ff4784f ericwuname <874659639@qq.com> 1785355115 +0800	commit: v12 B3 gate PASSED: full pipeline verified end-to-end
+eafc0743c6198b67d1160bbcb432cecd8ff4784f 4356df58c343de537f213db006a0e8c8e5867ada ericwuname <874659639@qq.com> 1785355786 +0800	commit: v12-b1: 6 fixtures T00-T05 covering L1-L5 gradient
+4356df58c343de537f213db006a0e8c8e5867ada f5d4fcb20849b5e2a7e42ffef6cdb6f1f3e8eefd ericwuname <874659639@qq.com> 1785356131 +0800	commit: v12-b2: fixtures L1-L5 complete, agent execution hit rate ~20%
+f5d4fcb20849b5e2a7e42ffef6cdb6f1f3e8eefd 6b031a3caf98942626bd50ff542c8b52da2d807d ericwuname <874659639@qq.com> 1785357018 +0800	commit: v12-debug: root cause of Plan failures — ZhiPu messages format error
+6b031a3caf98942626bd50ff542c8b52da2d807d 988e5de646119b6dd4c7a79be54a52da75c7e026 ericwuname <874659639@qq.com> 1785358110 +0800	commit: v12-fix: tool dispatch confirmed working — grep 1727 bytes output
+988e5de646119b6dd4c7a79be54a52da75c7e026 ab643c819aeb295e6896e5ffdb8fac3265d689ab ericwuname <874659639@qq.com> 1785358526 +0800	commit: v12 final forge report: scale calibrated — first real benchmark data point
+ab643c819aeb295e6896e5ffdb8fac3265d689ab 361d1f4dfa4505dfee1471ec5c013936f4696b57 ericwuname <874659639@qq.com> 1785360189 +0800	commit: v12-fix: ZhiPu GLM-4.5-air working — Planner single-msg→dual-msg fix
+361d1f4dfa4505dfee1471ec5c013936f4696b57 cd98e729af8c1938b448c3df19d8b37c35f8591e ericwuname <874659639@qq.com> 1785361722 +0800	commit: v12.1-B0: Doubao multi-model rotation — 5 models registered
+cd98e729af8c1938b448c3df19d8b37c35f8591e b04a07a9ca9b54ddea8d6466c55936fc560ca4d0 ericwuname <874659639@qq.com> 1785364023 +0800	commit: v12.1-B1+B2: 20 fixtures L1-L5 + runner batch mode
+b04a07a9ca9b54ddea8d6466c55936fc560ca4d0 d3e95373bcec11d6b5fe7c401c29444b39fa324e ericwuname <874659639@qq.com> 1785364434 +0800	commit: v12.1-B4: first batch running — 20 tasks x 1 run (doubao)
+d3e95373bcec11d6b5fe7c401c29444b39fa324e e1845daead322abee291a58af5f21e6fd966725a ericwuname <874659639@qq.com> 1785364948 +0800	commit: v12.1-B5: first funnel report — 0% success, doubao quota exhausted
+e1845daead322abee291a58af5f21e6fd966725a 07241ecca28295fbbdb6abe6307cd1ea10d515fd ericwuname <874659639@qq.com> 1785366113 +0800	commit: v12.1 智谱基准: 0/20 passed, 6/20 reached 'done' phase
+07241ecca28295fbbdb6abe6307cd1ea10d515fd bfe8861d408e8b933ab57ef45acf0c81dd7d1cf2 ericwuname <874659639@qq.com> 1785367096 +0800	commit: v12.1: Agnes model→2.5-flash (no tools though). Start ZhiPu 60-run batch.
+bfe8861d408e8b933ab57ef45acf0c81dd7d1cf2 12c29facc3cbf62f148200ef0b2f7307d06bc55a ericwuname <874659639@qq.com> 1785369206 +0800	commit: v12.2: Gemini gemini-3.6-flash registered (⭐ default)
+12c29facc3cbf62f148200ef0b2f7307d06bc55a 9ec3bf5ae1304d42476e9f23c9a71751da736b10 ericwuname <874659639@qq.com> 1785370078 +0800	commit: v12.1 analysis: agent reaches 'done' without tool dispatch
+9ec3bf5ae1304d42476e9f23c9a71751da736b10 38f8a6df434c865eb0581d5aad3330a6830c9540 ericwuname <874659639@qq.com> 1785370265 +0800	commit: v12.1 final: benchmark data complete
+38f8a6df434c865eb0581d5aad3330a6830c9540 1f63348b138d29a89260db7c08f949dd633956fb ericwuname <874659639@qq.com> 1785371467 +0800	commit: v12.2: re-prompt when LLM returns text (no tool_calls)
+1f63348b138d29a89260db7c08f949dd633956fb e0f48b1d4a8d743eb7542b29126800d96acdf85c ericwuname <874659639@qq.com> 1785372381 +0800	commit: v12.2: re-prompt fix + max_tokens reduction + zhipu batch restart
+e0f48b1d4a8d743eb7542b29126800d96acdf85c e3d55ddad953cf1b59cd80b7357c99c851c28f61 ericwuname <874659639@qq.com> 1785374086 +0800	commit: v12.2: DeepSeek official API — 940ms, fast
+e3d55ddad953cf1b59cd80b7357c99c851c28f61 0fc064780d4a565899e0e0e371f2e4e6548609c4 ericwuname <874659639@qq.com> 1785375785 +0800	commit: v12.2: Agnes 2.5-flash confirmed tools=true — batch started
+0fc064780d4a565899e0e0e371f2e4e6548609c4 dead04a6e7dab3fd3e3da3b44168f5572a946c27 ericwuname <874659639@qq.com> 1785378953 +0800	commit: v12.2 CRITICAL FIX: ToolContext.cwd → session workspace
+dead04a6e7dab3fd3e3da3b44168f5572a946c27 0c212e4ce97a2b959b2498cf05d061db20d96873 ericwuname <874659639@qq.com> 1785379922 +0800	commit: v12.2 FIXES:
+0c212e4ce97a2b959b2498cf05d061db20d96873 d738c3f55470a57c360b8d2892d0cd5518a15e7f ericwuname <874659639@qq.com> 1785391400 +0800	commit: v12.2: rename edit→write_file (LLM didn't recognize 'edit')
+d738c3f55470a57c360b8d2892d0cd5518a15e7f 68f5814dde4751e28ece5da32fdfd97d0a6977ef ericwuname <874659639@qq.com> 1785392969 +0800	commit: v12.2: Plan chat retry (×2) — survive ZhiPu network glitches
+68f5814dde4751e28ece5da32fdfd97d0a6977ef dee84bf899160d92c0182b0b40293760c6fa8f0c ericwuname <874659639@qq.com> 1785410722 +0800	commit: v12.7: 跑通 Rust 自动编程基准测试（通过率 0% -> 95%/100%）
+dee84bf899160d92c0182b0b40293760c6fa8f0c f30deeee2881f2c226950b2aa15d6306bf94bd6f ericwuname <874659639@qq.com> 1785425641 +0800	commit: v13.0: 接线防火墙(codex-xray+7断言,已自证) + 跨provider对比 + constitution/civ双A接
+f30deeee2881f2c226950b2aa15d6306bf94bd6f e09e927ac28509962d6d92c6d82a3340fab4b320 ericwuname <874659639@qq.com> 1785432969 +0800	commit: v14.0: 淬火轮 — sub_budget毒债修复(+wiring红线断言) + 应力场24/24零panic + 31条回放素材归档
+e09e927ac28509962d6d92c6d82a3340fab4b320 7dba870b042dc552d909d3585e1dd43e56c1ec3d ericwuname <874659639@qq.com> 1785445219 +0800	commit: v15.0 铸基轮：择脑 + 回放防线 + 天花板对照 + 价值雏形 + 应力场
+7dba870b042dc552d909d3585e1dd43e56c1ec3d 8915db8957718f4b58e4722b76170cb2ec37f9f1 ericwuname <874659639@qq.com> 1785446524 +0800	commit: v16.0 封刀轮：清债 + 边界白皮书 + 锻造综述
+8915db8957718f4b58e4722b76170cb2ec37f9f1 fd5829e277ea3481938c156a8599d5dae900d025 ericwuname <874659639@qq.com> 1785478899 +0800	commit: v17.0 生长轮：经验回路闭合验证
+fd5829e277ea3481938c156a8599d5dae900d025 9d6a2c40ab7a9d2df3a8c518947f799c92abdff2 ericwuname <874659639@qq.com> 1785503655 +0800	commit: v18.0 精炼轮：经验回路正交实验——否定性发现
+9d6a2c40ab7a9d2df3a8c518947f799c92abdff2 76cf11e34906e36c6c8213cdd21be43695d437a7 ericwuname <874659639@qq.com> 1785508860 +0800	commit: v19.0 深水轮：T13/T19 根因解剖 + 经验自适应开关 + 基线锚定 92.5%
+76cf11e34906e36c6c8213cdd21be43695d437a7 11b6ca90fc28190d3c15fc7fb17da5fce3d58b33 ericwuname <874659639@qq.com> 1785512711 +0800	commit: v20.0 收官轮：planner 毒债修复 + 遗忘机制 + 季度基线封存
+11b6ca90fc28190d3c15fc7fb17da5fce3d58b33 4528fd6a339e8817403dd079aacf5338d1e749b7 ericwuname <874659639@qq.com> 1785514087 +0800	commit: v21.0 刀入鞘轮：消债固化 + 设计决策沉淀 + 维护期启动
+4528fd6a339e8817403dd079aacf5338d1e749b7 ae525922b9524f1fae531be42434bdc0bc9ff8ad ericwuname <874659639@qq.com> 1785516837 +0800	commit: chore: 推送前安全清理——密钥移出仓库
+ae525922b9524f1fae531be42434bdc0bc9ff8ad b38682014f838a9fc808e54ebd9f77fc1db5c02d ericwuname <874659639@qq.com> 1785520870 +0800	commit: chore: 文档 key 模式文本 redact（v21 补充）
+b38682014f838a9fc808e54ebd9f77fc1db5c02d 72a807828602508216376a8b4b49b568fcb38847 ericwuname <874659639@qq.com> 1785521332 +0800
+72a807828602508216376a8b4b49b568fcb38847 1a93ea2bb08fdc9e52be2a6b6152e563d50baf16 ericwuname <874659639@qq.com> 1785527277 +0800	commit: fix: cargo fmt 修复 v21 遗留格式漂移（3 文件 16+/18-，纯格式无逻辑变更）
+1a93ea2bb08fdc9e52be2a6b6152e563d50baf16 e80bbeb745b1026628913efa2d48232222f98797 ericwuname <874659639@qq.com> 1785527669 +0800	commit: docs: v22 测试手册+计划定稿——v21 实测 9 处差异修正 + 效率诊断结案
+e80bbeb745b1026628913efa2d48232222f98797 2b9c0d2045c4a55fb7f66da201a33d5b14ea94cc ericwuname <874659639@qq.com> 1785530773 +0800	commit: docs: v22 全链路测试报告 FINAL——T6 90.0% + T7 no_panic 24/24
+2b9c0d2045c4a55fb7f66da201a33d5b14ea94cc 422adb9985bb830fed07ab50d23d4843438fcde5 ericwuname <874659639@qq.com> 1785534715 +0800	commit: fix: v22 问题修复——ST8 harness 预算 + T19 双 Done 出口门控 + planner 委托语义
+422adb9985bb830fed07ab50d23d4843438fcde5 421d234f15f2ac6b8070dd430e8a60f7895c395d ericwuname <874659639@qq.com> 1785535128 +0800	commit: docs: v22 报告追加问题修复附录（ST8/T19/T15/release 对齐）
+421d234f15f2ac6b8070dd430e8a60f7895c395d 9773c910eca843d2c2b5bc67242171f0ae1046f9 ericwuname <874659639@qq.com> 1785535794 +0800	commit: docs: 项目-窗口群框架设计 v2.1 定版——8 个缺口补充（审查结果）
+9773c910eca843d2c2b5bc67242171f0ae1046f9 2683ea62835a1db957a17f035e3ea3aac77b8851 ericwuname <874659639@qq.com> 1785535835 +0800	commit: docs: v22 修复审计报告——供外部窗口独立复核（源码核验+行为验证+门禁复验）
+2683ea62835a1db957a17f035e3ea3aac77b8851 0aa9ec989f3f78604d993a482e6fd6b4993edbc3 ericwuname <874659639@qq.com> 1785536592 +0800	commit: docs: execution-bridge v1.1 定版——审查发现 4 处不一致 + 3 个新补丁
+0aa9ec989f3f78604d993a482e6fd6b4993edbc3 7ca2c8e80daf1f639127ed2d88cf6d2bc096ccb0 ericwuname <874659639@qq.com> 1785536696 +0800	commit: feat: 窗口群框架 v0.1 骨架——9 条命令 + 4 断言 + 22/22 测试全绿
+7ca2c8e80daf1f639127ed2d88cf6d2bc096ccb0 e64a1e658cf490bff661258f042cdd182494fd1b ericwuname <874659639@qq.com> 1785537739 +0800	commit: feat: 窗口群框架 v0.2——agent 引擎 + 对话存储/导出 + 快照/回滚
+e64a1e658cf490bff661258f042cdd182494fd1b 56eaa0a37629448a1a5403373fcbe59a01e16305 ericwuname <874659639@qq.com> 1785538534 +0800	commit: feat: 窗口群框架 v0.3——工作流引擎 + workflow deploy + 自动快照
+56eaa0a37629448a1a5403373fcbe59a01e16305 6cd91f845d19f1a8cda315757f9d1258f7c88d61 ericwuname <874659639@qq.com> 1785538701 +0800	commit: docs: acceptance-v03 审查修正——发现 50 轮自动快照不实声称
+6cd91f845d19f1a8cda315757f9d1258f7c88d61 337a58c95fc35537da48ccd2bd33e2f1f71b7d96 ericwuname <874659639@qq.com> 1785539274 +0800	commit: feat: 窗口群框架 v0.4——上下文压缩引擎 + 修复 v0.3 遗留 + 审计失职声明
+337a58c95fc35537da48ccd2bd33e2f1f71b7d96 7ef0375d21b5c5e4a66259b1893105c2179e2dde ericwuname <874659639@qq.com> 1785539809 +0800	commit: feat: 窗口群框架 v0.5——需求分析自主化 + 导入/模板收尾（全自动版）
+7ef0375d21b5c5e4a66259b1893105c2179e2dde b4eed839236e51d07874468c4addf86ff0afb08b ericwuname <874659639@qq.com> 1785541300 +0800	commit: feat: 窗口群框架 v0.6——冲突仲裁 + 集成测试（真实 LLM 暴露 6 bug 全修复）
+b4eed839236e51d07874468c4addf86ff0afb08b a457d8af4af37319931fb7c9e06b2716ea1bf9bf ericwuname <874659639@qq.com> 1785542155 +0800	commit: feat: 窗口群框架 v0.7——function calling 结构化输出 + workflow --watch（v1.0 定版）
+a457d8af4af37319931fb7c9e06b2716ea1bf9bf e9b9c66d1512111b2d8bb4739c1e38f3bf1b0df1 ericwuname <874659639@qq.com> 1785542512 +0800	commit: docs: 窗口群框架 README v1.1——审查修正 4 处
+e9b9c66d1512111b2d8bb4739c1e38f3bf1b0df1 fbc15eda565fd751e598f9946c98cb339037d463 ericwuname <874659639@qq.com> 1785542940 +0800	commit: docs: README v1.1 审计闭环——修复 audit 2 处建议
+fbc15eda565fd751e598f9946c98cb339037d463 be0af526ee399e58f2aaa556a948efad0a76e824 ericwuname <874659639@qq.com> 1785543187 +0800	commit: fix: 修复 3 处已知问题（review 遗留项）
+be0af526ee399e58f2aaa556a948efad0a76e824 e58b8ef7d5dfa05ba106ce7c88579b85631537d3 ericwuname <874659639@qq.com> 1785544238 +0800	commit: feat: 窗口群框架 v0.9——UX 呈现/容错/polish（六面全闭）
+e58b8ef7d5dfa05ba106ce7c88579b85631537d3 47c7bc0bb0c478b59bf74ae24febe293002964a9 ericwuname <874659639@qq.com> 1785544277 +0800	commit: docs: README 补 v0.9 新命令（run/resume/retry/deploy --last/status）
+47c7bc0bb0c478b59bf74ae24febe293002964a9 34b3fd4190be97f60e3bebc582ceb3394caf0310 ericwuname <874659639@qq.com> 1785565032 +0800	commit: feat: dogfooding v1.0.1——真实 LLM 给自己建文档站，12 个集成 bug 全修复
+34b3fd4190be97f60e3bebc582ceb3394caf0310 86e2557ac7c765e7c72bdd3c2a130edd03d1911b ericwuname <874659639@qq.com> 1785565052 +0800	commit: chore: 忽略 __pycache__
+86e2557ac7c765e7c72bdd3c2a130edd03d1911b c34f341cb2989314d75b1d343ba055548105c9e3 ericwuname <874659639@qq.com> 1785565578 +0800	commit: feat: v1.0.2 维护优化——provider 路由 + VERSION 修正 + dogfooding 回归保护
+c34f341cb2989314d75b1d343ba055548105c9e3 b5624b90ac2cf35620a4b3376077312d3cac0aa5 ericwuname <874659639@qq.com> 1785565664 +0800	commit: docs: version-iteration-manual 滞后修复——窗口群框架工程化落地状态同步
+b5624b90ac2cf35620a4b3376077312d3cac0aa5 783db2b3a14d4fcb8ddd3c2418b16bd3e9909f18 ericwuname <874659639@qq.com> 1785565798 +0800	commit: fix: 修复 workflow 引擎注释乱码（U+FFFD 残留）
+783db2b3a14d4fcb8ddd3c2418b16bd3e9909f18 cbe3b4d875794c163535a7e5d91fcc2000a276c1 ericwuname <874659639@qq.com> 1785565824 +0800	commit: docs: README 补 v1.0.2 provider 路由说明（zhipu 免费 token 路径）
+cbe3b4d875794c163535a7e5d91fcc2000a276c1 1a64c49d37de20d99b5fb2317af1c2ab4482d686 ericwuname <874659639@qq.com> 1785565937 +0800	commit: docs: 维护期自主检测与优化报告（v1.0.2）
+1a64c49d37de20d99b5fb2317af1c2ab4482d686 63bc8880e7c6287a46ac3a5ee08e6866d54bf2bf ericwuname <874659639@qq.com> 1785574022 +0800	commit: feat: v1.0.3 多窗口 dogfooding——框架灵魂首次被真实 LLM 证明
+63bc8880e7c6287a46ac3a5ee08e6866d54bf2bf 2a6071a2b2a4793a3dc583bedef0b6b719d55380 ericwuname <874659639@qq.com> 1785574063 +0800	commit: chore: 移除调试文件
+2a6071a2b2a4793a3dc583bedef0b6b719d55380 5c70006ccadfd18e28e044beede36c895aa54dd4 ericwuname <874659639@qq.com> 1785574088 +0800	commit: docs: README/CHANGELOG 同步 v1.0.3（177/177 + 多窗口 dogfooding 节）
+5c70006ccadfd18e28e044beede36c895aa54dd4 05f90cf2833a1425a37f15671e5be0434407902d ericwuname <874659639@qq.com> 1785577874 +0800	commit: feat: EPIC-B + EPIC-C——codex-rust 两笔旧债还清（audit-breakdown-v22）
+05f90cf2833a1425a37f15671e5be0434407902d c7f2d9f9b49029900f58ad9b818caaf5ab8a28bc ericwuname <874659639@qq.com> 1785577932 +0800	commit: docs: 终章验收报告（EPIC-B/C 还清）+ FINAL.md 状态更新
+c7f2d9f9b49029900f58ad9b818caaf5ab8a28bc 06795dfa9362185fe2d4644f21c922612de136ae ericwuname <874659639@qq.com> 1785578901 +0800	commit: docs: 终章文件审查修正——wiring 口径统一 15/15 + 旧债状态同步
+06795dfa9362185fe2d4644f21c922612de136ae c0f0f52e29f6c05bdcc350cb8d938e6675d6360c ericwuname <874659639@qq.com> 1785583004 +0800	commit: feat: Y 方向——P1 安全收口 + P2 codex-cli 六面 UX（v22.0）
+c0f0f52e29f6c05bdcc350cb8d938e6675d6360c 0153a26da1583c58f48b975a0916a67e818e3fba ericwuname <874659639@qq.com> 1785583013 +0800	commit: chore: 提交其余未跟踪文件（bench 数据 + 审计/设计文档 + swagger-ui 产物）
+0153a26da1583c58f48b975a0916a67e818e3fba f7b19b4418ce59380aec8b6b762977261a8b0646 ericwuname <874659639@qq.com> 1785583049 +0800	commit: docs: Y 方向验收报告（P1 收口 + P2 六��� UX 全过 + 诚实披露）
+f7b19b4418ce59380aec8b6b762977261a8b0646 343e0cb88229a717ed5099a239b52b27b8240e69 ericwuname <874659639@qq.com> 1785583057 +0800	commit (amend): docs: Y 方向验收报告（P1 收口 + P2 六面 UX 全过 + 诚实披露）
+343e0cb88229a717ed5099a239b52b27b8240e69 25c6e090b8c753bf0b6c489c1066c183205e0c90 ericwuname <874659639@qq.com> 1785588827 +0800	commit: docs: 基线事实刷新——v22.0 收官 + 214 tests + 唯一待办 Docker build
+25c6e090b8c753bf0b6c489c1066c183205e0c90 03e0d5dace176a46d7ea7ce0749ee873cf4551e4 ericwuname <874659639@qq.com> 1785590139 +0800	commit: chore: Docker build 自动化验证脚本（VM 后台接力 build+healthz）
+03e0d5dace176a46d7ea7ce0749ee873cf4551e4 bfab53313ae4e3300a29e395ef8c34c93faa25e4 ericwuname <874659639@qq.com> 1785599502 +0800	commit: fix: Dockerfile 三处真实缺陷修复（Y1-4 docker build 验证暴露）
+bfab53313ae4e3300a29e395ef8c34c93faa25e4 48751c2b1d33d7fc0ec9f068b0e9f5e85336fac3 ericwuname <874659639@qq.com> 1785599516 +0800	commit: docs: 基线事实——Docker build 已验证（唯一待办清零，v22.0 全绿收官）
+48751c2b1d33d7fc0ec9f068b0e9f5e85336fac3 f836ba6d132ca59753e4014217094f6b46f67e6b ericwuname <874659639@qq.com> 1785600091 +0800	commit: chore: 收尾盘点——EPIC-A3 wiring 头注释修正 + agenda/FINAL 状态同步 + tag v22.0 重打至 HEAD
+f836ba6d132ca59753e4014217094f6b46f67e6b 8e397751f640d151a6222518a098e7efed4aa5e9 ericwuname <874659639@qq.com> 1785600104 +0800	commit (amend): chore: 收尾盘点——EPIC-A3 wiring 头注释修正 + agenda/FINAL 状态同步 + tag v22.0 重打至 HEAD
+8e397751f640d151a6222518a098e7efed4aa5e9 2cbb8aa5d78b03f2f6d460c0f22e7d7041b45b53 ericwuname <874659639@qq.com> 1785600707 +0800	commit: docs: version-iteration-manual v22 段审计修正（5 处滞后 + 2 处连带）
+2cbb8aa5d78b03f2f6d460c0f22e7d7041b45b53 85a0f6d77d3b1fe92f12383d0733a407435d8a43 ericwuname <874659639@qq.com> 1785600751 +0800	commit: docs: L5 头部基线事实引述刷新（2683ea6/未 tag → 8e39775/v22.0 已发布）
+85a0f6d77d3b1fe92f12383d0733a407435d8a43 1255498146d7239db60a33f3d13ee6d9c750c200 ericwuname <874659639@qq.com> 1785601112 +0800	commit: docs: v22.0 双引擎红队测试规划——19 项零 token + 8 个自审薄弱点
+1255498146d7239db60a33f3d13ee6d9c750c200 df41bc7faac5ee3f69f4c08e49ebdd0d0423e84b ericwuname <874659639@qq.com> 1785605004 +0800	commit: fix: v23 WP-0a（RT4 审批修复）+ 红队 P0 快修 + 文档失真修正
+df41bc7faac5ee3f69f4c08e49ebdd0d0423e84b 8e1fce751874207cd871c1abfddcf4c0ae966423 ericwuname <874659639@qq.com> 1785605029 +0800	commit: docs: v23 阶段一验收报告（WP-0a 全过 + 红队 P0 + 文档，WP-0 标记下批）
+8e1fce751874207cd871c1abfddcf4c0ae966423 a3736e907f4a10e5e5eed6822a63a69bcff4e7ee ericwuname <874659639@qq.com> 1785614044 +0800	commit: fix: v22 红队审计 P0/P1 全部 12 项修复（audit-fix-taskbook-v22）
+a3736e907f4a10e5e5eed6822a63a69bcff4e7ee 522a56e3c81119ad2a09266e4109f1f02ef032c3 ericwuname <874659639@qq.com> 1785614091 +0800	commit: docs: 红队修复验收报告 + tracker R1 施工记录（P0/P1 全闭环）
+522a56e3c81119ad2a09266e4109f1f02ef032c3 e0f00314df8c4a46e484fd356197d64667be02f3 ericwuname <874659639@qq.com> 1785643205 +0800	commit: fix: v22 守门员建议闭环——P1-4 独立门禁 + P2 五项 + window-framework CI 接入
+e0f00314df8c4a46e484fd356197d64667be02f3 33d580489a661cbd0161502793d97f2674f08349 ericwuname <874659639@qq.com> 1785643261 +0800	commit: docs: P2 阶段验收报告 + tracker R3 施工记录（守门员建议闭环）
+33d580489a661cbd0161502793d97f2674f08349 b04506776bccda0e9f3f03bbd96f6277d42fda1f ericwuname <874659639@qq.com> 1785650572 +0800	commit: feat: v23 WP-0 通用交互原语全量落地（8 步闭环）
+b04506776bccda0e9f3f03bbd96f6277d42fda1f 0e4572227fce49727bcbda6f4ae086454f0b89dd ericwuname <874659639@qq.com> 1785650604 +0800	commit: docs: v23 阶段二验收报告（WP-0 全 8 步闭环 + 红队最终状态）
+0e4572227fce49727bcbda6f4ae086454f0b89dd 923f43cdfb06cf615726a5606370e107e953f41b ericwuname <874659639@qq.com> 1785678340 +0800	commit: feat: v23 phase3 WP-1/2/3——事件信封+span树 + SSE重放 + 规划缺口推导
+923f43cdfb06cf615726a5606370e107e953f41b 78e4d25f1ce83c5a9e495a5af5af96c29738ab84 ericwuname <874659639@qq.com> 1785678367 +0800	commit: docs: v23 阶段三验收报告（WP-1/2/3 全闭环 + 225 tests）
+78e4d25f1ce83c5a9e495a5af5af96c29738ab84 afb90bdd79ce101ea7bb9b8471b58cef6d8866e7 ericwuname <874659639@qq.com> 1785769937 +0800	commit: feat: v23 phase4 Observer 四件套——独立 crate + 确定性指标 + 规则引擎 + G0 ��断
+afb90bdd79ce101ea7bb9b8471b58cef6d8866e7 15857e40435aef3fc354d7633798494f1d2488dc ericwuname <874659639@qq.com> 1785769971 +0800	commit: docs: v23 阶段四验收报告（Observer 四件套全闭环 + 237 tests）
+15857e40435aef3fc354d7633798494f1d2488dc 5ec25e9320daf681ff9f22564d7d73166680a976 ericwuname <874659639@qq.com> 1785839592 +0800	commit: feat: v23 phase5 收尾三件套——产物登记 + 思考摘要 + 前端接真流
+5ec25e9320daf681ff9f22564d7d73166680a976 21429e1da673259f9829b7b29f30ecc6c1b11b8e ericwuname <874659639@qq.com> 1785839637 +0800	commit: docs: v23 阶段五验收 + 封版说明（11 WP 全闭环，tag v23.0）
+21429e1da673259f9829b7b29f30ecc6c1b11b8e fed0c7e8c818571f0321f5ce6dc3a5c8f38b45b6 ericwuname <874659639@qq.com> 1785844571 +0800	commit: docs: v24 维护轮——版本说明书补 v23 段 + Observer 季度体检 5 规则全触发
+fed0c7e8c818571f0321f5ce6dc3a5c8f38b45b6 d662a0e735be2f439974d909b84c9a3967dfd84b ericwuname <874659639@qq.com> 1785844595 +0800	commit: docs: v24 维护轮验收报告（备份 + 说明书 + 首次三端口季度体检）
+d662a0e735be2f439974d909b84c9a3967dfd84b 09d12710c9376709b4e097ddc265942b810566f5 ericwuname <874659639@qq.com> 1785846682 +0800	commit: fix(v24-post): P2-issue-1 xray 哈希改 FNV-1a 稳定哈希 + P2-issue-2 snapshot 补 outputs
+09d12710c9376709b4e097ddc265942b810566f5 012d3ac5bf0048976fc90f6c244f0074bc7cd94a ericwuname <874659639@qq.com> 1785968331 +0800	commit: fix(v24-post): 基准四缺陷 P1-P4——transcript 落盘 + cargo PATH + 命名硬约束
+012d3ac5bf0048976fc90f6c244f0074bc7cd94a f01a9ebcf4e033ed022da9f4039595cdcdef32f3 ericwuname <874659639@qq.com> 1785968357 +0800	commit: docs: 基准缺陷修复验收报告（P3/P4 闭环 + P1 代码落地 + P2 归因 + 402 挂账）
+f01a9ebcf4e033ed022da9f4039595cdcdef32f3 0b159c5eac9483d8733fa7e05044a0d5e5e50b2b ericwuname <874659639@qq.com> 1786084017 +0800	commit: chore(demo): 定版冻结 UI 原型 v21j (demo-v21j-frozen)

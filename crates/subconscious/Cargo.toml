@@ -1,0 +1,12 @@
+[package]
+name = "subconscious"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agent-types.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+async-trait.workspace = true

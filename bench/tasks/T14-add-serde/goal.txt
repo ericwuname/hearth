@@ -1,0 +1,1 @@
+给 Config 添加 #[derive(Serialize, Deserialize)]。Cargo.toml 需要添加 serde = { version = "1", features = ["derive"] } 依赖（serde_json 已作为 dev-dependency 预置好，测试直接用即可，不要重复添加）。添加一个测试：用 serde_json::to_string 序列化 default_config()，再用 serde_json::from_str 反序列化回来，断言 name 字段一致。cargo test 全绿。

@@ -1,0 +1,5 @@
+  ✓      1	[package]
+✗ 工具出错: error: error: command timed out
+  ✓   30 /tmp/.hr-9573-21312/C-data-instability/src/app.rs
+构建超时（可能在拉依赖）。让我换轻量验证：✓ Done (12 steps)
+  ✓ Task completed（12 步）——目标达成（未验证），产物见报告

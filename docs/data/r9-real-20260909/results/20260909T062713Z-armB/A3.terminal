@@ -1,0 +1,5 @@
+  ✓ "总计 8\ndrwxrwxr-x 2 wutao wutao 4096  9月  9 14:27 .\ndrwxrwxr-x 3 wutao wutao 4096  9月  9 14:27 ..\n"
+  ✓ "---\n---\n总计 488\ndrwxrwxrwt 111 root  root  36864  9月  9 14:27 .\ndrwxr-xr-x  23 root  root   4096  8月 21 22:17 ..\nsrwxrwxrwx   1 gdm   gdm       0  9月  9 04:18 dbus-ZPYVUTaCdU\ndrwxrwxrwt   2 root…
+  ✓ "总计 48\ndrwxrwxr-x   3 wutao wutao  4096  9月  9 14:27 .\ndrwxrwxrwt 111 root  root  36864  9月  9 14:27 ..\ndrwxrwxr-x   2 wutao wutao  4096  9月  9 14:27 A3\n---\n"
+✗ Done (9 steps)
+✗   ✗ Task failed — status=failed（9 步）——报告含已完成/剩余工作，可直接下指令继续

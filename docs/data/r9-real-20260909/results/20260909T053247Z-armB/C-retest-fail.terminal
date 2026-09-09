@@ -1,0 +1,5 @@
+✗ 工具出错: "bash: exit code: -1\nstdout:\nwutao\n\nstderr:\n[hearth sandbox] 进程被信号 31 (SIGSYS) 终止：该命令使用了 seccomp 白名单外的系统调用，安全策略已拒绝。这不是命令语法错误。诊断可设 HEARTH_SECCOMP_MODE=errno（被拒 syscall 返回 EPERM 而非终止进程）以定位具体调用。"
+  ✓ "DISPLAY= WAYLAND_DISPLAY=\n"
+  ✓ ""
+请先告诉我你当前看到的是**图形桌面界面**还是**命令行黑底白字界面**？✓ Done (23 steps)
+  ✓ Task completed（23 步）——目标达成（未验证），产物见报告

@@ -1,0 +1,9 @@
+[tarpaulin]
+# v7.0: CI coverage target ≥ 40% line coverage
+fail-under = 40
+skip-clean = true
+output-dir = "target/coverage"
+out = ["Html", "Json"]
+workspace = true
+all-features = false
+exclude-files = ["crates/service/swagger-ui/*", "**/tests/*"]

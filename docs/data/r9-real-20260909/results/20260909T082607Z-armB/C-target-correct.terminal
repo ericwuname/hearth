@@ -1,0 +1,5 @@
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. 确认 hearth-tui 项目位置与当前状态\n[~] 2. 向用户确认具体要执行的动作\n[ ] 3. 执行用户指定动作（修复/完成里程碑/写测试等）\n[ ] 4. 运行 cargo test 验证\n— 1/4 completed, 1 in progress —"
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (25 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 901s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

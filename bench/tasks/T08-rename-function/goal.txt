@@ -1,0 +1,1 @@
+把 calc_sum 重命名为 sum，calc_avg 重命名为 average。所有调用点和测试都要更新。cargo test 全绿。

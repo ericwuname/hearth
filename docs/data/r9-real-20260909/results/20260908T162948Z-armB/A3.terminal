@@ -1,0 +1,5 @@
+  ✓             plan_state: PlanState {
+  ✓ patched /home/wutao/codex_work/crates/agent-core/src/loop.rs: replaced 202 bytes (search) with 292 bytes (replace); file now 132792 bytes
+  ✓ 477:            plan_state: PlanState {
+✗ budget exhausted
+✗ Done (50 steps)

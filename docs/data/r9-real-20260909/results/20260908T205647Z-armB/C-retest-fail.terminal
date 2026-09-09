@@ -1,0 +1,5 @@
+✗ 工具出错: error: error: command timed out
+  ✓ patched /tmp/.hr-5433-12489/C-retest-fail/BUGS.md: replaced 811 bytes (search) with 1295 bytes (replace); file now 1706 bytes
+✗ deadline exceeded: 900s >= 900s（任务级 wall-clock 上限）
+✗ Done (20 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 900s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

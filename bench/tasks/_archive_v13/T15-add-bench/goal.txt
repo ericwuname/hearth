@@ -1,0 +1,1 @@
+新建 benches/bench.rs，为 sum_range 和 sum_formula 各写一个基准测试函数（普通 #[test] 函数即可，不要用 criterion，也不要用不稳定的 test::Bencher）。在 Cargo.toml 里注册 [[bench]] name = "bench"，不要写 harness = false。保留 src/lib.rs 原有的函数和测试，cargo test 必须仍然全绿。

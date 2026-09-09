@@ -1,0 +1,15 @@
+id,group,exit_code,steps_hint,artifact_count
+C-progress,,0,,7KB
+C-control-endtest,,0,,2KB
+C-l285-curl,,0,,15KB
+C-status-brief,,0,,15KB
+C-progress-overall,,0,,7KB
+C-done-usability,,0,,4KB
+C-fix-status,,0,,13KB
+C-data-accuracy,,0,,9KB
+C-data-instability,,0,,2KB
+C-bug-report,,0,,5KB
+C-retest-fail,,0,,14KB
+C-yes-no-demand,,0,,5KB
+C-target-correct,,0,,15KB
+C-self-assess,,0,,2KB

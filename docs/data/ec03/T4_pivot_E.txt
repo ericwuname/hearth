@@ -1,0 +1,7 @@
+a.txt
+first plan
+
+b.txt
+second plan
+
+a.txt 已删除

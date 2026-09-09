@@ -1,0 +1,29 @@
+[package]
+name = "agent-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+api.workspace = true
+agent-core.workspace = true
+agent-types.workspace = true
+experience.workspace = true
+llm-gateway.workspace = true
+lsp-bridge.workspace = true
+memory.workspace = true
+planner.workspace = true
+retriever.workspace = true
+tool-runtime.workspace = true
+observer.workspace = true
+bridge.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,4 @@
+  ✓ <!doctype html><html lang="en"><head><title>Example Domain</title><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{background:#eee;width:6…
+✗ 工具出错: error: 出网被拒：目标域名 ["www.baidu.com"] 不在 egress_allowlist 白名单（24 条）内。需要放行请让用户在 config.toml 的 egress_allowlist 中补入该域名。
+**结论：** 当前环境允许访问 `example.com`，但 `www.baidu.com` 不在出站白名单里，需要管理员在 `config.toml` 中手动添加该域名才能访问。✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告

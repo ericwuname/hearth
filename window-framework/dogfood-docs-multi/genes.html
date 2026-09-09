@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 基因表达系统设计</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div><h1>Codex-Rust 文档站</h1><small>v21.0 维护期 · 全局锚点</small></div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html">架构与实现逻辑</a>
+        <a href="genes.html" class="active">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html">决策记录</a>
+        <a href="progress.html">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">生成：win-html-generator</div>
+  </aside>
+
+  <main class="main">
+    <h1>基因表达系统设计图纸</h1>
+    <p class="lead">Gene Expression System v1.0 —— 让规则、SOP、复盘、知识被<strong>强制编译进四层表达机制</strong>，由机器自动表达。</p>
+    <div class="doc-meta">
+      状态：顶层设计定稿，待审计窗口审计 → 拆解 → 执行 → 验收 · 作者：顶层设计窗口 · 2026-07-30<br>
+      前置阅读：constitution.md（现行六条）、启元智能 AGENTS.md V4.0（灵魂侧基因组 53 条）、docs/global-panorama-v11.5.md、docs/architecture-perspective-v11.5.md
+    </div>
+
+    <h2>§0 设计目标与一句话原则</h2>
+    <p><strong>目标</strong>：把灵魂侧"靠自觉的栏杆"全部换成身体侧"有牙齿的必然"——规则被强制编译进四层表达机制，由机器自动表达。</p>
+    <div class="callout ok">
+      <div class="ct-title">✅ 一句话原则</div>
+      <p><strong>基因 = 会被自动表达的约束。不能被机器表达的，不配叫基因，只配叫文化文档。</strong></p>
+    </div>
+    <h3>要解决的五个实证病灶（全部来自启元N 的真实反馈）</h3>
+    <ol>
+      <li><strong>规则太多</strong>：53 条全量加载，注意力稀释。</li>
+      <li><strong>栏杆没有牙齿</strong>：文字规则可轻易越过，靠自觉。</li>
+      <li><strong>设计了不执行、不读取</strong>：civ 线五个版本未兑现、"连接大脑"靠 CEO 记得说。</li>
+      <li><strong>复盘了后面忘了用</strong>：心跳#10 教训写成规则二十一，身体又原样栽一遍。</li>
+      <li><strong>10G 知识库闲置</strong>：只有存，没有召回推送。</li>
+    </ol>
+
+    <h2>§1 四层基因分类（按牙齿硬度，不按内容主题）</h2>
+    <table>
+      <thead><tr><th>层</th><th>名称</th><th>牙齿</th><th>表达器官（身体侧）</th><th>数量红线</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge red">G0</span></td><td>结构基因</td><td>物理不可能违反</td><td>sandbox(landlock/seccomp)、审批门、CLI 进程隔离</td><td>无上限，但每条=拓扑级改动，极少新增</td></tr>
+        <tr><td><span class="badge yellow">G1</span></td><td>反射基因</td><td>代码分支必然执行</td><td>相位钩子（subconscious gate / nervous query / CostGuard / 交付三门）</td><td>每条必须挂 wiring 接线断言测试</td></tr>
+        <tr><td><span class="badge blue">G2</span></td><td>检索基因</td><td>正确时机出现在眼前</td><td>experience crate（判例卡 + 情境召回 + 自动注入 prompt）</td><td>无上限，受 KPI 淘汰</td></tr>
+        <tr><td><span class="badge green">G3</span></td><td>叙事基因</td><td>无牙齿（只做偏置）</td><td>constitution.md → build_messages 注入</td><td><strong>≤10 条，永不放宽</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h3>判别式（给审计窗口用）</h3>
+    <p>一条规则属于哪层，问一句"<strong>违反它的那一刻，会发生什么？</strong>"</p>
+    <ul>
+      <li>什么都不发生 → 它现在是栏杆。要么下沉到 G1/G0 给它装牙，要么承认它是 G3 价值偏置（占 10 席之一），要么降为文化文档。</li>
+      <li>报错 / 相位拒绝 / 审批弹窗 → 已有牙，登记它的表达器官和断言测试即可。</li>
+    </ul>
+    <div class="callout danger">
+      <div class="ct-title">🚫 入籍铁律</div>
+      <p>每条基因入籍时必须声明三元组 <strong>（层级，表达器官，验证方式）</strong>。G1 缺接线断言、G2 缺判例卡格式、G3 超 10 条——任一违反，<strong>自动拒绝入籍</strong>，退回为文化文档。</p>
+    </div>
+
+    <h2>§2 消化道设计（核心增量）</h2>
+    <p>§1 是静态解剖，§2 是动态代谢。回答：<em>未来的规则/SOP/复盘涌入时，系统靠什么不变成第二个 AGENTS.md V4.0？</em></p>
+
+    <h3>2.1 单一入口（Intake Gate）</h3>
+    <p>所有新治理物料——不管叫规则、SOP、复盘、军师令、圆桌决议——<strong>只有一个合法入口</strong>：提交一张"入籍申请"，走管线。禁止直接往 constitution.md / docs/ 追加规则性文字（追加文化文档除外，但文化文档不得使用"必须/禁止/铁律"字样——用了就说明它想当基因，就得走管线）。</p>
+
+    <h3>2.2 管线五步（每步有产物，有拒绝出口）</h3>
+<pre><code>① 提交申请 ──→ ② 分层判定 ──→ ③ 编译 ──→ ④ 表达验证 ──→ ⑤ 挂 KPI
+   事故/复盘/     用§1判别式      产出三选一     故意违反一次，   进入退役
+   提案原文       定 G0-G3        (见2.3)       牙齿必须咬合     计数循环
+      │              │
+      │              └─ 判不出层级 → 拒绝入籍 → 归档为文化文档
+      └─ 无真实事故/需求支撑 → 拒绝（防冲动立法）</code></pre>
+
+    <h3>2.3 复盘编译义务（消灭"复盘了忘了用"）</h3>
+    <p><strong>复盘的合法交付物不是文档，是以下三选一</strong>（散文结尾的复盘视同没复盘）：</p>
+    <table>
+      <thead><tr><th>交付物</th><th>去处</th><th>成本</th><th>例</th></tr></thead>
+      <tbody>
+        <tr><td>入籍申请（走管线）</td><td>G0–G3 分层</td><td>高（编译+验证）</td><td>事故复盘 → 沉淀为新基因</td></tr>
+        <tr><td>判例卡</td><td>experience crate（G2）</td><td>低</td><td>情境 → 动作 → 结果</td></tr>
+        <tr><td>文化文档</td><td>docs/（无牙齿）</td><td>零</td><td>背景知识、非约束叙述</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <div class="ct-title">⚠️ 实践注意</div>
+      <p>G2 检索基因在 v17–v19 实证中已被<strong>降级通道化</strong>：对弱模型有效（+20pt）、对强模型有害（-5pt）。判例卡仍入籍，但注入受"连续失败 ≥3"门控。</p>
+    </div>
+
+    <div class="footer">来源：shared/specs/gene-expression-system-design.md · 完整图纸（含 §3 后续章节）以原文档为准</div>
+  </main>
+</div>
+</body>
+</html>

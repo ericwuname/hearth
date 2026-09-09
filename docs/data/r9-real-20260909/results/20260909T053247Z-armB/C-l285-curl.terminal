@@ -1,0 +1,5 @@
+⚙ todo_write → todos: [{"content":"使用 curl 测试网络连接（curl example.com）","status":"completed"}]
+  ✓ Checklist (R6-3 模型自持清单):
+— 1/1 completed, 0 in progress —
+✗ Done (25 steps)
+✗   ✗ Task failed — status=failed（25 步）——报告含已完成/剩余工作，可直接下指令继续

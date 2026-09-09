@@ -1,0 +1,3 @@
+I can see this is an error log showing a stalled agent loop from `agent_core`. This indicates the system hit a recovery ceiling - it replanned twice and got identical task graphs, meaning it wasn't making semantic progress.
+2. **Do you have the full session logs?** (The error only shows the failure point, not what led to it)
+This "stalled" error typically means:

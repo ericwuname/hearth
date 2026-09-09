@@ -1,0 +1,5 @@
+  ✓      1	//! 会话状态与滚动（骨架）。
+  ✓      1	//! 渲染层（骨架——fixture 只需给语料以"项目存在"的上下文）。
+  ✓ /tmp/.hr-5433-1621/C-data-accuracy/src/main.rs:20:                // TODO(BUG-003): Event::Mouse 分支缺失——点击无反应的嫌疑点 ①
+如需修复口径漂移，需确认：原始 214 行是否含 Cargo.toml/其他目录？当前 src/ 实际 69 行。✓ Done (12 steps)
+  ✓ Task completed（12 步）——目标达成（未验证），产物见报告

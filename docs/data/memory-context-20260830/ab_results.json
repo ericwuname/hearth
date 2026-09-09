@@ -1,0 +1,152 @@
+[
+ {
+  "run": "A1",
+  "start": "2026-08-30T21:33:08+08:00",
+  "end": "2026-08-30T21:41:29+08:00",
+  "terminal": "failed",
+  "reason": "give_up",
+  "steps": 69,
+  "tokens": 341432,
+  "llm_calls": 17,
+  "seq_calls": 55,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 3
+ },
+ {
+  "run": "B1",
+  "start": "2026-08-30T21:41:29+08:00",
+  "end": "2026-08-30T21:43:05+08:00",
+  "terminal": "failed",
+  "reason": "stalled",
+  "steps": 11,
+  "tokens": 19415,
+  "llm_calls": 4,
+  "seq_calls": 12,
+  "result_lines": null,
+  "correctness": "missing",
+  "compacted_turns": 0
+ },
+ {
+  "run": "A2",
+  "start": "2026-08-30T21:43:05+08:00",
+  "end": "2026-08-30T21:44:08+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 17,
+  "tokens": 20821,
+  "llm_calls": 4,
+  "seq_calls": 12,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 0
+ },
+ {
+  "run": "B2",
+  "start": "2026-08-30T21:44:08+08:00",
+  "end": "2026-08-30T21:45:18+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 18,
+  "tokens": 26425,
+  "llm_calls": 5,
+  "seq_calls": 12,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 0
+ },
+ {
+  "run": "A3",
+  "start": "2026-08-30T21:45:18+08:00",
+  "end": "2026-08-30T21:47:13+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 14,
+  "tokens": 187687,
+  "llm_calls": 4,
+  "seq_calls": 12,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 1
+ },
+ {
+  "run": "B3",
+  "start": "2026-08-30T21:47:13+08:00",
+  "end": "2026-08-30T21:54:20+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 41,
+  "tokens": 257219,
+  "llm_calls": 16,
+  "seq_calls": 48,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500\n",
+  "correctness": "correct",
+  "compacted_turns": 2
+ },
+ {
+  "run": "A4",
+  "start": "2026-08-30T21:54:20+08:00",
+  "end": "2026-08-30T21:56:54+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 35,
+  "tokens": 58477,
+  "llm_calls": 10,
+  "seq_calls": 48,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 0
+ },
+ {
+  "run": "B4",
+  "start": "2026-08-30T21:56:55+08:00",
+  "end": "2026-08-30T22:03:11+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 35,
+  "tokens": 290945,
+  "llm_calls": 10,
+  "seq_calls": 38,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 2
+ },
+ {
+  "run": "A5",
+  "start": "2026-08-30T22:03:11+08:00",
+  "end": "2026-08-30T22:06:07+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 26,
+  "tokens": 37666,
+  "llm_calls": 7,
+  "seq_calls": 12,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 0
+ },
+ {
+  "run": "B5",
+  "start": "2026-08-30T22:06:07+08:00",
+  "end": "2026-08-30T22:10:40+08:00",
+  "terminal": "completed",
+  "reason": "completed",
+  "steps": 67,
+  "tokens": 109068,
+  "llm_calls": 18,
+  "seq_calls": 48,
+  "result_lines": "1500\n3500\n5500\n7500\n9500\n11500\n13500\n15500\n17500\n19500\n21500\n23500",
+  "correctness": "correct",
+  "compacted_turns": 0
+ }
+]
+
+=== SUMMARY ===
+A terminal: ['A1:failed(give_up)', 'A2:completed(completed)', 'A3:completed(completed)', 'A4:completed(completed)', 'A5:completed(completed)']
+B terminal: ['B1:failed(stalled)', 'B2:completed(completed)', 'B3:completed(completed)', 'B4:completed(completed)', 'B5:completed(completed)']
+A correctness: ['A1:correct', 'A2:correct', 'A3:correct', 'A4:correct', 'A5:correct']
+B correctness: ['B1:missing', 'B2:correct', 'B3:correct', 'B4:correct', 'B5:correct']
+A steps: mean=32.2 min=14 max=69 | B steps: mean=34.4 min=11 max=67
+A tokens: mean=129216.6 min=20821 max=341432 | B tokens: mean=140614.4 min=19415 max=290945
+A compacted_turns: [3, 0, 1, 0, 0]
+B compacted_turns: [0, 0, 2, 2, 0]

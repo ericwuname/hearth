@@ -1,0 +1,9 @@
+命令执行如下：
+
+```bash
+echo "first plan" > a.txt
+echo "second plan" > b.txt
+rm a.txt
+```
+
+完成。`a.txt` 已删除，`b.txt` 内容为 `second plan`。

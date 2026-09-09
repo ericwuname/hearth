@@ -1,0 +1,1 @@
+src/lib.rs 的 fibonacci 有 off-by-one 错误。fibonacci(10) 应返回 55。修复 bug，cargo test 全绿。

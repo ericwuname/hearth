@@ -1,0 +1,27 @@
+[package]
+name = "project-xray"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# v13 S1: codex-xray — project facts scanner + wiring assertion engine.
+# Iron rules (docs/project-xray-design.md C.6):
+#   - read-only over the workspace; output goes to xray-out/
+#   - zero build-time network (all deps already in workspace lockfile)
+[[bin]]
+name = "codex-xray"
+path = "src/main.rs"
+
+[lib]
+name = "project_xray"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

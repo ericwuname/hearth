@@ -1,0 +1,9 @@
+{
+  "state_revision": 2,
+  "taskgoal": {
+    "acceptance_criteria": [],
+    "constraints": [],
+    "goal_revision": 1,
+    "original_goal": "用一句话回答：法国的首都是哪个城市？只输出城市名。"
+  }
+}

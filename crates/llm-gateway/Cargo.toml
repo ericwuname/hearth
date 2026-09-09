@@ -1,0 +1,21 @@
+[package]
+name = "llm-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+[dependencies]
+agent-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+tracing.workspace = true
+# STREAM-1~4: AbortOnDropStream needs task AbortHandle.
+tokio.workspace = true
+
+[dev-dependencies]

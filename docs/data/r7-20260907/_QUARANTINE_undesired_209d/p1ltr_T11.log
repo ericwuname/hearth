@@ -1,0 +1,47 @@
+🔒 landlock+seccomp (fail-closed)  (session 03d6209b)
+  🤖 非交互模式（stdin 非 tty）——破坏性操作触发审批时将立即结构化拒绝（approval_denied_noninteractive）
+
+> 用 bash 工具执行命令: sleep 60，调用时 timeout_secs 参数设为 10 —— 等它完成后报告
+
+  🎯 任务目标已锚定（original_goal 持久化）
+◆ Init
+  ▸ span [plan] 2026-08-29T19:52:01.215936369+00:00
+◆ Plan
+┌─ 🗺 规划草案（steps=2 gaps=0 待问=0 自动假设=0）
+   · Run bash command `sleep 60` with timeout_secs=10 [Pending]
+   · Report whether the command completed or timed out [Pending]
+└─
+  ◂ span 耗时 4174ms
+💭 [plan] 正在规划任务分解
+
+⚙ bash → cmd: sleep 60 timeout_secs: 10
+  ▸ span [act] 2026-08-29T19:52:05.390689878+00:00
+◆ Act
+[2m2026-08-29T19:52:30.393292Z[0m [33m WARN[0m [2msandbox::linux_impl[0m[2m:[0m LinuxSandbox: command timed out (pid 158805) — killed child and removed cgroup
+[2m2026-08-29T19:52:30.393737Z[0m [31mERROR[0m [2magent_core::scheduler[0m[2m:[0m tool dispatch failed [3mtool[0m[2m=[0mbash [3merror[0m[2m=[0merror: command timed out
+stdout:
+
+stderr:
+command timed out
+  ◂ span 耗时 25003ms
+💭 [act] 正在执行工具调用
+✗ 工具出错: error: command timed out
+stdout:
+
+stderr:
+command timed out
+  ▸ span [observe] 2026-08-29T19:52:30.394029922+00:00
+◆ Observe
+  ◂ span 耗时 0ms
+💭 [observe] 正在观察结果
+  ▸ span [reflect] 2026-08-29T19:52:30.394093222+00:00
+◆ Reflect
+  replan
+[2m2026-08-29T19:52:41.882645Z[0m [33m WARN[0m [2magent_core::r#loop[0m[2m:[0m Replanning (#1): 1 steps without progress
+  ◂ span 耗时 11488ms
+💭 [reflect] 正在反思进度
+✗ deadline exceeded: 40s >= 30s（任务级 wall-clock 上限）
+✗ Done (5 steps)
+  📄 执行报告: /tmp/p1ltr/.hearth/reports/03d6209b-334a-44db-8b4e-60bbca7acdb2/run-001.md
+✗   ✗ Task failed — deadline exceeded（30s 上限，用时 40s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续
+  📊 tokens: ↑2893 ↓43 (calls=1)

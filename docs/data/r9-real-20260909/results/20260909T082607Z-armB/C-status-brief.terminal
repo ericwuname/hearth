@@ -1,0 +1,5 @@
+  ✓ patched /tmp/.hr-34663-14428/C-status-brief/src/main.rs: replaced 861 bytes (search) with 986 bytes (replace); file now 1243 bytes
+✗ 工具出错: error: command timed out
+✗ 工具出错: error: command timed out
+✗ Done (28 steps)
+✗   ✗ Task failed — status=failed（28 步）——报告含已完成/剩余工作，可直接下指令继续

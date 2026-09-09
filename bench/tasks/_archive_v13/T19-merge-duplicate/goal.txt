@@ -1,0 +1,1 @@
+parse_age_u8 和 parse_count_u32 有大量重复的解析+验证逻辑。写一个泛型函数 parse_positive<T>(s: &str, max: T) 替代两个函数中的重复代码。所有测试必须继续通过。

@@ -1,0 +1,1 @@
+93e505c3947587d0b07a8f65c0c843dd  /home/wutao/hearth-0.2.25-base/target/release/hearth

@@ -1,0 +1,5 @@
+  ✓   30 /tmp/.hr-9573-710/C-progress-overall/src/app.rs
+  ✓      1	# run-001 · SSE 事件回放测试报告（M3 验收）
+  ✓      1	# run-002 · 里程碑进度报告（2026-09-05）
+如需继续推进，下一步建议：定位并修复 BUG-003（读取 `src/app.rs` 事件循环，补充 `Event::Mouse` 分支后复测）。✓ Done (8 steps)
+  ✓ Task completed（8 步）——目标达成（未验证），产物见报告

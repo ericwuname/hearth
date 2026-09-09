@@ -1,0 +1,5 @@
+  ✓ "wrote 554 bytes to /tmp/.hr-28357-10426/C-l285-curl/example.com"
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. Run curl example.com to test network connectivity\n— 1/1 completed, 0 in progress —"
+✓ Done (46 steps)
+  ✓ Task completed（46 步）——⚠️ 改判达成（未验证·不计入成功率）：本 run 曾放弃，因存在产物而改判；产物合格性未经核验，请人工复核报告
+✗   ⚠ G-F goal_drift 疑似：终局产物与原始目标语义相关度存疑（独立判定认为任务被替换/漂移）——请人工核对产物是否确实是你要的

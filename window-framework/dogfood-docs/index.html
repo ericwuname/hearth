@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>codex-docs-a0 · 文档站首页</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">
+    <span class="logo">⌘</span>
+    <span>codex-docs-a0 文档站</span>
+  </div>
+  <nav class="site-nav">
+    <a href="index.html" class="active">首页</a>
+    <a href="architecture.html">架构总结</a>
+    <a href="panorama.html">全局透视 v21</a>
+    <a href="gene-expression.html">基因表达系统</a>
+    <a href="version-iteration.html">版本迭代说明书</a>
+  </nav>
+</header>
+
+<main class="container">
+  <section class="hero">
+    <h1>Codex-Rust · 自主编码 Agent 系统</h1>
+    <p class="subtitle">Rust 编写的自主编码 Agent：给定目标 → LLM 规划 → 循环工具执行 → 观察反思 → 产出结果。</p>
+    <div class="badges">
+      <span class="badge badge-green">主干 v21.0 已提交</span>
+      <span class="badge badge-blue">维护期已启动</span>
+      <span class="badge badge-yellow">wiring 14/14 全绿</span>
+    </div>
+  </section>
+
+  <section class="cards">
+    <a class="card" href="architecture.html">
+      <h2>🧱 架构与实现逻辑</h2>
+      <p>Cargo workspace 17 个 crate 的分层依赖、核心 trait 抽象、依赖倒置注入方式。</p>
+      <span class="tag">架构总结 · 2026-07-28</span>
+    </a>
+    <a class="card" href="panorama.html">
+      <h2>🗺️ 全局透视 v21</h2>
+      <p>锻造九轮（v12→v21）谱系、基因层级系统、wiring 14 条接线断言与维护期纪律。</p>
+      <span class="tag">全局盘点 · 2026-08-01</span>
+    </a>
+    <a class="card" href="gene-expression.html">
+      <h2>🧬 基因表达系统设计</h2>
+      <p>G0–G3 四层基因分类、消化道五步管线、复盘编译义务与入籍铁律。</p>
+      <span class="tag">设计图纸 v1.0 · 2026-07-30</span>
+    </a>
+    <a class="card" href="version-iteration.html">
+      <h2>📚 版本迭代说明书</h2>
+      <p>v12.6 → v22 逐版本增量 / 范围外 / 关键决策，全局收口表与更新纪律。</p>
+      <span class="tag">迭代手册 · 基线 v21.0</span>
+    </a>
+  </section>
+
+  <section class="facts">
+    <h2>关键事实速览</h2>
+    <table>
+      <tr><th>项</th><th>值</th></tr>
+      <tr><td>最新 tag</td><td><code>v21.0</code>（刀入鞘轮：消债固化 + 设计决策沉淀 + 维护期启动）</td></tr>
+      <tr><td>crate 数量</td><td>17 个（Cargo workspace 实核）</td></tr>
+      <tr><td>wiring 接线断言</td><td>14/14 全绿（11 基础 + 3 新增）</td></tr>
+      <tr><td>基因层级</td><td>G0 结构 / G1 反射 / G2 检索 / G3 叙事（≤10 条）</td></tr>
+      <tr><td>LLM 后端</td><td>OpenAI / Ollama / vLLM / 腾讯混元，支持降级链</td></tr>
+      <tr><td>维护期</td><td>已启动 · 规程 <code>docs/maintenance-protocol.md</code></td></tr>
+    </table>
+  </section>
+
+  <footer class="site-footer">
+    <p>由 win-win_docs_site 静态文档站生成 · 数据源：shared/specs · 生成时间：2026</p>
+  </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "delegable": false,
+        "deps": [],
+        "description": "用一句话回答：法国的首都是哪个城市？只输出城市名。",
+        "id": "do_it",
+        "result": null,
+        "status": "Pending"
+      }
+    ]
+  },
+  "state_revision": 2
+}

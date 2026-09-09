@@ -1,0 +1,10 @@
+parse_age_u8 和 parse_count_u32 有大量重复的解析+验证逻辑。写一个泛型函数替代两个函数中的重复代码。
+
+【硬性要求——必须严格遵守】
+泛型函数的签名必须精确为：
+    pub fn parse_positive<T>(s: &str) -> Result<T, String>
+    where T: std::str::FromStr + PartialOrd + Copy + Clone
+（或等价语义：T 可解析、可比较、按值传递）
+验收脚本会用 grep 精确检查标识符 parse_positive——**必须使用完全相同的名字和签名**，禁止自创、改名、拼写变体（如 parse_positive_num / parse_positive_u8 / positive_parse）或把逻辑塞进别的名字的函数。函数名写错 = 任务判失败，无论代码多正确。
+
+parse_age_u8 和 parse_count_u32 保留为对 parse_positive 的薄封装，公开签名不变。所有原有测试必须继续通过，cargo test 全绿。

@@ -1,0 +1,22 @@
+=== RESUME 重跑 (修正: resume 不加 --budget, 按最终 status 判定) | 通道=deepseek 端点+有效key ===
+A01 chat=rc0(6.3s) resume=SUCCESS rc=0(7.6s) sid=b5ac45c0-7dbf-4b2d-8018-bf57948bacfc
+     res_tail: '指令执行（已假设） → \n└─\n  ◂ span 耗时 7581ms\n💭 [plan] 正在规划任务分解\n大阪,京都,横滨✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/b5ac45c0-7dbf-4b2d-8018-bf57948bacfc/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A02 chat=rc0(5.7s) resume=SUCCESS rc=0(11.4s) sid=84a608c1-e9b2-42a3-a3d6-5f3b92a544e5
+     res_tail: '行（已假设） → \n└─\n  ◂ span 耗时 11368ms\n💭 [plan] 正在规划任务分解\n大阪, 京都, 横滨✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/84a608c1-e9b2-42a3-a3d6-5f3b92a544e5/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A03 chat=rc0(5.9s) resume=SUCCESS rc=0(6.5s) sid=ccb06d59-2c11-4ac0-bf0e-b3065823e960
+     res_tail: '指令执行（已假设） → \n└─\n  ◂ span 耗时 6399ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/ccb06d59-2c11-4ac0-bf0e-b3065823e960/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A04 chat=rc0(5.5s) resume=SUCCESS rc=0(14.8s) sid=8f655383-4dde-465f-b4c1-4658dd8df4ee
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 14733ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/8f655383-4dde-465f-b4c1-4658dd8df4ee/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A05 chat=rc0(6.9s) resume=SUCCESS rc=0(25.1s) sid=b6e0a974-cb3f-4092-b9b9-908c8eeb180a
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 25070ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/b6e0a974-cb3f-4092-b9b9-908c8eeb180a/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A06 chat=rc0(7.4s) resume=SUCCESS rc=0(12.9s) sid=44c97452-7a72-4de4-b1cd-cc8c735658ac
+     res_tail: '行（已假设） → \n└─\n  ◂ span 耗时 12868ms\n💭 [plan] 正在规划任务分解\n东京, 大阪, 京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/44c97452-7a72-4de4-b1cd-cc8c735658ac/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A07 chat=rc0(5.5s) resume=SUCCESS rc=0(11.4s) sid=cd9d99a1-dd70-4472-9c72-8ee4131a40b6
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 11310ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/cd9d99a1-dd70-4472-9c72-8ee4131a40b6/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A08 chat=rc0(5.3s) resume=SUCCESS rc=0(22.4s) sid=be431cd5-ea82-474a-a85e-b4edbd6cd14e
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 22360ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/be431cd5-ea82-474a-a85e-b4edbd6cd14e/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A09 chat=rc0(5.6s) resume=SUCCESS rc=0(11.7s) sid=446c08cb-3cfb-4cb6-afb4-566eac8eb6f4
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 11671ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/446c08cb-3cfb-4cb6-afb4-566eac8eb6f4/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+A10 chat=rc0(7.9s) resume=SUCCESS rc=0(12.0s) sid=9351e678-31c5-4dda-b1bf-eb312e12a8a9
+     res_tail: '令执行（已假设） → \n└─\n  ◂ span 耗时 11924ms\n💭 [plan] 正在规划任务分解\n东京,大阪,京都✓ Done (2 steps)\n  📄 执行报告: /home/wutao/.hearth/reports/9351e678-31c5-4dda-b1bf-eb312e12a8a9/run-002.md\n  ✓ Task completed（2 步）——目标达成，产物见报告'
+RESUME tally: SUCCESS=10

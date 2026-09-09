@@ -1,0 +1,21 @@
+[package]
+name = "project-sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "PWC 项目间窗口协作模块 Phase 1——SSOT 约定层工具化（EVENT_LOG/Task Ledger/registry/受限 API）"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+sha2.workspace = true
+fs2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

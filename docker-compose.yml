@@ -1,0 +1,22 @@
+version: "3.8"
+services:
+  codex:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - API_KEY=${API_KEY:-}
+      - PORT=3000
+      - MEMORY_DIR=/data
+      - RUST_LOG=info
+    volumes:
+      - codex_data:/data
+      - codex_workspace:/workspace
+    # Sandbox requires non-root user namespaces. If your host kernel
+    # disables unprivileged_userns_clone, sandbox degrades gracefully.
+    restart: unless-stopped
+
+volumes:
+  codex_data:
+  codex_workspace:

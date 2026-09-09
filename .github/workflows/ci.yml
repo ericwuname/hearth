@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: check + test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test --workspace -- --nocapture
+
+      # v13 S2: the 4th gate — wiring assertions (anti-regression firewall).
+      # Any red break (a locked capability regressed) fails the build.
+      # NOTE: the old `cargo test -p telemetry` eval step was removed — the
+      # telemetry crate no longer exists in the workspace (step always failed).
+      - name: xray wiring
+        run: cargo run -p project-xray --bin codex-xray -- wiring --root . --spec docs/xray/wiring-v13.toml
+
+      - name: xray scan
+        run: cargo run -p project-xray --bin codex-xray -- scan --root . --out xray-out/facts.json

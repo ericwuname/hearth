@@ -1,0 +1,1 @@
+提取 db_connect 中的硬编码到 DbConfig struct (host, port, user 三个字段)，给 DbConfig 加一个 connect() 方法。测试要改成用 DbConfig::default()。cargo test 全绿。

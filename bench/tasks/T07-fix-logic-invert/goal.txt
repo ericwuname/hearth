@@ -1,0 +1,1 @@
+is_valid_age 对 age=0 返回 false（应该是允许的）。修复条件 age>0 为 age>=0。cargo test 全绿。

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 进度板</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div><h1>Codex-Rust 文档站</h1><small>v21.0 维护期 · 全局锚点</small></div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html">架构与实现逻辑</a>
+        <a href="genes.html">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html">决策记录</a>
+        <a href="progress.html" class="active">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">生成：win-html-generator</div>
+  </aside>
+
+  <main class="main">
+    <h1>进度板</h1>
+    <p class="lead">docs-site 项目的执行进度看板。</p>
+
+    <div class="callout ok">
+      <div class="ct-title">📊 当前状态</div>
+      <p>进度板目前为空 —— 待各窗口回写进度。</p>
+    </div>
+
+    <h2>工作流阶段（project.toml）</h2>
+    <table>
+      <thead><tr><th>阶段</th><th>触发</th><th>窗口</th><th>闸门</th></tr></thead>
+      <tbody>
+        <tr><td>architecture</td><td>project_start</td><td>win-html-generator</td><td><span class="badge green">auto: validate_structure.sh</span></td></tr>
+        <tr><td>generate</td><td>architecture:done</td><td>win-info-architect</td><td><span class="badge blue">auto: validate_html.sh</span></td></tr>
+        <tr><td>review</td><td>generate:done</td><td>win-qa-reviewer</td><td><span class="badge yellow">human: 用户验收最终文档站</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>进度标记</h2>
+    <ul>
+      <li><span class="badge green">architecture</span> 阶段：HTML 站点骨架已由 win-html-generator 产出（本输出目录）。</li>
+      <li><span class="badge blue">generate</span> 阶段：待 win-info-architect 接续完善内容架构。</li>
+      <li><span class="badge yellow">review</span> 阶段：待用户最终验收。</li>
+    </ul>
+
+    <div class="footer">来源：shared/progress.md（当前为空）+ project.toml 工作流定义</div>
+  </main>
+</div>
+</body>
+</html>

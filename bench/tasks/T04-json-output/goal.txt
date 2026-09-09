@@ -1,0 +1,1 @@
+添加 to_json(users: &[User]) -> String，返回 JSON 数组 [{"name":"Ali","age":25}]。手动拼 JSON(不用 serde)。加测试，cargo test 全绿。

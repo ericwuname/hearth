@@ -1,0 +1,5 @@
+  ✓ "     1\t# run-002 · 里程碑进度报告（2026-09-05）\n     2\t\n     3\t## 数字口径（唯一口径源 = PROGRESS.md，BUG-007 规则）\n     4\t\n     5\t- 里程碑：**3/5 完成（60%）**——M1 ✅ M2 ✅ M3 ✅ M4 ⚠️ M5 ⬜\n     6\t- 代码量：src/ 3 文件 214 行（`…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (13 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 901s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

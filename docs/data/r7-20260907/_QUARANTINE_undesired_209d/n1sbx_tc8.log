@@ -1,0 +1,37 @@
+🔒 landlock+seccomp (fail-closed)  (session 84f14c48)
+  🤖 非交互模式（stdin 非 tty）——破坏性操作触发审批时将立即结构化拒绝（approval_denied_noninteractive）
+
+> 执行 bash 命令 echo hi >/dev/null 然后只回答 done
+
+  🎯 任务目标已锚定（original_goal 持久化）
+◆ Init
+  ▸ span [plan] 2026-08-29T19:26:08.605772381+00:00
+◆ Plan
+┌─ 🗺 规划草案（steps=2 gaps=0 待问=0 自动假设=0）
+   · Execute bash command echo hi >/dev/null [Pending]
+   · Reply with only the word done [Pending]
+└─
+  ◂ span 耗时 2820ms
+💭 [plan] 正在规划任务分解
+
+⚙ bash → cmd: echo hi >/dev/null
+💭 [Observe] [budget-warn] 预算已用 50%（2/4 步）——继续推进，或评估是否需重新规划（introspect 可查上下文填充）
+  ▸ span [act] 2026-08-29T19:26:11.426345295+00:00
+◆ Act
+  ◂ span 耗时 17ms
+💭 [act] 正在执行工具调用
+  ✓ 
+  ▸ span [observe] 2026-08-29T19:26:11.444316898+00:00
+◆ Observe
+  ◂ span 耗时 0ms
+💭 [observe] 正在观察结果
+
+❓ 需要你确认 [budget] 预算已达上限（4 步），任务未完成——继续则延长预算，或重新评估任务方向
+  1) 继续
+  2) 重新评估
+  你的选择:   ⚠ 非交互模式（stdin 非 tty）——无人应答，按放弃处理（budget_reassess/clarification headless guard）
+✗ budget exhausted
+✗ Done (4 steps)
+  📄 执行报告: /tmp/regv2/.hearth/reports/84f14c48-5ac7-42ed-acdc-9349f34aaac9/run-001.md
+✗   ✗ Task failed — budget_exhausted（4 步）——报告含已完成/剩余工作，可直接下指令继续
+  📊 tokens: ↑2823 ↓30 (calls=1)

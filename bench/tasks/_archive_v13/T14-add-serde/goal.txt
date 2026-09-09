@@ -1,0 +1,1 @@
+给 Config 添加 #[derive(Serialize, Deserialize)]。Cargo.toml 需要添加 serde = { version = "1", features = ["derive"] } 依赖。添加测试验证序列化往返。cargo test 全绿。

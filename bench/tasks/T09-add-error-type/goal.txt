@@ -1,0 +1,1 @@
+把 String 错误类型替换为自定义枚举 MathError { DivisionByZero, NegativeInput }。添加对应的 Display impl。现有的两个测试必须继续通过。cargo test 全绿。

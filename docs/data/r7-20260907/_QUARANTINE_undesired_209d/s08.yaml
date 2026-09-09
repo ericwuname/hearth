@@ -1,0 +1,16 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# scenario s08 — Multi-intent 多意图（矩阵场景；输入骨架逐字取自语料/黄金集）
+schema: simuser-scenario-v1.0
+id: s08
+name: "Multi-intent 多意图"
+class: Multi-intent
+mode: strategic
+persona_ref: p10
+description: "长输入多意图（R3：4+ 意图占 12.9%）；意图丢失检测"
+inputs:
+  - "多意图长指令（种子逐字；2-5 意图混合）"
+detectors_expected:
+  - multi_intent_drop
+# Node 12 纪律：每场景必须留 success + failure + counterexample 三样本（禁只存失败）
+sample_policy: success+failure+counterexample

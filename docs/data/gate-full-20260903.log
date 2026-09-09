@@ -1,0 +1,882 @@
+=== FULL GATE START 2026-09-03T19:21:37+08:00 ===
+ENV  HEARTH_URL=[<unset>]  CGROUP_BASE=[/sys/fs/cgroup/hearth]  ALLOW_NO_CGROUP=[<unset>]
+HEAD: fatal: 不是 git 仓库（或者任何父目录）：.git
+--- cargo test --workspace ---
+   Compiling codex-cli v0.2.23 (/home/wutao/codex/crates/codex-cli)
+   Compiling agent-core v0.2.23 (/home/wutao/codex/crates/agent-core)
+   Compiling sandbox v0.1.0 (/home/wutao/codex/crates/sandbox)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.99s
+     Running unittests src/lib.rs (target/debug/deps/agent_core-3051c4e8bbcb512a)
+
+running 135 tests
+test constitution::tests::test_sanitize_rejects_empty ... ok
+test constitution::tests::test_prompt_never_empty ... ok
+test constitution::tests::test_repo_constitution_file_readable ... ok
+test constitution::tests::test_sanitize_caps_length ... ok
+test context::tests::test_budget_exhausted ... ok
+test context::tests::test_add_user_message_survives_ctx_reset ... ok
+test context::tests::test_context_creation ... ok
+test context::tests::test_continue_turn_resets_deadline ... ok
+test context::tests::test_deadline_exceeded_activates ... ok
+test context::tests::test_estimate_chars_honest_counting ... ok
+test context::tests::test_archive_per_session_isolation ... ok
+test context::tests::test_maybe_compact_skips_short_history ... ok
+test context::tests::test_scratch ... ok
+test context::tests::test_compact_fires_in_single_run ... ok
+test orchestrator::execute_plan_tests::test_execute_plan_3_step_chain ... ok
+test orchestrator::tests::test_empty_plan ... ok
+test orchestrator::tests::test_condition_on_failure_skips ... ok
+test context::tests::test_maybe_compact_folds_old_turns ... ok
+test orchestrator::tests::test_pipeline_variable_substitution ... ok
+test orchestrator::tests::test_simple_success ... ok
+test orchestrator::tests::test_validator_checks_keys ... ok
+test orchestrator::tests::test_validator_rejects_missing_key ... ok
+test orchestrator::tests::test_validator_rejects_wrong_type ... ok
+test r#loop::tests::test_cb_experience_l4_only ... ok
+test r#loop::tests::test_cb_compact_keeps_continuity_and_topology ... ok
+test r#loop::tests::test_cb_b_layer_chain_stable_prefix ... ok
+test r#loop::tests::test_cb_failed_node_preserved_in_continuity ... ok
+test r#loop::tests::test_cb_system_stable_across_calls ... ok
+test r#loop::tests::test_cb_status_change_keeps_system ... ok
+test context::tests::test_compact_archives_original_turns ... ok
+test r#loop::tests::test_cb_topology_sig_semantics ... ok
+test r#loop::tests::test_deadline_run_produces_deterministic_terminal_state ... ok
+test r#loop::tests::test_egress_denial_non_interactive_no_ask ... ok
+test r#loop::tests::test_chat_qa_no_forced_replan ... ok
+test r#loop::tests::test_extract_mentioned_files_and_match ... ok
+test context::tests::test_compact_long_chinese_goal_no_panic ... ok
+test context::tests::test_compact_threshold_env_override ... ok
+test context::tests::test_inv_m01_fact_survives_compaction ... ok
+test context::tests::test_inv_m01_loss_mode_without_archive ... ok
+test r#loop::tests::test_goal_creation ... ok
+test r#loop::tests::test_goal_requires_product_classification ... ok
+test r#loop::tests::test_goal_with_budget ... ok
+test r#loop::tests::test_hearth_md_loaded_from_cwd ... ok
+test r#loop::tests::test_history_slice_marker_present ... ok
+test r#loop::tests::test_inv_a_taskcontrol_and_question_never_goal_mutation ... ok
+test r#loop::tests::test_inv_g_criteria_stable_after_init ... ok
+test r#loop::tests::test_is_verification_command ... ok
+test r#loop::tests::test_l1_b3_nonproduct_rescue_routes_done_unverified ... ok
+test r#loop::tests::test_l1_b3_rescue_blocked_on_criteria_nonempty ... ok
+test r#loop::tests::test_l1_b3_rescue_blocked_on_errors ... ok
+test r#loop::tests::test_l1_b3_rescue_blocked_on_idle_spin ... ok
+test r#loop::tests::test_l1_b3_tool_exchange_counter_resets_per_run ... ok
+test r#loop::tests::test_light_verify_file ... ok
+test r#loop::tests::test_loop_phase_debug ... ok
+test r#loop::tests::test_node02_intent_constraint_separation ... ok
+test r#loop::tests::test_egress_approval_flow_and_no_reask ... ok
+test r#loop::tests::test_node03_cmd_side_effect_blocklist ... ok
+test r#loop::tests::test_node03_criteria_parsing ... ok
+test r#loop::tests::test_node04_conflict_classifier ... ok
+test r#loop::tests::test_fa01_f9_completed_has_no_unverified_marker ... ok
+test r#loop::tests::test_node03_acceptance_passed_producer ... ok
+test r#loop::tests::test_fa01_f9_empty_criteria_bash_only_giveup_unverified ... ok
+test r#loop::tests::test_node05_case_g_acceptance_failed_verify_failed ... ok
+test r#loop::tests::test_fa01_single_unknown_failure_classified_unknown ... ok
+test r#loop::tests::test_p1_merge_file_changes ... ok
+test r#loop::tests::test_p14_civ_fallback_written_when_no_writer ... ok
+test r#loop::tests::test_p2_a4_observe_consumes_lsp ... ok
+test r#loop::tests::test_node05_negative_empty_criteria_no_interception ... ok
+test r#loop::tests::test_node05_case_d_giveup_intercepted_verified_passed ... ok
+test r#loop::tests::test_p3_planner_injected_into_loop ... ok
+test r#loop::tests::test_p3_a4_sub_agent_delegation ... ok
+test r#loop::tests::test_provider_failure_run_terminal_state_failed ... ok
+test r#loop::tests::test_fa01_same_tool_repeat_classified_plan_failure ... ok
+test r#loop::tests::test_node04_verify_failed_end_to_end ... ok
+test r#loop::tests::test_p2_a5_retrieval_in_context ... ok
+test r#loop::tests::test_rc24_dev_null_bitbucket_not_destructive ... ok
+test r#loop::tests::test_p3_stuck_replans_or_gives_up ... ok
+test r#loop::tests::test_rc24_kernel_interfaces_still_blocked ... ok
+test r#loop::tests::test_rc24_noninteractive_approval_structured_deny ... ok
+test r#loop::tests::test_rc24_other_dev_nodes_still_blocked ... ok
+test r#loop::tests::test_rc24_risk_tiers ... ok
+test r#loop::tests::test_rc24_delegate_session_auto_approves_command_table ... ok
+test r#loop::tests::test_rc47_artifacts_route_done_on_empty_criteria_giveup ... ok
+test r#loop::tests::test_rc52_cross_turn_artifact_hydration_on_giveup ... ok
+test r#loop::tests::test_p3_a3_e2e_stuck_detection_heuristic ... ok
+test r#loop::tests::test_rc52_hydration_gated_on_zero_errors ... ok
+test r#loop::tests::test_t1_original_goal_immutable ... ok
+test r#loop::tests::test_t2_fatal_no_retry ... ok
+test r#loop::tests::test_t2_gate_reentry_resets_stall_count ... ok
+test r#loop::tests::test_t2_stall_retained_on_reflect_replan ... ok
+test r#loop::tests::test_rc52_hydration_integration_through_run_boundary ... ok
+test r#loop::tests::test_t3_resume_task_continuity_block ... ok
+test r#loop::tests::test_t4_continuity_survives_compaction ... ok
+test r#loop::tests::test_t4_progressing_replan_not_stalled ... ok
+test r#loop::tests::test_t4_semantic_stall_gives_up ... ok
+test r#loop::tests::test_t6_acceptance_verification_scope ... ok
+test r#loop::tests::test_t7_init_not_dependent_on_history_empty ... ok
+test r#loop::tests::test_turn_checkpoint_callback_fires_per_exchange ... ok
+test r#loop::tests::test_v12_approval_bash_benign_not_flagged ... ok
+test r#loop::tests::test_v12_approval_bash_destructive_detected ... ok
+test r#loop::tests::test_v12_approval_edit_write_detected ... ok
+test r#loop::tests::test_verification_unverified_for_write_only_run ... ok
+test r#loop::tests::test_verify_detects_incomplete_output ... ok
+test r#loop::tests::test_w3_done_acceptance_marks_nodes_completed ... ok
+test r#loop::tests::test_w3_read_success_is_not_progress ... ok
+test r#loop::tests::test_w3_unrelated_artifact_rejects_done ... ok
+test r#loop::tests::test_fa01_t4_stall_verification_failed_still_stops ... ok
+test r#loop::tests::test_w8_a1_routing_defaults_and_mixed ... ok
+test r#loop::tests::test_w8_a1_routing_discourse_to_qa ... ok
+test r#loop::tests::test_w8_a1_routing_product_action_verbs ... ok
+test r#loop::tests::test_w8_a2_classify_user_input_t5_regression ... ok
+test r#loop::tests::test_w8_a2_task_control_input_preserves_goal ... ok
+test r#loop::tests::test_w8_a4_drift_verdict_parsing ... ok
+test r#loop::tests::test_w8_a4_goal_drift_check_calls ... ok
+test r#loop::tests::test_fa01_t4_stall_intercept_verifies_before_giveup ... ok
+test scheduler::tests::test_bash_exit_code_structured_projection ... ok
+test scheduler::tests::test_five_state_error_classification ... ok
+test talent::tests::test_classify_styles ... ok
+test talent::tests::test_core_wiring ... ok
+test talent::tests::test_creator_suppresses_monitoring ... ok
+test talent::tests::test_inject_mentions_core_circuit ... ok
+test terminal::execdec_node02_tests::test_completion_readiness_matrix ... ok
+test terminal::execdec_node06_tests::test_failure_classification ... ok
+test terminal::execdec_node06_tests::test_failure_strategy_matrix_boundaries ... ok
+test terminal::execdec_node06_tests::test_failure_taxonomy_f1_to_f10 ... ok
+test terminal::tests::test_normalize_always_produces_valid_terminal_state ... ok
+test terminal::tests::test_normalize_semantics ... ok
+test terminal::tests::test_terminal_states_closed_set ... ok
+test r#loop::tests::test_w8_a5_resume_does_not_reexecute_side_effects ... ok
+test r#loop::tests::test_w3_write_progress_resets_no_progress_counter ... ok
+test r#loop::tests::test_single_run_compaction_e2e ... ok
+test r#loop::tests::test_provider_transient_retry_capped ... ok
+test r#loop::tests::test_t2_transient_retry_capped ... ok
+test r#loop::tests::test_rc24_delegate_does_not_bypass_hard_redline has been running for over 60 seconds
+test r#loop::tests::test_rc24_interactive_policy_unchanged has been running for over 60 seconds
+test r#loop::tests::test_rc24_delegate_does_not_bypass_hard_redline ... ok
+test r#loop::tests::test_rc24_interactive_policy_unchanged ... ok
+
+test result: ok. 135 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 61.66s
+
+     Running unittests src/lib.rs (target/debug/deps/agent_runtime-00bdc2665fac4e4c)
+
+running 4 tests
+test session::tests::test_b1_get_history_in_memory ... ok
+test session::tests::test_create_and_get_session ... ok
+test session::tests::test_b1_get_history_from_store ... ok
+test session::tests::test_v12_cleanup_finished_evicts_only_expired ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/agent_types-d351240e1f698bfd)
+
+running 11 tests
+test r2d_tests::test_t5_next_action_deterministic ... ok
+test tests::test_budget_default ... ok
+test tests::test_message_creation ... ok
+test tests::test_run_state_defaults ... ok
+test tests::test_reflect_verdict_serde ... ok
+test tests::test_taskgraph_next_ready ... ok
+test tests::test_taskgraph_cycle_detected ... ok
+test truncate_marked_tests::test_truncate_marked_appends_marker ... ok
+test tests::test_taskgraph_diamond ... ok
+test tests::test_taskgraph_no_cycle_linear ... ok
+test tests::test_tool_call_serde ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/api-e434ef8d5d88cb57)
+
+running 3 tests
+test tests::test_agent_event_all_variants ... ok
+test tests::test_agent_event_serde ... ok
+test tests::test_session_create ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/bridge-829707e73107a200)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/code_index-01c3e4e1c00feeab)
+
+running 4 tests
+test tests::test_index_empty_dir ... ok
+test tests::test_p2_index_vector_adjacent_similarity ... ok
+test tests::test_index_chunks ... ok
+test tests::test_index_symbols ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/hearth-c0dae38a558e293f)
+
+running 29 tests
+test client::tests::classify_connection_refused ... ok
+test client::tests::classify_generic ... ok
+test client::tests::classify_unauthorized ... ok
+test client::tests::parse_sse_multiple_events ... ok
+test client::tests::classify_timeout ... ok
+test client::tests::parse_sse_tool_call_event ... ok
+test client::tests::parse_sse_chunked_partial_line ... ok
+test client::tests::parse_sse_single_event ... ok
+test config::p3_tests::test_rc16_old_url_no_service_trigger ... ok
+test config::p3_tests::test_rc16_old_url_llm_compat ... ok
+test config::p3_tests::test_rc16_llm_url_new_name ... ok
+test config::p3_tests::test_rc18_provider_url_mismatch ... ok
+test config::tests::test_resolve_priority ... ok
+test render::p3_tests::test_rc34_done_dedup_key_stable ... ok
+test config::tests::test_require_api_key_error_is_actionable ... ok
+test report::tests::test_report_written_and_complete ... ok
+test note::tests::test_note_persists_and_rebuttal_signal ... ok
+test run_local::tests::test_goal_tier_heuristic ... ok
+test report::tests::test_report_terminal_state_labels ... ok
+test session_store::r2d_tests::test_t2_revision_mismatch_detectable ... ok
+test snapshot_store::tests::test_rollback_created_tombstone_deletes_file ... ok
+test snapshot_store::tests::test_dry_run_does_not_apply ... ok
+test session_store::tests::test_u44_ensure_session_header_creates_and_never_overwrites ... ok
+test session_store::tests::test_roundtrip_turn ... ok
+test snapshot_store::tests::test_snapshot_existing_and_new_file ... ok
+test session_store::tests::test_append_multiple_turns ... ok
+test snapshot_store::tests::test_rollback_from_seq_restores_lifo ... ok
+test snapshot_store::tests::test_rollback_latest_restores_content ... ok
+test snapshot_store::tests::test_eviction_respects_file_cap ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running unittests src/bin/codex.rs (target/debug/deps/codex-08e4c1efd8d026ea)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/hearth-431a232c5bce2800)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/experience-780b2236b54ad625)
+
+running 11 tests
+test tests::append_with_embed_fn ... ok
+test tests::cosine_mismatched_length_returns_zero ... ok
+test tests::cosine_orthogonal_returns_zero ... ok
+test tests::cosine_same_vector_returns_one ... ok
+test tests::env_match_different_os ... ok
+test tests::env_match_same_context ... ok
+test tests::evaluate_applicability ... ok
+test tests::prune_removes_low_effectiveness_old ... ok
+test tests::reinforce_and_metrics ... ok
+test tests::search_with_keyword_fallback ... ok
+test tests::upgrade_core_returns_high_quality ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/llm_cn-072a26f9795b18f2)
+
+running 6 tests
+test tests::test_hunyuan_provider_creation ... ok
+test tests::test_hunyuan_embed_unsupported ... ok
+test tests::test_hunyuan_error_generic_format ... ok
+test tests::test_hunyuan_chat_wire_format ... ok
+test tests::test_hunyuan_chat_with_tools ... ok
+test tests::test_hunyuan_error_hunyuan_format ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (target/debug/deps/llm_gateway-2c1d73995bb038b8)
+
+running 27 tests
+test cache_telemetry::closure_tests::test_message_chain_prefix_stability ... ok
+test cost::tests::test_get_missing ... ok
+test cache_telemetry::tests::test_record_appends_jsonl ... ok
+test cache_telemetry::tests::test_record_noop_without_env ... ok
+test cost::tests::test_iter ... ok
+test cache_telemetry::closure_tests::test_tools_hash_stable ... ok
+test cost::tests::test_record_single ... ok
+test cache_telemetry::tests::test_hashes_stable_and_sensitive ... ok
+test cost::tests::test_cache_usage_accumulation ... ok
+test cost::tests::test_record_multiple_providers ... ok
+test cost::tests::test_record_multiple_same_provider ... ok
+test cost::tests::test_reset ... ok
+test fallback::tests::test_chain_metadata ... ok
+test fallback::tests::test_all_fail ... ok
+test fallback::tests::test_empty_chain ... ok
+test fallback::tests::test_embed_fallback ... ok
+test fallback::tests::test_primary_succeeds ... ok
+test registry::tests::test_get_default ... ok
+test fallback::tests::test_stream_uses_primary ... ok
+test registry::tests::test_missing_provider ... ok
+test fallback::tests::test_fallback_after_primary_fails ... ok
+test registry::tests::test_list_detailed ... ok
+test registry::tests::test_register_and_get ... ok
+test types::tests::test_error_classification_table ... ok
+test types::tests::test_capabilities_default ... ok
+test stream_util::tests::test_v12_abort_on_drop_kills_producer ... ok
+test types::tests::test_chat_request_serde ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/llm_local-10b87ef38dc8b2ee)
+
+running 11 tests
+test tests::test_ollama_provider_creation ... ok
+test tests::test_ollama_chat_error_status ... ok
+test tests::test_ollama_embed_wire_format ... ok
+test tests::test_ollama_chat_wire_format ... ok
+test tests::test_vllm_chat_wire_format ... ok
+test tests::test_vllm_embed_wire_format ... ok
+test tests::test_ollama_chat_with_tools_wire_format ... ok
+test tests::test_vllm_provider_no_auth ... ok
+test tests::test_vllm_chat_error_status ... ok
+test tests::test_vllm_provider_creation ... ok
+test tests::test_vllm_chat_with_auth ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/lib.rs (target/debug/deps/llm_openai-236589a499049067)
+
+running 9 tests
+test tests::test_build_request_basic ... ok
+test tests::test_build_request_with_tools ... ok
+test tests::test_parse_sse_done ... ok
+test tests::test_parse_sse_token ... ok
+test tests::test_parse_tool_args_keeps_raw_on_failure ... ok
+test tests::test_parse_tool_args_repaired_truncation ... ok
+test tests::test_parse_tool_args_normal ... ok
+test tests::test_usage_cache_fields_deserialize ... ok
+test tests::test_provider_creation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/llm_replay-ca269fdfce22485b)
+
+running 6 tests
+test tests::parses_turns_from_event_stream ... ok
+test tests::explicit_marker_disambiguates_same_goal_runs ... ok
+test tests::session_pinned_paths_become_relative ... ok
+test tests::serves_recorded_turns_in_order ... ok
+test tests::reflect_text_messages_do_not_advance_the_cursor ... ok
+test tests::unknown_goal_does_not_panic ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/lsp_bridge-2360358d98f1e7b2)
+
+running 2 tests
+test tests::test_noop_bridge_does_not_panic ... ok
+test tests::test_noop_bridge_returns_empty ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/memory-43266915627bc5ef)
+
+running 5 tests
+test tests::test_p5_memory_load_missing ... ok
+test tests::test_p5_memory_list_and_delete ... ok
+test tests::test_p5_memory_append_events ... ok
+test tests::test_p5_memory_save_and_load ... ok
+test tests::test_v12_memory_corrupt_line_tolerated ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/nervous_system-7dc2ab11030bb76d)
+
+running 4 tests
+test tests::test_nerve_action_is_urgent ... ok
+test tests::test_query_with_budget_warning ... ok
+test tests::test_query_returns_report ... ok
+test tests::test_drain_civ_alerts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src/lib.rs (target/debug/deps/observer-2e048030dc50859f)
+
+running 14 tests
+test circuit::tests::test_circuit_budget_exhausted ... ok
+test circuit::tests::test_circuit_clean_stream_no_break ... ok
+test metrics::tests::test_metrics_autonomy_and_wait ... ok
+test metrics::tests::test_deterministic_metrics_same_twice ... ok
+test metrics::tests::test_metrics_no_llm_dependency ... ok
+test circuit::tests::test_circuit_sandbox_violation ... ok
+test rules::tests::test_double_report_formats ... ok
+test tests::test_l2_fail_closed_on_seq_gap ... ok
+test tests::test_l3_finding_evidence_required ... ok
+test rules::tests::test_rules_config_parses ... ok
+test rules::tests::test_v24_quarterly_all_rules_trigger ... ok
+test tests::test_l1_reads_event_stream ... ok
+test rules::tests::test_finding_evidence_reproducible ... ok
+test tests::test_r7_rebuttal_persists_without_mutating_rules ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/planner-7873399afe231572)
+
+running 11 tests
+test tests::test_derive_gaps_clean_plan_no_blocking ... ok
+test tests::test_derive_gaps_ambiguous_option_blocking ... ok
+test tests::test_derive_gaps_unverified_claim ... ok
+test tests::test_derive_gaps_missing_goal_source_non_blocking ... ok
+test tests::test_extract_options_preserves_spaces ... ok
+test tests::test_execdec_node01_budgetlow_giveup_ignores_acceptance ... ok
+test tests::test_p3_taskgraph_no_cycle ... ok
+test tests::test_p3_reflect_three_way ... ok
+test tests::test_t6_replan_hard_cap_forces_giveup ... ok
+test tests::test_p3_decompose_builds_dag ... ok
+test tests::test_p3_reflect_llm_path ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/project_sync-2e03cc7473b69e1d)
+
+running 45 tests
+test event::tests::test_schema_known_passes ... ok
+test event::tests::test_schema_rejected_unknown_version ... ok
+test event::tests::test_uuid_v7_time_ordered ... ok
+test fs_api::tests::test_resolve_inside_ok ... ok
+test fs_api::tests::test_resolve_missing_errors ... ok
+test event_log::tests::test_gap_detection ... ok
+test fs_api::tests::test_resolve_rejects_absolute ... ok
+test fs_api::tests::test_resolve_rejects_dotdot ... ok
+test import::tests::test_import_allow_ok ... ok
+test import::tests::test_import_deny_rejected ... ok
+test import::tests::test_invalid_trust_level_rejected ... ok
+test event_log::tests::test_seq_allocator_survives_manual_writes ... ok
+test import::tests::test_knowledge_conflict_detected ... ok
+test import::tests::test_knowledge_conflict_no_false_positive ... ok
+test fs_api::tests::test_resolve_rejects_symlink_escape ... ok
+test event_log::tests::test_unknown_schema_writes_rejected_event ... ok
+test manifest::tests::test_contract_fail_closed_on_unknown_function ... ok
+test manifest::tests::test_contract_ok ... ok
+test event_log::tests::test_event_id_uuidv7_and_chain ... ok
+test manifest::tests::test_contract_rejects_bad_granularity ... ok
+test manifest::tests::test_identity_epoch_roundtrip ... ok
+test manifest::tests::test_identity_epoch_mismatch_detectable ... ok
+test event_log::tests::test_seq_allocator_sequential ... ok
+test registry::tests::test_manifest_roundtrip ... ok
+test registry::tests::test_failed_window_not_online ... ok
+test registry::tests::test_watermark_roundtrip ... ok
+test subscription::tests::test_granularity ... ok
+test subscription::tests::test_subscription_match ... ok
+test registry::tests::test_online_active_fresh ... ok
+test task::tests::test_permission_matrix_positive ... ok
+test task::tests::test_observer_migrate_rejected ... ok
+test task::tests::test_expired_is_terminal ... ok
+test stream::tests::test_stream_append_read ... ok
+test task::tests::test_terminal_cannot_transition_back ... ok
+test task::tests::test_transition_to_failed_ok ... ok
+test stream::tests::test_stream_missing_slice_errors ... ok
+test task_ledger::tests::test_instance_id ... ok
+test task_ledger::tests::test_ledger_roundtrip ... ok
+test task_ledger::tests::test_optimistic_lock_conflict ... ok
+test task_ledger::tests::test_claim_after_owner_stale ... ok
+test task_ledger::tests::test_expired_dependency_does_not_unblock ... ok
+test task_ledger::tests::test_unblock_dependencies ... ok
+test task_ledger::tests::test_terminal_task_not_claimed ... ok
+test event_log::tests::test_lock_timeout ... ok
+test event::tests::test_uuid_v7_no_collision_bulk ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running unittests src/lib.rs (target/debug/deps/project_xray-ade847c45b1eebff)
+
+running 11 tests
+test facts::tests::test_count_test_declarations ... ok
+test wiring::tests::strip_removes_comments_and_strings ... ok
+test facts::tests::test_scan_skips_target_dir ... ok
+test facts::tests::test_scan_fixture_workspace ... ok
+test wiring::tests::test_empty_chain_is_break ... ok
+test wiring::tests::test_all_semantics_requires_every_pattern ... ok
+test wiring::tests::test_empty_spec_rejected ... ok
+test wiring::tests::test_missing_file_is_break ... ok
+test wiring::tests::test_yellow_break_does_not_fail_gate ... ok
+test wiring::tests::test_self_proof_break_turns_red ... ok
+test wiring::tests::test_wiring_pass ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/codex_xray-ef4b1eadabc2ab10)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/xray_test.rs (target/debug/deps/xray_test-78b5689186b30b41)
+
+running 2 tests
+test real_workspace_scan_sane ... ok
+test real_workspace_wiring_all_green ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/lib.rs (target/debug/deps/resource_monitor-100cd4d3e1e71b45)
+
+running 2 tests
+test roi_tests::test_roi ... ok
+test roi_tests::test_critical ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (target/debug/deps/retriever-509a05e1b472b4c9)
+
+running 4 tests
+test tests::test_cosine_similarity ... ok
+test tests::test_retriever_empty_index ... ok
+test tests::test_retriever_relevance ... ok
+test tests::test_retriever_build_and_search ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (target/debug/deps/sandbox-35bb03f8b31dda3f)
+
+running 26 tests
+test linux_impl::n1sbx_tests::test_n1sbx_dev_null_effective_set_is_file_only ... ok
+test linux_impl::n1sbx_tests::test_n1sbx_file_sets_preserve_expected_bits ... ok
+test s4_tests::test_minimal_child_env_whitelist_only ... ok
+test linux_impl::n1sbx_tests::test_n1sbx_masks_are_exhaustive_and_disjoint ... ok
+test s4_tests::test_minimal_child_env_no_secrets_by_default ... ok
+test linux_impl::n1sbx_tests::test_n1sbx_file_sets_have_no_dir_only_rights ... ok
+test tests::test_allowlist_covers_cargo_syscalls ... ok
+test tests::test_p5_egress_syscalls_allowed_and_server_blocked ... ok
+test tests::test_noop_sandbox_warn_on_creation ... ok
+test tests::test_noop_sandbox_echo ... ok
+test tests::test_p5_signal_note_for_sigsys ... ok
+test tests::test_p5_landlock_denies_outside_write ... ok
+test tests::test_p5_landlock_allows_workspace_write ... ok
+test tests::test_linux_sandbox_echo ... ok
+test tests::test_rt4_cgroup_fail_closed ... ok
+test tests::test_rt4_readonly_probes ... ok
+test tests::test_sandbox_config_writable_paths_populated ... ok
+test tests::test_sandbox_degrades_when_fail_closed_false ... ok
+test tests::test_sandbox_fail_closed_when_seccomp_unavailable ... ok
+test tests::test_linux_sandbox_timeout ... ok
+test tests::test_noop_sandbox_timeout ... ok
+test tests::test_p5_seccomp_blocks_ptrace ... ok
+test tests::test_linux_sandbox_timeout_reaps_cgroup ... ok
+test tests::test_rt4_seccomp_kill_redteam ... ok
+test tests::test_rt3_redteam_probes ... ok
+test tests::test_rt4_cgroup_memory_oom ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/s4_spawn_env.rs (target/debug/deps/s4_spawn_env-40328015d32a2f03)
+
+running 1 test
+test test_s4_spawn_env_clear_whitelist_and_explicit_injections ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/service-2f32ee6c76ee4e9b)
+
+running 4 tests
+test sse::tests::test_envelope_seq_monotonic_and_span_tree ... ok
+test sse::tests::test_wp9_think_summary_carries_span ... ok
+test sse::tests::test_replay_envelope_consistent ... ok
+test sse::tests::test_wp8_artifact_event_serialized ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/service-6456c4ccc4980589)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_contract_test.rs (target/debug/deps/cli_contract_test-024906fb108d3d63)
+
+running 2 tests
+test cli_contract_sessions_and_readonly ... ok
+test cli_contract_status_and_approve_boundary ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/integration_test.rs (target/debug/deps/integration_test-b4c62f0e9a9315c9)
+
+running 14 tests
+test test_epic_b_readyz_probe_semantics ... ok
+test test_p14_readyz_civ_degraded_threshold ... ok
+test test_p1_tools_real_fs ... ok
+test test_p1_budget_exhausted_error ... ok
+test test_p2_a4_lsp_diagnostics_in_sse_stream ... ok
+test test_p2_a5_retrieval_in_context_spying ... ok
+test test_p5_fallback_in_request_path ... ok
+test test_a1_sse_event_stream_with_mock_provider ... ok
+test test_p1_natural_done ... ok
+test test_p1_f1_multi_turn_user_message_in_context ... ok
+test test_a3_dual_provider_switch ... ok
+test test_p4_three_backend_switch ... ok
+test test_p5_session_survives_restart ... ok
+test test_p5_cost_meter_real ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running unittests src/lib.rs (target/debug/deps/subconscious-c84b82fa9510e9e4)
+
+running 7 tests
+test tests::constitution_guard_allows_normal ... ok
+test tests::cost_guard_ignores_at_50pct ... ok
+test tests::constitution_guard_blocks_rm_rf ... ok
+test tests::gate_stops_at_first_guard ... ok
+test tests::repetition_detector_at_8_of_10_fails ... ok
+test tests::repetition_detector_ignores_low_fail_rate ... ok
+test tests::cost_guard_triggers_at_96pct ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/tool_runtime-fb0269e65c6e4968)
+
+running 23 tests
+test dispatcher::c2_tests::test_timeout_drift_ratio ... ok
+test dispatcher::r2c_resource_tests::test_resource_ledger_accumulates ... ok
+test dispatcher::test_wp0_dummy_kind_not_switched ... ok
+test dispatcher::test_wp0a_r1_wrong_interaction_id_rejected ... ok
+test dispatcher::test_wp3_take_interaction_response_returns_payload ... ok
+test dispatcher::test_wp0a_r2_double_submit_rejected ... ok
+test dispatcher::tests::test_dispatch_missing_tool ... ok
+test dispatcher::tests::test_interaction_deny ... ok
+test dispatcher::tests::test_interaction_flow ... ok
+test dispatcher::tests::test_interaction_isolated_between_sessions ... ok
+test dispatcher::tests::test_list_tools ... ok
+test dispatcher::tests::test_list_tools_deterministic_order ... ok
+test dispatcher::p1ltr_tests::test_t3_continue_turn_resets_deadline ... ok
+test dispatcher::tests::test_read_only_view_strips_mutating_tools ... ok
+test dispatcher::tests::test_register_and_dispatch ... ok
+test dispatcher::tests::test_explicit_timeout_overrides_declared ... ok
+test dispatcher::p1ltr_tests::test_t2_t4_none_and_expired ... ok
+test dispatcher::tests::test_parallel_execution ... ok
+test dispatcher::tests::test_tool_timeout ... ok
+test dispatcher::c2_tests::test_timeout_kill_emits_drift_context ... ok
+test dispatcher::tests::test_declared_timeout_extends_dispatch_window ... ok
+test dispatcher::p1ltr_tests::test_t5_tool_timeout_beats_deadline ... ok
+test dispatcher::p1ltr_tests::test_t1_task_deadline_clamps_declared ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+
+     Running unittests src/lib.rs (target/debug/deps/tools_builtin-192227bdf0446b5a)
+
+running 60 tests
+test atomic::tests::test_write_atomic_failure_preserves_original ... ok
+test bash::test_extract_lints_struct ... ok
+test bash::tests::test_bash_dangerous_command_blocked ... ok
+test atomic::tests::test_write_atomic_rename_failure_cleans_tmp ... ok
+test atomic::tests::test_write_atomic_basic ... ok
+test atomic::tests::test_write_atomic_overwrite ... ok
+test bash::tests::test_bash_missing_cmd ... ok
+test bash::tests::test_description ... ok
+test bash::tests::test_egress_allows_allowlisted_host ... ok
+test bash::tests::test_egress_denies_unlisted_host ... ok
+test bash::tests::test_egress_empty_allowlist_denies_all ... ok
+test bash::tests::test_egress_redirect_target_not_a_host ... ok
+test bash::tests::test_bash_failure_is_structured_error ... ok
+test bash::tests::test_egress_unresolved_target_denied ... ok
+test edit::tests::test_edit_absolute_path_outside_workspace_denied ... ok
+test edit::tests::test_edit_missing_args ... ok
+test bash::tests::test_bash_echo ... ok
+test edit::tests::test_edit_path_traversal_denied ... ok
+test edit::tests::test_edit_absolute_path_inside_workspace_allowed ... ok
+test bash::tests::test_bash_tail_normal_output ... ok
+test edit::tests::test_edit_write_file ... ok
+test edit::tests::test_write_file_append_chunks ... ok
+test edit::tests::test_write_file_raw_string_content_rescued ... ok
+test edit::tests::test_write_long_content_overwrites_existing ... ok
+test glob::tests::test_glob_finds_files ... ok
+test edit::tests::test_write_file_workspace_hint ... ok
+test glob::tests::test_glob_missing_pattern ... ok
+test edit::tests::test_write_long_content_atomic ... ok
+test glob::tests::test_glob_no_match ... ok
+test glob::tests::test_glob_traversal_pattern_denied ... ok
+test atomic::tests::test_write_atomic_large_content ... ok
+test grep::tests::test_grep_missing_pattern ... ok
+test grep::tests::test_absolute_path_within_root_allowed ... ok
+test grep::tests::test_grep_finds_pattern ... ok
+test p3_tests::test_rc25_default_roots ... ok
+test p3_tests::test_rc25_explicit_roots_replace ... ok
+test p3_tests::test_rc25_relative_always_allowed ... ok
+test grep::tests::test_grep_traversal_path_rejected ... ok
+test patch::tests::p3_tests::test_rc54_whitespace_boundary_declared ... ok
+test patch::tests::test_patch_ambiguous_rejected ... ok
+test patch::tests::test_patch_lenient_trailing_whitespace ... ok
+test patch::tests::test_patch_no_truncation_on_large_file ... ok
+test patch::tests::test_patch_basic_replace ... ok
+test patch::tests::test_patch_search_not_found_rejected ... ok
+test read::tests::test_read_file ... ok
+test read::tests::test_read_missing_path ... ok
+test read::tests::test_read_path_traversal_denied ... ok
+test tests::test_coerce_args_object_passthrough ... ok
+test tests::test_coerce_args_string_to_object ... ok
+test status::tests::test_introspect_returns_body ... ok
+test tests::test_coerce_args_unparseable_keeps_string ... ok
+test web::tests::test_egress_allowlist ... ok
+test web::tests::test_strip_html ... ok
+test web::tests::test_web_fetch_denied_without_allowlist ... ok
+test grep::tests::test_grep_with_glob_filter ... ok
+test grep::tests::test_grep_no_match ... ok
+test bash::tests::test_bash_node_check_real_exit_code ... ok
+test web::tests::test_web_fetch_allowed_with_allowlist ... ok
+test bash::tests::test_bash_timeout ... ok
+test bash::tests::test_bash_dangerous_not_false_positive ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.33s
+
+   Doc-tests agent_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests agent_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests agent_types
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests api
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests code_index
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hearth
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests experience
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests llm_cn
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests llm_gateway
+
+running 1 test
+test crates/llm-gateway/src/stream_util.rs - stream_util::AbortOnDropStream (line 22) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests llm_local
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests llm_openai
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests llm_replay
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lsp_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests memory
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nervous_system
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests observer
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests planner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests project_sync
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests project_xray
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests resource_monitor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests retriever
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests sandbox
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests service
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests subconscious
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tool_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tools_builtin
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+GATE_RC=0
+--- 汇总（每个 test result 行）---
+grep: /home/wutao/fa/gate_full.log: 输入文件同时也是输出文件
+--- passed/failed 总计 ---
+TOTAL_PASSED=493
+=== FULL GATE DONE 2026-09-03T19:22:53+08:00 ===

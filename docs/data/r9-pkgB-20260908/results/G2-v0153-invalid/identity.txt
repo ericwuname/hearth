@@ -1,0 +1,1 @@
+group=G2 | base=codex-cli codex-cli 0.153.4 | model=agnes-2.5-flash | started_utc=20260908T002515Z

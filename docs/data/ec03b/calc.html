@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简单计算器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #f0f2f5;
+  }
+  .calculator {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    width: 320px;
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #333;
+    font-size: 22px;
+  }
+  .display {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 24px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    text-align: right;
+    color: #333;
+  }
+  .buttons {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  button {
+    padding: 14px;
+    font-size: 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: #e8e8e8;
+    color: #333;
+    transition: background 0.15s;
+  }
+  button:hover { background: #d0d0d0; }
+  button:active { background: #bbb; }
+  .btn-op { background: #ff9500; color: #fff; }
+  .btn-op:hover { background: #e08900; }
+  .btn-eq { background: #4caf50; color: #fff; }
+  .btn-eq:hover { background: #3d9140; }
+  .btn-clr { background: #f44336; color: #fff; }
+  .btn-clr:hover { background: #d32f2f; }
+  #result {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f9f9f9;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 18px;
+    color: #333;
+    min-height: 24px;
+  }
+</style>
+</head>
+<body>
+<div class="calculator">
+  <h1>计算器</h1>
+  <input type="number" id="num1" class="display" placeholder="输入数字" step="any">
+  <div class="buttons">
+    <button class="btn-op" onclick="compute('+')">+</button>
+    <button class="btn-op" onclick="compute('-')">−</button>
+    <button class="btn-op" onclick="compute('*')">×</button>
+    <button class="btn-op" onclick="compute('/')">÷</button>
+    <button class="btn-eq" onclick="compute('=')">=</button>
+    <button class="btn-clr" onclick="clearAll()">C</button>
+  </div>
+  <div id="result"></div>
+</div>
+
+<script>
+function compute(op) {
+  const a = parseFloat(document.getElementById('num1').value);
+  const b = parseFloat(document.getElementById('num2').value || 0);
+  let res;
+  if (op === '+') res = a + b;
+  else if (op === '-') res = a - b;
+  else if (op === '*') res = a * b;
+  else if (op === '/') res = b !== 0 ? a / b : '错误：除以零';
+  else if (op === '=') res = a;
+  else return;
+  if (typeof res === 'number') res = parseFloat(res.toFixed(10));
+  document.getElementById('result').textContent = '结果: ' + res;
+  // 把结果放到 num2 方便连续运算
+  if (typeof a === 'number' && typeof res === 'number') {
+    document.getElementById('num2').value = res;
+  }
+}
+function clearAll() {
+  document.getElementById('num1').value = '';
+  document.getElementById('num2').value = '';
+  document.getElementById('result').textContent = '';
+}
+</script>
+</body>
+</html>

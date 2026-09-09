@@ -1,0 +1,27 @@
+group=G2 | base=codex-cli codex-cli 0.44.0 | model=agnes-2.5-flash | started_utc=20260908T010211Z
+── [G2/A1] rc=0 4s ──
+[G2/A2] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A2] rc=1 127s ──
+[G2/A3] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A3] rc=1 176s ──
+[G2/A4] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A4] rc=1 109s ──
+[G2/A5] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A5] rc=1 120s ──
+── [G2/A6] rc=0 34s ──
+[G2/A7] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A7] rc=0 57s ──
+[G2/A8] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A8] rc=1 94s ──
+[G2/A9] 协议层失败，复跑一次（RERUN 标注）
+── [G2/A9] rc=1 117s ──
+── [G2/A10] rc=0 3s ──
+[G2/B1] 协议层失败，复跑一次（RERUN 标注）
+── [G2/B1] rc=1 277s ──
+[G2/B2] 协议层失败，复跑一次（RERUN 标注）
+── [G2/B2] rc=1 253s ──
+[G2/B3] 协议层失败，复跑一次（RERUN 标注）
+── [G2/B3] rc=0 183s ──
+── [G2/B4] rc=0 35s ──
+── [G2/B5] rc=0 21s ──
+[G2] 完成。产物：/home/wutao/r9-pkgB/results/G2/

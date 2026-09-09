@@ -1,0 +1,52 @@
+[package]
+name = "service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+[[bin]]
+name = "service"
+path = "src/main.rs"
+[dependencies]
+api.workspace = true
+agent-core.workspace = true
+agent-types.workspace = true
+llm-gateway.workspace = true
+experience.workspace = true
+llm-openai = { path = "../llm-openai" }
+llm-local.workspace = true
+llm-cn.workspace = true
+llm-replay.workspace = true
+tool-runtime.workspace = true
+tools-builtin = { path = "../tools-builtin" }
+lsp-bridge.workspace = true
+memory.workspace = true
+retriever.workspace = true
+bridge.workspace = true
+resource-monitor.workspace = true
+toml = "0.8"
+code-index.workspace = true
+planner.workspace = true
+observer.workspace = true
+agent-runtime.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+tower-http = { workspace = true, features = ["fs"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dotenvy = "0.15"
+tokio-stream = { version = "0.1", features = ["sync"] }
+utoipa = "5"
+
+[dev-dependencies]
+tower.workspace = true
+async-trait.workspace = true
+agent-types.workspace = true
+http-body-util = "0.1"
+tempfile = "3"

@@ -1,0 +1,5 @@
+  ✓ "HTTP_CODE:200\nTIME_TOTAL:1.438045\nSIZE_DOWNLOAD:559\nREMOTE_IP:104.20.23.154<!doctype html><html lang=\"en\"><head><title>Example Domain</title><link rel=\"icon\" href=\"data:,\"><meta name=\"viewp…
+✗ 工具出错: "bash: 出网被拒：目标域名 [\"www.baidu.com\"] 不在 egress_allowlist 白名单（23 条）内。需要放行请让用户在 config.toml 的 egress_allowlist 中补入该域名。"
+  ✓ Checklist (R6-3 模型自持清单):
+- ❌ baidu.com：出网白名单拒绝，域名不在允许列表中✓ Done (12 steps)
+  ✓ Task completed（12 步）——目标达成（未验证），产物见报告

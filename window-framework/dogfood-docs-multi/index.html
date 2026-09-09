@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 首页</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div>
+        <h1>Codex-Rust 文档站</h1>
+        <small>v21.0 维护期 · 全局锚点</small>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html" class="active">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html">架构与实现逻辑</a>
+        <a href="genes.html">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html">决策记录</a>
+        <a href="progress.html">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">
+      基线：git HEAD <code>4528fd6</code> (v21.0)<br>
+      维护期：已启动 · wiring 14/14 全绿<br>
+      生成：win-html-generator
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="hero">
+      <h1>Codex-Rust 文档站</h1>
+      <p class="lead">Rust 编写的自主编码 Agent 系统 —— 架构、基因、版本与维护期的全局知识锚点。</p>
+      <span class="tag">v21.0 已提交 + tag</span>
+      <span class="tag">维护期已启动</span>
+      <span class="tag">wiring 14/14 全绿</span>
+      <span class="tag">17 crates</span>
+    </div>
+
+    <h2>核心事实速览</h2>
+    <div class="card-grid">
+      <div class="card"><div class="num">17</div><h3>crate 总数</h3><p>Cargo workspace 实际声明 17 个 crate（非 19 个）。`agent-types` 为共享数据基座，零依赖。</p></div>
+      <div class="card"><div class="num">14/14</div><h3>wiring 接线</h3><p>接线断言全绿（11 基础 + 3 新增），每条反射基因必挂 wiring 断言测试。</p></div>
+      <div class="card"><div class="num">4</div><h3>基因层级</h3><p>G0 结构 / G1 反射 / G2 检索 / G3 叙事 —— 按"牙齿硬度"分层，而非内容主题。</p></div>
+      <div class="card"><div class="num">92.5%</div><h3>基线锚定</h3><p>v19 基线锚定 92.5%，planner 毒债修复（write_attempted 门控）后维持。</p></div>
+    </div>
+
+    <h2>文档导航</h2>
+    <div class="card-grid">
+      <div class="card"><h3>📐 架构与实现逻辑</h3><p>分层依赖、核心 trait、SSE API、LLM 降级链、17 crate 全景。基于源码直接核对。</p><p><a href="architecture.html">阅读 →</a></p></div>
+      <div class="card"><h3>🗺️ 全局透视 v21</h3><p>v12→v21 轮次谱系、基因层级系统、wiring 清单、维护期纪律。只认生产路径可达。</p><p><a href="panorama.html">阅读 →</a></p></div>
+      <div class="card"><h3>📚 版本迭代说明书</h3><p>每版做了什么 / 没做哪些 / 关键决策红线，全局视角锚点，随时间推移不遗忘。</p><p><a href="versions.html">阅读 →</a></p></div>
+      <div class="card"><h3>🧬 基因表达系统设计</h3><p>把"靠自觉的栏杆"换成"有牙齿的必然"。Intake Gate + 管线五步 + 复盘三选一。</p><p><a href="genes.html">阅读 →</a></p></div>
+    </div>
+
+    <h2>判据铁律</h2>
+    <div class="callout danger">
+      <div class="ct-title">⚠️ 只认"生产路径可达"</div>
+      <p>所有全景与版本结论以 grep 可证的调用链 / 真实 CHANGELOG / 守门员审计 / 测试报告为准，<strong>不采信提交信息与交付报告自报</strong>。</p>
+    </div>
+    <div class="callout warn">
+      <div class="ct-title">⚠️ 经验回路的真相</div>
+      <p>经验对<strong>弱模型（zhipu）+20pt 有效</strong>，对<strong>强模型（deepseek，生产标准脑）零增量甚至 -5pt 有害</strong>。结论 = 经验是<em>可选降级通道</em>（连续失败 ≥3 才注入），非常驻增强。</p>
+    </div>
+
+    <div class="footer">
+      文档站由 win-html-generator 生成 · 数据源：shared/specs（architecture-summary / global-panorama-v21 / gene-expression-system-design / version-iteration-manual）
+    </div>
+  </main>
+</div>
+</body>
+</html>

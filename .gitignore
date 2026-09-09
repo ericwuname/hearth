@@ -1,0 +1,14 @@
+.env
+.workbuddy/
+
+# 运行日志/结果（可能含 API 请求内容）
+*.log
+bench/results/raw/*.jsonl
+window-framework/src/__pycache__/
+
+# 腐化审计整改 (2026-08-28): 构建产物不入库（留盘+manifest 管制）
+target/
+release/*.tar.gz
+
+# exam fixtures need versioned logs
+!bench/exam/**/*.log

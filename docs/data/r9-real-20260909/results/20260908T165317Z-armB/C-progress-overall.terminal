@@ -1,0 +1,5 @@
+  ✓ {
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓ run-001.md
+M4 的修复方向比较明确（大概率是缺 `Event::Mouse` 分支），是否要我接着修？还是你想先讨论 M5 主题配色的方案？✓ Done (6 steps)
+  ✓ Task completed（6 步）——目标达成（未验证），产物见报告

@@ -1,0 +1,5 @@
+  ✓ src/ui.rs
+  ✓      1	//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。
+  ✓      1	//! 渲染层（骨架——fixture 只需给语料以"项目存在"的上下文）。
+需要我现在修这个bug吗？✓ Done (10 steps)
+  ✓ Task completed（10 步）——目标达成（未验证），产物见报告

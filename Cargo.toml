@@ -1,0 +1,96 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/agent-types",
+  "crates/llm-gateway",
+  "crates/llm-openai",
+  "crates/tool-runtime",
+  "crates/tools-builtin",
+  "crates/sandbox",
+  "crates/agent-core",
+  "crates/api",
+  "crates/service",
+  "crates/code-index",
+  "crates/retriever",
+  "crates/lsp-bridge",
+  "crates/planner",
+  "crates/llm-local",
+  "crates/experience",
+  "crates/subconscious",
+  "crates/llm-cn",
+  "crates/memory",
+  "crates/codex-cli",
+  "crates/bridge",
+  "crates/resource-monitor",
+  "crates/nervous-system",
+  "crates/project-xray",
+  "crates/llm-replay",
+  "crates/observer",
+  "crates/agent-runtime",
+  "crates/project-sync",
+]
+
+[workspace.package]
+version = "0.2.26"  # v0.2.26（R9 线C手术收官：十项 D 项落刀——D-10/D-8/D-1/D-2/D-7/D-5/D-6/D-3+D-4/D-9 删 B 臂编排与机械分类，loop.rs 13,055→8,114（−37.9%）；C-2 回滚触发器挂载；A 臂转正单循环；真机三项：⑤SINGLE_LOOP=0✅ G-A 严口径 5.0/10✅ C YES 12<13✗ ④墙钟 46.4%/34.7%✗（膨胀病定量：prompt 基底+23.6%，主犯=常驻治理注入——修复义务转新路线第一批）；顶层有条件收口 e5c9d1b）  # v0.2.25（R5 智能性根治：包A通路层 R5-1失败事实注入/R5-2错误回喂结构化/R5-3强制换策略；包B信息完备层 R5-4环境快照/R5-5 read分页行号/R5-6 archive读回；包C行为校准层 R5-7 temperature分档/R5-8 verification看退出码/R5-9工具描述五要素/R5-10死流程→原则/R5-11纯回答型完成/R5-12宪法配执行点）  # v0.2.24（R4.1 返工：R3-1 REPL 收尾三行接线+VERIFIED 授予收紧（is_verification_command：bash -c 解包递归+cd 入只读表——11 裸 VERIFIED 机制封死）+G-H observe_verdict 持久化日志钩子+引擎身份纪律（跑测前 which+md5 必验））  # v0.2.23（P5-FOUNDATION-01：S1 工具层原子写/S2 快照回滚+rollback CLI/S3 增量 checkpoint/S4 env_clear 白名单/C-1+C-12 verification 字段+投影/C-2 超时 drift 观测/C-3 宪法回退告警 + P4-RC52 三臂 give_up 统一回填）  # v0.2.22（P5-FOUNDATION-01 段1b：沙箱出网放行——seccomp 白名单补客户端网络 syscall 集（sendto/sendmsg/recvmsg/bind/setsockopt/.../recvmmsg/sendmmsg；accept/listen 仍禁）；被拒 syscall 由 SIGSYS 静默杀进程改为结构化说明；bash 工具层出网域名白名单校验（空=全拒））  # v0.2.21（P4-EXEC-Node13：RC52 跨 run 产物事实回填（session_written_files+give_up 臂 RC47 路由回填，Done 相位确定性校验兜底）+截断标记 4 处（事实投影侧显式标记信息销毁：constitution/goal_drift/failed_nodes/诊断错误，内部 query 与纯 UI 摘要豁免）+R-1 仪器修复（simuser session 提取改文件系统 diff+DRIVER-INDUCED 非空断言））  # v0.2.20（P4-REVALIDATION Node 05/06：RC51-A tracing 写诊断文件不再直灌终端+RC51-B Done 产物清单投影+RC53 bash 内部工具名结构化提示+RC54 whitespace 边界 fixture）  # v0.2.19（P3-BACKLOG-01：RC16 HEARTH_URL 拆分+RC18 端点警告+RC13 service 白名单读 config+RC25 读范围限域+RC27 PATH 护栏+RC34 渲染去重+RC45 计数分账+RC15 判定复验）  # v0.2.18（P2-CFR：压缩阈值优先级修正——env 测试仪器压过 provider-aware 注入，真机 COMPACT_DBG 实证注入致受控压缩静默失灵）（P2-LONG-RUN-ACCEPTANCE-01：RC47 最小修复+exit code 五态接线+40 切片标记+chat 主路径 session 绑定）（P2-MEMORY-CONTEXT-01：单 run 压缩死代码修复+estimate 诚实计数+provider-aware 阈值+RC40 改名+INV-M01 fixtures）（P1-FAILURE-ADAPTATION-01：F1-F10 taxonomy+策略矩阵纯函数+failure 分类观察级消费端+F9 未核验放弃显式标记+T4/预算旁路拦截）
+edition = "2021"
+rust-version = "1.82"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures = "0.3"
+async-trait = "0.1"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+resource-monitor = { path = "crates/resource-monitor" }
+nervous-system = { path = "crates/nervous-system" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+chrono = { version = "0.4", features = ["serde"] }
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+# PWC (Phase 1): 哈希链 + 跨平台文件锁（VM 可达 crates.io）
+sha2 = "0.10"
+fs2 = "0.4"
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+rpassword = "7"
+reedline = "0.36"
+agent-types = { path = "crates/agent-types" }
+llm-gateway = { path = "crates/llm-gateway" }
+tool-runtime = { path = "crates/tool-runtime" }
+agent-core = { path = "crates/agent-core" }
+experience = { path = "crates/experience" }
+subconscious = { path = "crates/subconscious" }
+api = { path = "crates/api" }
+sandbox = { path = "crates/sandbox" }
+code-index = { path = "crates/code-index" }
+retriever = { path = "crates/retriever" }
+lsp-bridge = { path = "crates/lsp-bridge" }
+planner = { path = "crates/planner" }
+bridge = { path = "crates/bridge" }
+agent-runtime = { path = "crates/agent-runtime" }
+llm-openai = { path = "crates/llm-openai" }
+llm-local = { path = "crates/llm-local" }
+tools-builtin = { path = "crates/tools-builtin" }
+llm-cn = { path = "crates/llm-cn" }
+llm-replay = { path = "crates/llm-replay" }
+observer = { path = "crates/observer" }
+memory = { path = "crates/memory" }
+service = { path = "crates/service" }
+# P2 external dependencies (locked at workspace level)
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tantivy = "0.22"
+
+# D2 (hearth-cli): 发布优化——strip + lto（R1 门禁：Cargo.toml 含 [profile.release]）。
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

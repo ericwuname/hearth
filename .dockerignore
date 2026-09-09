@@ -1,0 +1,12 @@
+# Build context: exclude everything not needed for cargo build --release
+target/
+.git/
+.workbuddy/
+__pycache__/
+*.pyc
+node_modules/
+window-framework/
+bench/
+docs/
+crates/*/tests/
+# 保留 crates/*/src + Cargo.toml/lock（cargo build 需要源码与依赖清单）

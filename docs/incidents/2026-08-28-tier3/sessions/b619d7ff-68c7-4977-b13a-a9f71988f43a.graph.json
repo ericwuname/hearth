@@ -1,0 +1,15 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "delegable": false,
+        "deps": [],
+        "description": "回答法国的首都城市名：巴黎",
+        "id": "do_it",
+        "result": null,
+        "status": "Pending"
+      }
+    ]
+  },
+  "state_revision": 2
+}

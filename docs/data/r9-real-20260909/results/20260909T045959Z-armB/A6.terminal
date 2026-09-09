@@ -1,0 +1,5 @@
+  ✓ "{\n  \"note\": \"body state not available yet\",\n  \"workspace\": \"/tmp/.hr-22229-3557/A6\"\n}"
+  ✓ "/tmp/.hr-22229-3557/A6\nwutao\n"
+✗ Done (14 steps)
+✗   ✗ Task failed — status=failed（14 步）——报告含已完成/剩余工作，可直接下指令继续
+  ── 收尾 | 还剩什么: 回复✓ Done (21 steps)；Investigate why the response was just '✓ Done (21 steps)' without explaining the results（2 项未完成）

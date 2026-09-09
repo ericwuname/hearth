@@ -1,0 +1,5 @@
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. Analyze the seccomp clone3 error and identify affected files\n[x] 2. Locate seccomp configuration and Cargo-related code\n[~] 3. Determine root cause and fix approach…
+  ✓ "---\n"
+  ✓ ""
+✗ Done (30 steps)
+✗   ✗ Task failed — status=failed（30 步）——报告含已完成/剩余工作，可直接下指令继续

@@ -1,0 +1,3 @@
+group=G4 | base=hearth 0.2.25 (5b45c57) HEARTH_SINGLE_LOOP=1(A臂) md5=5c7aef03 | model=agnes-2.5-flash | started_utc=20260908T004045Z
+5c7aef0307f1dbe7556441cc432311a9  /usr/local/bin/hearth
+hearth 0.2.25 (5b45c57)

@@ -1,0 +1,5 @@
+  ✓ "HTTP Code: 200\nTime Total: 1.681909s\nSize Download: 559 bytes\n--- Body preview (first 500 chars) ---\n<!doctype html><html lang=\"en\"><head><title>Example Domain</title><link rel=\"icon\" href=\"…
+✗ 工具出错: "bash: 出网被拒：目标域名 [\"www.baidu.com\"] 不在 egress_allowlist 白名单（23 条）内。需要放行请让用户在 config.toml 的 egress_allowlist 中补入该域名。"
+✗ 工具出错: path outside allowed roots (workspace/home) denied: /tmp/curl_test_results.md (workspace: /tmp/.hr-22229-24100/B1)
+**说明：** 尝试将结果写入文件时遇到权限限制（当前工作区为 `/tmp/.hr-22229-24100/B1`，不允许写入 `/tmp/` 路径）。若需落盘，请在允许目录内指定路径，或告诉我你的期望位置。✓ Done (13 steps)
+  ✓ Task completed（13 步）——目标达成（未验证），产物见报告

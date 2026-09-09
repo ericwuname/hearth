@@ -1,0 +1,5 @@
+  ✓ "(no matches)"
+### 3. 关于新观察："✗ Done 后直接 give_up 未尝试恢复"
+| **Premature termination** | 系统在某一步标记 `✓ Done` 后立即调用 `give_up`，没有尝试任何恢复策略 |
+是否需要我进一步排查为何 workspace 为空，或提供具体的代码/流程修改建议？✓ Done (6 steps)
+  ✓ Task completed（6 步）——目标达成（未验证），产物见报告

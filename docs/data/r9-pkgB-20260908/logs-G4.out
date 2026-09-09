@@ -1,0 +1,18 @@
+group=G4 | base=hearth 0.2.25 (5b45c57) HEARTH_SINGLE_LOOP=1(A臂) md5=5c7aef03 | model=agnes-2.5-flash | started_utc=20260908T004045Z
+diagnostics → /home/wutao/.config/hearth/diagnostics.log
+── [G4/A1] rc=0 33s ──
+── [G4/A2] rc=0 1s ──
+── [G4/A3] rc=0 109s ──
+── [G4/A4] rc=0 36s ──
+── [G4/A5] rc=0 9s ──
+── [G4/A6] rc=0 74s ──
+── [G4/A7] rc=0 3s ──
+── [G4/A8] rc=0 7s ──
+── [G4/A9] rc=0 73s ──
+── [G4/A10] rc=0 33s ──
+── [G4/B1] rc=0 5s ──
+── [G4/B2] rc=0 8s ──
+── [G4/B3] rc=0 37s ──
+── [G4/B4] rc=0 2s ──
+── [G4/B5] rc=0 44s ──
+[G4] 完成。产物：/home/wutao/r9-pkgB/results/G4/

@@ -1,0 +1,17 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# scenario s04 — After-compaction 压缩后（矩阵场景；输入骨架逐字取自语料/黄金集）
+schema: simuser-scenario-v1.0
+id: s04
+name: "After-compaction 压缩后"
+class: After-compaction
+mode: operational
+persona_ref: p08
+description: "压缩事件后 ≥10 轮再探记忆；RC5/RC37 放大器观察"
+inputs:
+  - "长会话触发压缩 → 10 轮后记忆追问"
+detectors_expected:
+  - compaction_adjacency
+  - anaphora_resolution_fail
+# Node 12 纪律：每场景必须留 success + failure + counterexample 三样本（禁只存失败）
+sample_policy: success+failure+counterexample

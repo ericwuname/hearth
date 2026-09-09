@@ -1,0 +1,62 @@
+=== Hearth 可靠性遥测 R2 (resume + 长任务) | 通道=DeepSeek config | 2026-08-28 18:56 ===
+config: provider=deepseek (VM 实际配置); resume 走 config（不接受全局 flag）
+
+########## PART A: RESUME 续跑 ##########
+A01 chat=SUCCESS(rc=0,6.3s) resume=TASK_FAIL(rc=2,0.0s) sid=b619d7ff-68c7-4977-b13a-a9f71988f43a
+     chat_tail: 'e/wutao/.hearth/reports/b619d7ff-68c7-4977-b13a-a9f71988f43a/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2080 ↓35 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A02 chat=SUCCESS(rc=0,6.0s) resume=TASK_FAIL(rc=2,0.1s) sid=397d9e06-420f-4905-8816-79e04881c788
+     chat_tail: 'e/wutao/.hearth/reports/397d9e06-420f-4905-8816-79e04881c788/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓51 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A03 chat=SUCCESS(rc=0,6.1s) resume=TASK_FAIL(rc=2,0.1s) sid=454a14f1-7f6c-4e52-9bd9-ee55f64f397d
+     chat_tail: 'e/wutao/.hearth/reports/454a14f1-7f6c-4e52-9bd9-ee55f64f397d/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓52 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A04 chat=SUCCESS(rc=0,5.9s) resume=TASK_FAIL(rc=2,0.0s) sid=d011b736-62dd-4fd7-875a-8b32a9576e06
+     chat_tail: 'e/wutao/.hearth/reports/d011b736-62dd-4fd7-875a-8b32a9576e06/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓33 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A05 chat=SUCCESS(rc=0,5.1s) resume=TASK_FAIL(rc=2,0.0s) sid=a4944b96-e8c4-431f-b3c4-8a216766f81f
+     chat_tail: 'e/wutao/.hearth/reports/a4944b96-e8c4-431f-b3c4-8a216766f81f/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓23 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A06 chat=SUCCESS(rc=0,5.7s) resume=TASK_FAIL(rc=2,0.1s) sid=e9b3d4c0-f530-4a32-b8e8-4bf0a0908315
+     chat_tail: 'e/wutao/.hearth/reports/e9b3d4c0-f530-4a32-b8e8-4bf0a0908315/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓31 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A07 chat=SUCCESS(rc=0,6.1s) resume=TASK_FAIL(rc=2,0.0s) sid=6a335056-55f1-4562-a453-bb50c46fbe21
+     chat_tail: 'e/wutao/.hearth/reports/6a335056-55f1-4562-a453-bb50c46fbe21/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓38 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A08 chat=SUCCESS(rc=0,6.2s) resume=TASK_FAIL(rc=2,0.0s) sid=b92d2713-2f05-423a-941c-4e7cc609a51d
+     chat_tail: 'e/wutao/.hearth/reports/b92d2713-2f05-423a-941c-4e7cc609a51d/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓68 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A09 chat=SUCCESS(rc=0,5.5s) resume=TASK_FAIL(rc=2,0.0s) sid=e819c3b8-a675-427f-b77a-effac8596237
+     chat_tail: '/wutao/.hearth/reports/e819c3b8-a675-427f-b77a-effac8596237/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2068 ↓117 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+A10 chat=SUCCESS(rc=0,7.6s) resume=TASK_FAIL(rc=2,0.0s) sid=f949726f-d059-480d-9c18-c619303d090f
+     chat_tail: 'e/wutao/.hearth/reports/f949726f-d059-480d-9c18-c619303d090f/run-001.md\n  ✓ Task completed（2 步）——目标达成，产物见报告\n  📊 tokens: ↑2101 ↓65 (calls=1)'
+     res_tail : "ected argument '--budget' found\n\n  tip: to pass '--budget' as a value, use '-- --budget'\n\nUsage: hearth resume <ID> [GOAL]\n\nFor more information, try '--help'."
+PART A tally: TASK_FAIL=10
+
+########## PART B: 长任务压测 (高 step 预算, 推理密集型, 不依赖外部工具) ##########
+B01 TASK_FAIL rc=0 78.5s
+     tail: 'hearth/reports/d7d6bada-752a-4573-90c0-506b42dcc80a/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑27320 ↓1920 (calls=4)'
+B02 SUCCESS rc=0 98.4s
+     tail: 'hearth/reports/51a0fc2e-83e7-4c66-a476-552768dafd62/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑29186 ↓3167 (calls=4)'
+B03 HANG rc=124 200.1s
+     tail: 'lect] 2026-08-28T11:03:46.361162943+00:00\n◆ Reflect\n  continue\n  ◂ span 耗时 2894ms\n💭 [reflect] 正在反思进度\n  ▸ span [plan] 2026-08-28T11:03:49.255341674+00:00\n◆ Plan'
+B04 HANG rc=124 200.1s
+     tail: '2m:\x1b[0m read body failed — retrying with backoff \x1b[3mprovider\x1b[0m\x1b[2m=\x1b[0mdeepseek \x1b[3mattempt\x1b[0m\x1b[2m=\x1b[0m0 \x1b[3merror\x1b[0m\x1b[2m=\x1b[0merror decoding response body'
+B05 TASK_FAIL rc=0 78.1s
+     tail: 'hearth/reports/481c75f9-5d48-4445-9032-291ffd53893f/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑28683 ↓2465 (calls=4)'
+B06 HANG rc=124 200.1s
+     tail: '2m:\x1b[0m read body failed — retrying with backoff \x1b[3mprovider\x1b[0m\x1b[2m=\x1b[0mdeepseek \x1b[3mattempt\x1b[0m\x1b[2m=\x1b[0m0 \x1b[3merror\x1b[0m\x1b[2m=\x1b[0merror decoding response body'
+B07 TASK_FAIL rc=0 49.6s
+     tail: '.hearth/reports/6a9a9cec-0ab6-4438-b31e-e6ef01a41bc4/run-001.md\n✗   ✗ Task failed — status=failed（13 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑17161 ↓574 (calls=3)'
+B08 SUCCESS rc=0 131.4s
+     tail: 'hearth/reports/0955cd25-7fc1-40b5-95a4-4c0eff832e2c/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑27891 ↓2000 (calls=4)'
+B09 SUCCESS rc=0 84.9s
+     tail: 'hearth/reports/477d5fc4-c2e7-4392-9b94-8bf8cb069249/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑31996 ↓3250 (calls=4)'
+B10 TASK_FAIL rc=0 193.1s
+     tail: 'hearth/reports/29cabfd1-a17e-4189-8952-410e5f003c6b/run-001.md\n✗   ✗ Task failed — status=failed（17 步）——报告含已完成/剩余工作，可直接下指令继续\n  📊 tokens: ↑27312 ↓2559 (calls=4)'
+PART B tally: HANG=3, SUCCESS=3, TASK_FAIL=4
+
+=== TALLY ===
+PART A (resume): TASK_FAIL=10
+PART B (longtask): HANG=3, SUCCESS=3, TASK_FAIL=4

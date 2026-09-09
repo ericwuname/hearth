@@ -1,0 +1,1 @@
+first_char_or_default 对空字符串返回了错误值。修复：用 unwrap_or(default) 代替直接 .next()。cargo test 全绿。

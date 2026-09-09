@@ -1,0 +1,5 @@
+  ✓      1	//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。
+✗ 工具出错: error: command timed out
+✗ deadline exceeded: 902s >= 900s（任务级 wall-clock 上限）
+✗ Done (12 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 902s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

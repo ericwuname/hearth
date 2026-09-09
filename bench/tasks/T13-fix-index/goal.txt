@@ -1,0 +1,1 @@
+safe_get 函数有数组越界 bug：用了 idx-1 而非 idx。并且 middle_char 对非 ASCII 有 bug。修复这两个函数。cargo test 全绿。

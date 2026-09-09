@@ -1,0 +1,5 @@
+  ✓ "use agent_types::{Budget, Message, MessageContent, Role, RunState, Turn};\nuse serde_json::Value;\n\n/// Manages the conversation context, including history compression.\npub struct ContextManager {\…
+  ✓ ""
+  ✓ "/home/wutao/codex-r6/crates/agent-core/src/loop.rs:8745:    fn test_r54_env_context_injected_into_system_prompt() {\n"
+✗ Done (41 steps)
+✗   ✗ Task failed — status=failed（41 步）——报告含已完成/剩余工作，可直接下指令继续

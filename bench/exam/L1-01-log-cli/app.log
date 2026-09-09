@@ -1,0 +1,500 @@
+2026-09-01 08:00:02 [INFO] notify: request served
+2026-09-01 08:00:52 [INFO] auth: job done
+2026-09-01 08:01:32 [INFO] scheduler: health check ok
+2026-09-01 08:01:57 [INFO] db: health check ok
+2026-09-01 08:02:34 [INFO] scheduler: session opened
+2026-09-01 08:03:12 [INFO] api: health check ok
+2026-09-01 08:03:59 [INFO] api: request served
+2026-09-01 08:04:24 [ERROR] scheduler: null pointer in handler
+2026-09-01 08:05:15 [INFO] scheduler: request served
+2026-09-01 08:05:34 [WARN] api: slow query 1.2s
+2026-09-01 08:06:11 [INFO] notify: health check ok
+2026-09-01 08:06:50 [INFO] notify: session opened
+2026-09-01 08:07:35 [INFO] auth: job done
+2026-09-01 08:08:11 [INFO] db: cache refreshed
+2026-09-01 08:08:44 [INFO] db: session opened
+2026-09-01 08:09:32 [WARN] api: disk usage 81%
+2026-09-01 08:09:59 [INFO] api: cache refreshed
+2026-09-01 08:10:46 [INFO] db: job done
+2026-09-01 08:11:12 [ERROR] notify: connection refused
+2026-09-01 08:11:55 [ERROR] api: unauthorized access attempt
+2026-09-01 08:12:30 [WARN] auth: token near expiry
+2026-09-01 08:13:09 [INFO] notify: session opened
+2026-09-01 08:13:36 [INFO] scheduler: job done
+2026-09-01 08:14:19 [INFO] api: job done
+2026-09-01 08:14:56 [ERROR] auth: timeout after 30s
+2026-09-01 08:15:36 [INFO] scheduler: job done
+2026-09-01 08:16:17 [INFO] api: health check ok
+2026-09-01 08:16:54 [WARN] db: disk usage 81%
+2026-09-01 08:17:30 [INFO] notify: job done
+2026-09-01 08:18:04 [INFO] db: session opened
+2026-09-01 08:18:34 [INFO] auth: request served
+2026-09-01 08:19:10 [INFO] db: session opened
+2026-09-01 08:19:56 [INFO] api: cache refreshed
+2026-09-01 08:20:33 [INFO] auth: job done
+2026-09-01 08:21:12 [INFO] scheduler: health check ok
+2026-09-01 08:21:40 [WARN] auth: slow query 1.2s
+2026-09-01 08:22:18 [INFO] scheduler: job done
+2026-09-01 08:22:53 [INFO] api: cache refreshed
+2026-09-01 08:23:46 [INFO] auth: health check ok
+2026-09-01 08:24:22 [INFO] scheduler: session opened
+2026-09-01 08:24:51 [INFO] auth: health check ok
+2026-09-01 08:25:32 [INFO] db: session opened
+2026-09-01 08:26:09 [INFO] auth: health check ok
+2026-09-01 08:26:43 [INFO] api: request served
+2026-09-01 08:27:14 [INFO] scheduler: job done
+2026-09-01 08:28:05 [INFO] auth: request served
+2026-09-01 08:28:36 [INFO] scheduler: session opened
+2026-09-01 08:29:15 [WARN] db: token near expiry
+2026-09-01 08:29:46 [INFO] scheduler: health check ok
+2026-09-01 08:30:23 [INFO] auth: session opened
+2026-09-01 08:31:09 [INFO] db: cache refreshed
+2026-09-01 08:31:30 [INFO] db: cache refreshed
+2026-09-01 08:32:23 [INFO] api: cache refreshed
+2026-09-01 08:32:50 [INFO] notify: cache refreshed
+2026-09-01 08:33:21 [INFO] db: cache refreshed
+2026-09-01 08:34:04 [WARN] api: retry attempt 2/5
+2026-09-01 08:34:52 [INFO] scheduler: health check ok
+2026-09-01 08:35:23 [INFO] scheduler: job done
+2026-09-01 08:35:51 [INFO] scheduler: cache refreshed
+2026-09-01 08:36:41 [ERROR] auth: deadlock detected
+2026-09-01 08:37:20 [WARN] scheduler: queue backlog 120
+2026-09-01 08:37:55 [INFO] api: job done
+2026-09-01 08:38:31 [INFO] auth: cache refreshed
+2026-09-01 08:38:52 [INFO] auth: job done
+2026-09-01 08:39:39 [INFO] auth: session opened
+2026-09-01 08:40:12 [INFO] notify: request served
+2026-09-01 08:40:54 [WARN] notify: token near expiry
+2026-09-01 08:41:20 [INFO] scheduler: job done
+2026-09-01 08:42:07 [WARN] scheduler: token near expiry
+2026-09-01 08:42:47 [ERROR] db: timeout after 30s
+2026-09-01 08:43:28 [INFO] auth: cache refreshed
+2026-09-01 08:44:03 [INFO] notify: job done
+2026-09-01 08:44:29 [INFO] notify: cache refreshed
+2026-09-01 08:45:13 [WARN] auth: retry attempt 2/5
+2026-09-01 08:45:41 [WARN] notify: token near expiry
+2026-09-01 08:46:26 [INFO] auth: request served
+2026-09-01 08:47:06 [INFO] scheduler: cache refreshed
+2026-09-01 08:47:43 [INFO] api: cache refreshed
+2026-09-01 08:48:19 [INFO] auth: health check ok
+2026-09-01 08:48:56 [INFO] db: session opened
+2026-09-01 08:49:40 [INFO] api: session opened
+2026-09-01 08:50:05 [INFO] notify: cache refreshed
+2026-09-01 08:50:52 [INFO] api: cache refreshed
+2026-09-01 08:51:14 [INFO] notify: request served
+2026-09-01 08:51:59 [ERROR] scheduler: connection refused
+2026-09-01 08:52:42 [ERROR] scheduler: connection refused
+2026-09-01 08:53:22 [INFO] auth: job done
+2026-09-01 08:53:50 [WARN] db: disk usage 81%
+2026-09-01 08:54:26 [INFO] api: session opened
+2026-09-01 08:55:05 [INFO] notify: health check ok
+2026-09-01 08:55:39 [INFO] api: cache refreshed
+2026-09-01 08:56:15 [INFO] scheduler: cache refreshed
+2026-09-01 08:56:54 [INFO] scheduler: session opened
+2026-09-01 08:57:35 [ERROR] api: null pointer in handler
+2026-09-01 08:58:03 [INFO] scheduler: request served
+2026-09-01 08:58:49 [INFO] notify: job done
+2026-09-01 08:59:28 [ERROR] notify: unauthorized access attempt
+2026-09-01 09:00:07 [INFO] db: cache refreshed
+2026-09-01 09:00:26 [ERROR] api: unauthorized access attempt
+2026-09-01 09:01:18 [INFO] api: job done
+2026-09-01 09:01:57 [INFO] notify: health check ok
+2026-09-01 09:02:28 [WARN] notify: disk usage 81%
+2026-09-01 09:02:59 [WARN] notify: disk usage 81%
+2026-09-01 09:03:34 [INFO] db: request served
+2026-09-01 09:04:11 [INFO] scheduler: cache refreshed
+2026-09-01 09:04:54 [INFO] scheduler: session opened
+2026-09-01 09:05:22 [INFO] scheduler: job done
+2026-09-01 09:06:15 [INFO] db: health check ok
+2026-09-01 09:06:39 [WARN] notify: disk usage 81%
+2026-09-01 09:07:24 [ERROR] notify: null pointer in handler
+2026-09-01 09:07:51 [ERROR] notify: connection refused
+2026-09-01 09:08:31 [INFO] notify: cache refreshed
+2026-09-01 09:09:04 [INFO] db: job done
+2026-09-01 09:09:50 [WARN] auth: disk usage 81%
+2026-09-01 09:10:25 [INFO] auth: health check ok
+2026-09-01 09:10:57 [INFO] auth: request served
+2026-09-01 09:11:47 [INFO] scheduler: health check ok
+2026-09-01 09:12:11 [INFO] notify: health check ok
+2026-09-01 09:13:01 [INFO] db: job done
+2026-09-01 09:13:40 [WARN] db: retry attempt 2/5
+2026-09-01 09:14:16 [INFO] db: health check ok
+2026-09-01 09:14:50 [ERROR] api: connection refused
+2026-09-01 09:15:18 [INFO] db: health check ok
+2026-09-01 09:16:06 [INFO] api: session opened
+2026-09-01 09:16:41 [WARN] api: token near expiry
+2026-09-01 09:17:18 [INFO] db: health check ok
+2026-09-01 09:17:46 [INFO] notify: health check ok
+2026-09-01 09:18:33 [WARN] notify: disk usage 81%
+2026-09-01 09:19:04 [INFO] scheduler: job done
+2026-09-01 09:19:36 [INFO] api: cache refreshed
+2026-09-01 09:20:25 [ERROR] auth: null pointer in handler
+2026-09-01 09:21:07 [WARN] db: token near expiry
+2026-09-01 09:21:39 [INFO] notify: job done
+2026-09-01 09:22:14 [INFO] auth: request served
+2026-09-01 09:22:42 [WARN] api: slow query 1.2s
+2026-09-01 09:23:30 [INFO] auth: cache refreshed
+2026-09-01 09:23:55 [INFO] scheduler: request served
+2026-09-01 09:24:48 [INFO] auth: cache refreshed
+2026-09-01 09:25:23 [ERROR] scheduler: timeout after 30s
+2026-09-01 09:25:57 [INFO] api: health check ok
+2026-09-01 09:26:37 [INFO] api: job done
+2026-09-01 09:27:02 [INFO] scheduler: session opened
+2026-09-01 09:27:53 [INFO] db: request served
+2026-09-01 09:28:20 [WARN] auth: queue backlog 120
+2026-09-01 09:29:06 [INFO] scheduler: session opened
+2026-09-01 09:29:32 [WARN] db: queue backlog 120
+2026-09-01 09:30:14 [ERROR] api: failed to write file
+2026-09-01 09:30:46 [INFO] notify: cache refreshed
+2026-09-01 09:31:27 [INFO] db: job done
+2026-09-01 09:31:57 [WARN] scheduler: slow query 1.2s
+2026-09-01 09:32:44 [INFO] scheduler: health check ok
+2026-09-01 09:33:09 [INFO] api: request served
+2026-09-01 09:33:49 [INFO] auth: job done
+2026-09-01 09:34:40 [INFO] db: health check ok
+2026-09-01 09:35:06 [INFO] auth: job done
+2026-09-01 09:35:36 [INFO] api: health check ok
+2026-09-01 09:36:26 [WARN] notify: slow query 1.2s
+2026-09-01 09:37:01 [INFO] scheduler: job done
+2026-09-01 09:37:42 [INFO] api: cache refreshed
+2026-09-01 09:38:15 [WARN] auth: retry attempt 2/5
+2026-09-01 09:38:47 [INFO] api: request served
+2026-09-01 09:39:35 [INFO] scheduler: job done
+2026-09-01 09:40:04 [ERROR] scheduler: oom killed worker
+2026-09-01 09:40:37 [ERROR] api: oom killed worker
+2026-09-01 09:41:17 [ERROR] api: oom killed worker
+2026-09-01 09:41:56 [INFO] auth: request served
+2026-09-01 09:42:37 [INFO] api: request served
+2026-09-01 09:43:04 [INFO] api: request served
+2026-09-01 09:43:43 [INFO] notify: job done
+2026-09-01 09:44:26 [INFO] notify: job done
+2026-09-01 09:45:02 [WARN] api: disk usage 81%
+2026-09-01 09:45:41 [ERROR] scheduler: timeout after 30s
+2026-09-01 09:46:21 [ERROR] db: timeout after 30s
+2026-09-01 09:46:51 [INFO] db: cache refreshed
+2026-09-01 09:47:34 [INFO] db: health check ok
+2026-09-01 09:48:03 [WARN] api: token near expiry
+2026-09-01 09:48:44 [INFO] auth: health check ok
+2026-09-01 09:49:21 [INFO] db: session opened
+2026-09-01 09:49:48 [INFO] api: job done
+2026-09-01 09:50:25 [INFO] api: session opened
+2026-09-01 09:51:18 [INFO] api: job done
+2026-09-01 09:51:38 [INFO] db: cache refreshed
+2026-09-01 09:52:31 [INFO] scheduler: job done
+2026-09-01 09:53:11 [INFO] notify: session opened
+2026-09-01 09:53:36 [INFO] api: request served
+2026-09-01 09:54:17 [INFO] scheduler: job done
+2026-09-01 09:54:55 [INFO] db: session opened
+2026-09-01 09:55:23 [INFO] api: request served
+2026-09-01 09:56:05 [ERROR] db: timeout after 30s
+2026-09-01 09:56:38 [WARN] auth: slow query 1.2s
+2026-09-01 09:57:10 [INFO] notify: health check ok
+2026-09-01 09:58:00 [INFO] api: request served
+2026-09-01 09:58:38 [INFO] notify: request served
+2026-09-01 09:59:07 [INFO] auth: request served
+2026-09-01 09:59:45 [INFO] notify: session opened
+2026-09-01 10:00:15 [INFO] db: cache refreshed
+2026-09-01 10:00:54 [INFO] scheduler: job done
+2026-09-01 10:01:29 [INFO] auth: session opened
+2026-09-01 10:02:21 [INFO] notify: job done
+2026-09-01 10:02:50 [INFO] notify: session opened
+2026-09-01 10:03:28 [INFO] notify: job done
+2026-09-01 10:04:00 [INFO] api: request served
+2026-09-01 10:04:38 [INFO] scheduler: session opened
+2026-09-01 10:05:23 [INFO] api: session opened
+2026-09-01 10:05:59 [WARN] scheduler: disk usage 81%
+2026-09-01 10:06:44 [WARN] auth: disk usage 81%
+2026-09-01 10:07:12 [INFO] db: cache refreshed
+2026-09-01 10:07:40 [INFO] api: session opened
+2026-09-01 10:08:33 [WARN] notify: token near expiry
+2026-09-01 10:08:58 [INFO] auth: session opened
+2026-09-01 10:09:41 [INFO] notify: session opened
+2026-09-01 10:10:20 [WARN] scheduler: disk usage 81%
+2026-09-01 10:10:52 [INFO] db: request served
+2026-09-01 10:11:28 [INFO] notify: health check ok
+2026-09-01 10:12:06 [INFO] notify: job done
+2026-09-01 10:12:36 [INFO] auth: session opened
+2026-09-01 10:13:24 [INFO] db: health check ok
+2026-09-01 10:13:53 [INFO] scheduler: cache refreshed
+2026-09-01 10:14:33 [INFO] auth: cache refreshed
+2026-09-01 10:15:12 [INFO] notify: session opened
+2026-09-01 10:15:47 [INFO] auth: cache refreshed
+2026-09-01 10:16:35 [INFO] scheduler: health check ok
+2026-09-01 10:17:10 [INFO] api: session opened
+2026-09-01 10:17:38 [ERROR] api: unauthorized access attempt
+2026-09-01 10:18:15 [WARN] api: queue backlog 120
+2026-09-01 10:18:56 [INFO] auth: session opened
+2026-09-01 10:19:30 [INFO] auth: request served
+2026-09-01 10:19:59 [INFO] notify: health check ok
+2026-09-01 10:20:45 [WARN] notify: queue backlog 120
+2026-09-01 10:21:26 [INFO] db: job done
+2026-09-01 10:21:55 [INFO] scheduler: job done
+2026-09-01 10:22:42 [INFO] api: session opened
+2026-09-01 10:23:12 [WARN] db: disk usage 81%
+2026-09-01 10:23:44 [INFO] notify: job done
+2026-09-01 10:24:20 [INFO] notify: job done
+2026-09-01 10:25:04 [WARN] notify: slow query 1.2s
+2026-09-01 10:25:36 [INFO] auth: request served
+2026-09-01 10:26:24 [INFO] auth: session opened
+2026-09-01 10:26:51 [INFO] db: health check ok
+2026-09-01 10:27:29 [INFO] notify: health check ok
+2026-09-01 10:28:09 [INFO] auth: health check ok
+2026-09-01 10:28:49 [INFO] notify: session opened
+2026-09-01 10:29:15 [INFO] notify: job done
+2026-09-01 10:29:57 [INFO] api: cache refreshed
+2026-09-01 10:30:44 [INFO] auth: session opened
+2026-09-01 10:31:09 [INFO] api: cache refreshed
+2026-09-01 10:31:59 [INFO] auth: request served
+2026-09-01 10:32:27 [INFO] auth: session opened
+2026-09-01 10:33:07 [INFO] db: health check ok
+2026-09-01 10:33:36 [ERROR] api: failed to write file
+2026-09-01 10:34:12 [INFO] db: job done
+2026-09-01 10:35:07 [INFO] db: cache refreshed
+2026-09-01 10:35:41 [INFO] scheduler: session opened
+2026-09-01 10:36:18 [INFO] auth: job done
+2026-09-01 10:36:49 [INFO] db: session opened
+2026-09-01 10:37:31 [WARN] api: slow query 1.2s
+2026-09-01 10:38:03 [INFO] auth: session opened
+2026-09-01 10:38:49 [INFO] db: job done
+2026-09-01 10:39:06 [INFO] auth: cache refreshed
+2026-09-01 10:39:49 [WARN] scheduler: queue backlog 120
+2026-09-01 10:40:21 [ERROR] scheduler: deadlock detected
+2026-09-01 10:40:59 [INFO] auth: session opened
+2026-09-01 10:41:51 [INFO] auth: request served
+2026-09-01 10:42:31 [INFO] db: session opened
+2026-09-01 10:42:51 [INFO] db: cache refreshed
+2026-09-01 10:43:36 [INFO] scheduler: cache refreshed
+2026-09-01 10:44:07 [INFO] auth: health check ok
+2026-09-01 10:44:45 [ERROR] db: null pointer in handler
+2026-09-01 10:45:22 [INFO] scheduler: health check ok
+2026-09-01 10:46:05 [INFO] db: health check ok
+2026-09-01 10:46:43 [INFO] auth: job done
+2026-09-01 10:47:09 [INFO] db: job done
+2026-09-01 10:47:46 [ERROR] scheduler: deadlock detected
+2026-09-01 10:48:23 [INFO] api: job done
+2026-09-01 10:49:09 [ERROR] scheduler: oom killed worker
+2026-09-01 10:49:40 [INFO] scheduler: health check ok
+2026-09-01 10:50:21 [INFO] auth: health check ok
+2026-09-01 10:51:05 [ERROR] db: unauthorized access attempt
+2026-09-01 10:51:40 [INFO] notify: request served
+2026-09-01 10:52:06 [INFO] auth: request served
+2026-09-01 10:52:47 [INFO] api: health check ok
+2026-09-01 10:53:37 [INFO] auth: session opened
+2026-09-01 10:54:10 [INFO] db: job done
+2026-09-01 10:54:41 [INFO] notify: job done
+2026-09-01 10:55:09 [INFO] notify: cache refreshed
+2026-09-01 10:56:02 [INFO] auth: session opened
+2026-09-01 10:56:32 [INFO] db: session opened
+2026-09-01 10:57:08 [INFO] auth: request served
+2026-09-01 10:57:50 [INFO] api: request served
+2026-09-01 10:58:21 [INFO] auth: request served
+2026-09-01 10:58:56 [WARN] notify: slow query 1.2s
+2026-09-01 10:59:38 [INFO] api: health check ok
+2026-09-01 11:00:15 [INFO] auth: cache refreshed
+2026-09-01 11:01:01 [INFO] db: session opened
+2026-09-01 11:01:18 [INFO] api: cache refreshed
+2026-09-01 11:02:03 [INFO] notify: job done
+2026-09-01 11:02:45 [INFO] db: cache refreshed
+2026-09-01 11:03:12 [INFO] db: request served
+2026-09-01 11:03:54 [INFO] scheduler: job done
+2026-09-01 11:04:37 [WARN] notify: slow query 1.2s
+2026-09-01 11:05:16 [INFO] scheduler: request served
+2026-09-01 11:05:51 [INFO] notify: session opened
+2026-09-01 11:06:29 [INFO] db: cache refreshed
+2026-09-01 11:06:59 [INFO] scheduler: job done
+2026-09-01 11:07:42 [INFO] scheduler: cache refreshed
+2026-09-01 11:08:16 [WARN] auth: slow query 1.2s
+2026-09-01 11:08:52 [WARN] scheduler: disk usage 81%
+2026-09-01 11:09:35 [INFO] scheduler: session opened
+2026-09-01 11:10:00 [INFO] notify: job done
+2026-09-01 11:10:53 [WARN] scheduler: queue backlog 120
+2026-09-01 11:11:12 [INFO] db: cache refreshed
+2026-09-01 11:11:55 [INFO] db: job done
+2026-09-01 11:12:35 [INFO] scheduler: request served
+2026-09-01 11:13:14 [INFO] api: cache refreshed
+2026-09-01 11:13:52 [INFO] db: job done
+2026-09-01 11:14:25 [WARN] notify: slow query 1.2s
+2026-09-01 11:14:52 [INFO] auth: job done
+2026-09-01 11:15:32 [INFO] scheduler: request served
+2026-09-01 11:16:10 [INFO] db: health check ok
+2026-09-01 11:16:44 [INFO] auth: cache refreshed
+2026-09-01 11:17:24 [ERROR] api: timeout after 30s
+2026-09-01 11:18:16 [INFO] auth: job done
+2026-09-01 11:18:42 [WARN] api: token near expiry
+2026-09-01 11:19:30 [INFO] db: request served
+2026-09-01 11:19:56 [INFO] auth: request served
+2026-09-01 11:20:33 [INFO] scheduler: request served
+2026-09-01 11:21:18 [INFO] db: session opened
+2026-09-01 11:21:40 [WARN] notify: slow query 1.2s
+2026-09-01 11:22:32 [ERROR] auth: timeout after 30s
+2026-09-01 11:23:03 [WARN] auth: token near expiry
+2026-09-01 11:23:37 [INFO] db: session opened
+2026-09-01 11:24:14 [INFO] auth: session opened
+2026-09-01 11:24:53 [INFO] notify: health check ok
+2026-09-01 11:25:29 [INFO] db: health check ok
+2026-09-01 11:26:14 [INFO] scheduler: request served
+2026-09-01 11:26:37 [INFO] auth: cache refreshed
+2026-09-01 11:27:19 [INFO] db: health check ok
+2026-09-01 11:28:02 [INFO] scheduler: session opened
+2026-09-01 11:28:46 [INFO] notify: request served
+2026-09-01 11:29:09 [INFO] db: health check ok
+2026-09-01 11:29:43 [INFO] notify: job done
+2026-09-01 11:30:18 [INFO] api: session opened
+2026-09-01 11:30:59 [INFO] api: job done
+2026-09-01 11:31:38 [INFO] scheduler: session opened
+2026-09-01 11:32:08 [INFO] auth: session opened
+2026-09-01 11:32:48 [INFO] api: cache refreshed
+2026-09-01 11:33:28 [INFO] db: health check ok
+2026-09-01 11:34:03 [INFO] notify: session opened
+2026-09-01 11:34:43 [INFO] scheduler: health check ok
+2026-09-01 11:35:29 [INFO] notify: health check ok
+2026-09-01 11:35:57 [WARN] auth: queue backlog 120
+2026-09-01 11:36:38 [WARN] db: disk usage 81%
+2026-09-01 11:37:11 [ERROR] notify: failed to write file
+2026-09-01 11:37:56 [WARN] notify: token near expiry
+2026-09-01 11:38:21 [INFO] notify: health check ok
+2026-09-01 11:38:59 [INFO] db: cache refreshed
+2026-09-01 11:39:33 [INFO] api: job done
+2026-09-01 11:40:09 [INFO] auth: health check ok
+2026-09-01 11:41:02 [INFO] notify: request served
+2026-09-01 11:41:25 [INFO] auth: request served
+2026-09-01 11:42:02 [WARN] notify: retry attempt 2/5
+2026-09-01 11:42:43 [ERROR] api: oom killed worker
+2026-09-01 11:43:22 [INFO] notify: request served
+2026-09-01 11:44:00 [INFO] notify: cache refreshed
+2026-09-01 11:44:40 [ERROR] db: connection refused
+2026-09-01 11:45:24 [ERROR] db: connection refused
+2026-09-01 11:45:51 [ERROR] notify: failed to write file
+2026-09-01 11:46:39 [INFO] db: session opened
+2026-09-01 11:47:03 [WARN] db: retry attempt 2/5
+2026-09-01 11:47:48 [INFO] scheduler: health check ok
+2026-09-01 11:48:22 [INFO] notify: health check ok
+2026-09-01 11:49:06 [INFO] notify: request served
+2026-09-01 11:49:26 [INFO] api: job done
+2026-09-01 11:50:11 [INFO] auth: session opened
+2026-09-01 11:50:57 [WARN] api: token near expiry
+2026-09-01 11:51:26 [INFO] auth: session opened
+2026-09-01 11:51:52 [INFO] api: cache refreshed
+2026-09-01 11:52:32 [INFO] api: job done
+2026-09-01 11:53:10 [INFO] api: cache refreshed
+2026-09-01 11:53:56 [INFO] auth: health check ok
+2026-09-01 11:54:22 [INFO] api: request served
+2026-09-01 11:55:08 [INFO] db: job done
+2026-09-01 11:55:48 [INFO] api: health check ok
+2026-09-01 11:56:17 [WARN] db: retry attempt 2/5
+2026-09-01 11:56:48 [INFO] auth: job done
+2026-09-01 11:57:34 [INFO] scheduler: job done
+2026-09-01 11:58:04 [INFO] notify: cache refreshed
+2026-09-01 11:58:58 [INFO] auth: job done
+2026-09-01 11:59:31 [WARN] auth: retry attempt 2/5
+2026-09-01 11:59:58 [ERROR] api: null pointer in handler
+2026-09-01 12:00:50 [INFO] auth: job done
+2026-09-01 12:01:22 [WARN] db: token near expiry
+2026-09-01 12:01:51 [INFO] scheduler: health check ok
+2026-09-01 12:02:31 [INFO] notify: job done
+2026-09-01 12:03:18 [INFO] auth: health check ok
+2026-09-01 12:03:52 [ERROR] scheduler: null pointer in handler
+2026-09-01 12:04:19 [INFO] scheduler: session opened
+2026-09-01 12:04:49 [WARN] api: slow query 1.2s
+2026-09-01 12:05:28 [WARN] scheduler: retry attempt 2/5
+2026-09-01 12:06:13 [WARN] api: retry attempt 2/5
+2026-09-01 12:06:42 [INFO] notify: session opened
+2026-09-01 12:07:22 [INFO] api: request served
+2026-09-01 12:07:57 [INFO] notify: session opened
+2026-09-01 12:08:47 [INFO] scheduler: cache refreshed
+2026-09-01 12:09:26 [INFO] scheduler: health check ok
+2026-09-01 12:09:54 [ERROR] api: deadlock detected
+2026-09-01 12:10:29 [INFO] auth: cache refreshed
+2026-09-01 12:11:09 [INFO] api: session opened
+2026-09-01 12:11:47 [INFO] api: request served
+2026-09-01 12:12:14 [INFO] scheduler: session opened
+2026-09-01 12:13:03 [ERROR] auth: timeout after 30s
+2026-09-01 12:13:47 [INFO] db: cache refreshed
+2026-09-01 12:14:07 [INFO] scheduler: health check ok
+2026-09-01 12:14:43 [ERROR] notify: oom killed worker
+2026-09-01 12:15:38 [ERROR] notify: failed to write file
+2026-09-01 12:16:04 [WARN] notify: slow query 1.2s
+2026-09-01 12:16:43 [INFO] api: cache refreshed
+2026-09-01 12:17:25 [INFO] auth: request served
+2026-09-01 12:17:48 [INFO] notify: health check ok
+2026-09-01 12:18:31 [INFO] scheduler: request served
+2026-09-01 12:19:18 [ERROR] api: null pointer in handler
+2026-09-01 12:19:38 [INFO] scheduler: cache refreshed
+2026-09-01 12:20:14 [INFO] auth: request served
+2026-09-01 12:21:08 [INFO] notify: request served
+2026-09-01 12:21:35 [INFO] scheduler: request served
+2026-09-01 12:22:21 [ERROR] db: timeout after 30s
+2026-09-01 12:22:45 [INFO] db: job done
+2026-09-01 12:23:27 [INFO] auth: health check ok
+2026-09-01 12:24:07 [INFO] auth: job done
+2026-09-01 12:24:40 [INFO] notify: job done
+2026-09-01 12:25:10 [INFO] db: job done
+2026-09-01 12:25:47 [WARN] api: slow query 1.2s
+2026-09-01 12:26:40 [WARN] notify: token near expiry
+2026-09-01 12:27:18 [INFO] db: job done
+2026-09-01 12:27:53 [INFO] api: health check ok
+2026-09-01 12:28:30 [INFO] auth: request served
+2026-09-01 12:28:58 [INFO] api: session opened
+2026-09-01 12:29:33 [INFO] db: health check ok
+2026-09-01 12:30:14 [INFO] auth: health check ok
+2026-09-01 12:30:58 [INFO] api: job done
+2026-09-01 12:31:40 [INFO] notify: cache refreshed
+2026-09-01 12:32:12 [INFO] notify: cache refreshed
+2026-09-01 12:32:49 [ERROR] notify: timeout after 30s
+2026-09-01 12:33:11 [INFO] auth: session opened
+2026-09-01 12:33:52 [INFO] db: request served
+2026-09-01 12:34:38 [INFO] notify: health check ok
+2026-09-01 12:35:05 [INFO] auth: session opened
+2026-09-01 12:35:44 [ERROR] notify: unauthorized access attempt
+2026-09-01 12:36:25 [INFO] scheduler: job done
+2026-09-01 12:37:04 [INFO] api: cache refreshed
+2026-09-01 12:37:49 [INFO] scheduler: job done
+2026-09-01 12:38:07 [INFO] api: job done
+2026-09-01 12:39:02 [INFO] api: health check ok
+2026-09-01 12:39:35 [INFO] api: cache refreshed
+2026-09-01 12:40:02 [WARN] db: slow query 1.2s
+2026-09-01 12:40:43 [INFO] scheduler: session opened
+2026-09-01 12:41:21 [INFO] db: session opened
+2026-09-01 12:42:08 [INFO] notify: cache refreshed
+2026-09-01 12:42:39 [INFO] api: job done
+2026-09-01 12:43:13 [ERROR] db: failed to write file
+2026-09-01 12:43:50 [INFO] notify: request served
+2026-09-01 12:44:23 [INFO] scheduler: health check ok
+2026-09-01 12:45:10 [INFO] db: request served
+2026-09-01 12:45:40 [WARN] notify: token near expiry
+2026-09-01 12:46:14 [INFO] notify: cache refreshed
+2026-09-01 12:46:55 [ERROR] auth: unauthorized access attempt
+2026-09-01 12:47:24 [INFO] api: session opened
+2026-09-01 12:48:09 [INFO] db: job done
+2026-09-01 12:48:41 [WARN] api: slow query 1.2s
+2026-09-01 12:49:25 [WARN] notify: slow query 1.2s
+2026-09-01 12:49:59 [INFO] auth: health check ok
+2026-09-01 12:50:38 [INFO] db: health check ok
+2026-09-01 12:51:08 [WARN] db: disk usage 81%
+2026-09-01 12:51:52 [INFO] auth: job done
+2026-09-01 12:52:26 [INFO] notify: job done
+2026-09-01 12:52:58 [INFO] api: job done
+2026-09-01 12:53:43 [INFO] notify: health check ok
+2026-09-01 12:54:13 [INFO] api: session opened
+2026-09-01 12:54:54 [INFO] scheduler: request served
+2026-09-01 12:55:34 [INFO] notify: cache refreshed
+2026-09-01 12:56:00 [ERROR] db: unauthorized access attempt
+2026-09-01 12:56:37 [INFO] auth: session opened
+2026-09-01 12:57:30 [INFO] db: request served
+2026-09-01 12:57:59 [INFO] auth: job done
+2026-09-01 12:58:29 [INFO] api: job done
+2026-09-01 12:59:12 [ERROR] notify: unauthorized access attempt
+2026-09-01 12:59:46 [INFO] auth: session opened
+2026-09-01 13:00:34 [WARN] api: slow query 1.2s
+2026-09-01 13:00:56 [INFO] auth: cache refreshed
+2026-09-01 13:01:40 [WARN] auth: queue backlog 120
+2026-09-01 13:02:24 [INFO] api: health check ok
+2026-09-01 13:02:58 [WARN] scheduler: queue backlog 120
+2026-09-01 13:03:37 [INFO] scheduler: request served
+2026-09-01 13:04:14 [INFO] notify: request served
+2026-09-01 13:04:45 [ERROR] scheduler: failed to write file
+2026-09-01 13:05:30 [INFO] api: cache refreshed
+2026-09-01 13:06:12 [WARN] auth: retry attempt 2/5
+2026-09-01 13:06:48 [INFO] notify: health check ok
+2026-09-01 13:07:11 [INFO] notify: health check ok
+2026-09-01 13:08:02 [INFO] api: health check ok

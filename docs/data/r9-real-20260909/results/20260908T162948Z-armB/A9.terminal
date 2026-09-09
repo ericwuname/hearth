@@ -1,0 +1,5 @@
+  ✓                         } else {
+  ✓ 2461:        self.emit(Event::Phase(LoopPhase::Plan));
+  ✓ 3730:                        phase = LoopPhase::Done;
+✗ budget exhausted
+✗ Done (50 steps)

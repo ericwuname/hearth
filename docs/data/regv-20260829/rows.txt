@@ -1,0 +1,16 @@
+V1_B01: rc=0 terminal=completed dur=80.8s compact=False approval_blocked=False
+V1_B02: rc=0 terminal=other dur=103.6s compact=False approval_blocked=True
+V1_B03: rc=0 terminal=failed dur=65.7s compact=False approval_blocked=False
+V1_B04: rc=0 terminal=other dur=23.0s compact=False approval_blocked=True
+V1_B05: rc=0 terminal=failed dur=49.3s compact=False approval_blocked=False
+V1_B06: rc=0 terminal=failed dur=93.4s compact=False approval_blocked=False
+V1_B07: rc=0 terminal=failed dur=165.2s compact=False approval_blocked=False
+V1_B08: rc=0 terminal=failed dur=9.4s compact=False approval_blocked=False
+V1_B09: rc=0 terminal=failed dur=6.4s compact=False approval_blocked=False
+V1_B10: rc=0 terminal=failed dur=7.2s compact=False approval_blocked=False
+V2_R1: fail_sid=5d45ef79 resume_terminal=failed 首轮复述进度=True 增量产物step2=True 重教次数=0
+V2_R2: fail_sid=6217405b resume_terminal=completed 首轮复述进度=True 增量产物step2=True 重教次数=0
+V2_R3: fail_sid=42de0400 resume_terminal=completed 首轮复述进度=True 增量产物step2=True 重教次数=0
+V3_timeout: rc=0 terminal=completed dur=25.6s compact=False approval_blocked=False
+V3_cancelled: terminal=other (rc=0)
+V3_give_up: rc=0 terminal=failed dur=33.4s compact=False approval_blocked=False

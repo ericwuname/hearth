@@ -1,0 +1,4 @@
+  ✓   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+✗ 工具出错: error: 出网被拒：目标域名 ["www.baidu.com"] 不在 egress_allowlist 白名单（23 条）内。需要放行请让用户在 config.toml 的 egress_allowlist 中补入该域名。
+- www.baidu.com ❌ 被出网白名单策略拒绝，需要在 `config.toml` 中把 `www.baidu.com` 加入 `egress_allowlist` 才能访问✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告

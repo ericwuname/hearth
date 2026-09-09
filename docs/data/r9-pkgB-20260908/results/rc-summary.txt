@@ -1,0 +1,4 @@
+G1: rc0=15/15 elapsed中位=4s
+G2: rc0=7/15 elapsed中位=109s
+G3: rc0=15/15 elapsed中位=36s
+G4: rc0=15/15 elapsed中位=33s

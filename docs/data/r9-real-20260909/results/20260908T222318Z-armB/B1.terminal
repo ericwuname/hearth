@@ -1,0 +1,4 @@
+  ✓ HTTP Code: 200
+✗ 工具出错: error: 出网被拒：目标域名 ["www.baidu.com"] 不在 egress_allowlist 白名单（23 条）内。需要放行请让用户在 config.toml 的 egress_allowlist 中补入该域名。
+如需测试百度，需要在运行环境的 `config.toml` 中将 `www.baidu.com` 添加到 `egress_allowlist` 中。✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告

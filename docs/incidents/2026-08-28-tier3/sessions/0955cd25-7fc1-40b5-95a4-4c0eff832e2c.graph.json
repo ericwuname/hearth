@@ -1,0 +1,79 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "delegable": false,
+        "deps": [],
+        "description": "定义模块间共享的核心数据结构与类型契约：LogEntry、FilterRule、AggregationKey/Result、OutputFormat、AppConfig，并为各模块设计 trait 边界（ConfigLoader/Parser/Aggregator/Formatter），确定模块间通信的数据流方向。",
+        "id": "shared_data_contracts",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "shared_data_contracts"
+        ],
+        "description": "设计配置加载模块：给出 load_config 等函数签名、AppConfig 数据结构、支持 JSON/TOML/YAML 的加载策略、默认配置合并、错误处理方式，以及如何向后续模块传递配置。",
+        "id": "config_loader_design",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "shared_data_contracts"
+        ],
+        "description": "设计日志解析模块：给出 parse_line/parse_stream 等函数签名、LogEntry 数据结构、支持常见日志格式（如 JSON、Apache combined、自定义正则）的策略，以及解析失败时的容错机制。",
+        "id": "parser_design",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "parser_design",
+          "config_loader_design"
+        ],
+        "description": "设计过滤与聚合模块：给出 FilterRule 应用逻辑、聚合函数签名、时间段/字段聚合方式、内存中的聚合状态管理，以及如何从配置和解析结果中获取输入并产出聚合结果。",
+        "id": "filtering_aggregation_design",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "filtering_aggregation_design"
+        ],
+        "description": "设计输出格式化模块：给出 format_output 等函数签名、支持 text/json/csv 等输出格式的策略、数据渲染方式，以及如何消费聚合结果生成最终输出。",
+        "id": "output_format_design",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "config_loader_design",
+          "parser_design",
+          "filtering_aggregation_design",
+          "output_format_design"
+        ],
+        "description": "设计主流程编排模块：明确 main 函数逐步调用顺序（解析参数→加载配置→初始化各模块→读取日志流→解析→过滤聚合→格式化→输出），并说明模块间如何通过函数调用和共享数据结构通信。",
+        "id": "orchestration_design",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "orchestration_design"
+        ],
+        "description": "汇总以上 5 个模块的设计细节，补充完整的 main 函数执行流程伪代码/步骤说明，润色语言并确保总篇幅不少于 700 字，形成最终详细设计文档。",
+        "id": "final_document_assembly",
+        "result": null,
+        "status": "Pending"
+      }
+    ]
+  },
+  "state_revision": 2
+}

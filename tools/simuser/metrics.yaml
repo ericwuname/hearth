@@ -1,0 +1,42 @@
+# SimUser metrics.yaml — 指标口径冻结 v1.0（P4-REVALIDATION-01 §3.4）
+# 版本随 persona/scenario 一起冻结；改定义 = 升版本；旧数据不得与新数据混表。
+version: "1.0"
+frozen_at: "2026-08-31"
+
+metrics:
+  success_rate:
+    definition: >
+      逐轮归因口径：按 run 边界取该轮首个终态，分子 = 首个终态为 completed 的 run 数。
+      run 边界 = 用户输入行（REPL 提示符或 driver send 事件）。
+    forbidden: >
+      用 grep -c "Task completed" 计数（会重复计、会跨轮串）；
+      字符串口径与逐轮口径混用（RC51 教训：同一日志两口径两个数）。
+  consecutive_failure:
+    definition: 连续终态为 failed 的 run 数（run 边界同上）。
+    forbidden: 按失败关键词计数。
+  compaction_occurred:
+    definition: >
+      只允许 字节数 + mtime + 文件数 三项判定 archive 落盘变化
+      （compacted.jsonl / archive/<sid>.jsonl）。
+    forbidden: wc -l 行数（末行无换行即系统性少计——RC49 已证伪）。
+  cross_version_comparability:
+    definition: 成功率只在 v0.2.8+ 可比（v0.1.x/v0.2.0-0.2.5 终态文案不同）。
+    forbidden: 把老版本的 0/0 读成"全部失败"。
+  revision_churn:
+    definition: goal_revision 事件数 / 执行轮数 比值（RC33/RC39 对照口径）。
+  attribution_layers:
+    definition: >
+      七层：mechanism / decision / model / provider / environment / DRIVER-INDUCED /
+      detector。每条 finding 必须归层；DRIVER-INDUCED 需 driver events 对照证据。
+  approval_channel:
+    definition: >
+      每次 run 显式记录 approval 通道状态（interactive / non-interactive / denied）。
+      campaign 中 approval_denied 默认归 DRIVER-INDUCED，需对照证据才可升格 Core defect。
+  driver_model_binding:
+    definition: >
+      每 run event log 必须记录 driver_model 与 target_model。
+      默认异源（智谱 / Ollama qiyuan-8b）；同源 Agnes 仅作标注对照组。
+  q11_single_subject:
+    definition: >
+      persona 语料来自单一人类主体——campaign 报告头部强制声明，
+      禁止"真实用户成功率"表述。

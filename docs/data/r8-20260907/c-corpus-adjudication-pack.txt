@@ -1,0 +1,330 @@
+########## C-bug-report.terminal ##########
+--- R7-1B ---
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+  ✓ "(no matches)"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (14 steps)
+elapsed=902s
+--- R7-1A ---
+  ✓      1	# hearth-tui 进度看板
+  ✓ (no matches)
+  ✓      1	# hearth-tui 已知缺陷账本
+如果您愿意，我可以帮您进一步定位：读 `src/app.rs` 看事件循环，或者给您一段能快速验证"是代码漏处理还是终端不支持"的排查命令。✓ Done (4 steps)
+elapsed=3s
+--- R8B ---
+  ✓ "     1\t//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。\n     2\t//! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，\n     3\t//! 见 BUGS.md BUG-003 与 app.rs:52）。\n     4\t\n     5\tuse cross…
+  ✓ "     1\t//! 渲染层（骨架——fixture 只需给语料以\"项目存在\"的上下文）。\n     2\t\n     3\tuse crate::app::App;\n     4\t\n     5\tpub fn draw_to_stdout(app: &App) {\n     6\t    println!(\"── hearth-tui ── sessions: {}\",…
+  ✓ Checklist (R6-3 模型自持清单):
+- 是否需要区分单击/双击（比如双击展开详情）？✓ Done (14 steps)
+elapsed=77s
+--- R8A ---
+  ✓      1	//! 会话状态与滚动（骨架）。
+  ✓ src/ui.rs
+  ✓      1	# run-001 · SSE 事件回放测试报告（M3 验收）
+要我先看 main.rs 把问题锁定到具体行吗？✓ Done (8 steps)
+elapsed=39s
+########## C-control-endtest.terminal ##########
+--- R7-1B ---
+⚙ todo_write → todos: [{"content":"行吧，测试就到这里吧","status":"completed"}]
+  ✓ Checklist (R6-3 模型自持清单):
+— 1/1 completed, 0 in progress —
+好的，测试到这里就结束了。任务已完成。✓ Done (6 steps)
+elapsed=87s
+--- R7-1A ---
+好的，测试到此为止。如果有其他需要，随时告诉我。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=0s
+--- R8B ---
+  ✓ BUGS.md
+如需继续处理该项目，请告知具体方向；如需结束本次会话，直接退出即可。✓ Done (6 steps)
+  ✓ Task completed（6 步）——目标达成（未验证），产物见报告
+elapsed=36s
+--- R8A ---
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓      1	# hearth-tui
+  ✓ src/ui.rs
+任务已完成，无需进一步操作。✓ Done (6 steps)
+elapsed=34s
+########## C-data-accuracy.terminal ##########
+--- R7-1B ---
+⚙ todo_write → todos: [{"content":"回答用户关于数据准确性的问题","status":"completed"},{"content":"写入 ANSWER.md 文…
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. 回答用户关于数据准确性的问题\n[x] 2. 写入 ANSWER.md 文件作为产物\n— 2/2 completed, 0 in progress —"
+  ✓ "-rw-rw-r-- 1 wutao wutao 991  9月  7 02:52 /tmp/hearth-regress/20260906T175136Z/C-data-accuracy/ANSWER.md\n---\n# 数据准确性说明\n\n## 我的知识边界\n\n**训练数据截止：2026 年 7 月**\n"
+✓ Done (25 steps)
+elapsed=733s
+--- R7-1A ---
+  ✓      1	# hearth-tui
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓      1	[package]
+需要我帮你做什么具体的验证吗？✓ Done (4 steps)
+elapsed=34s
+--- R8B ---
+  ✓ Checklist (R6-3 模型自持清单):
+— 3/3 completed, 0 in progress —
+  ✓ wrote 811 bytes to /tmp/.hr-150485-4332/C-data-accuracy/ANSWER.md
+任务已完成。✓ Done (26 steps)
+elapsed=259s
+--- R8A ---
+  ✓      1	# run-001 · SSE 事件回放测试报告（M3 验收）
+  ✓      1	# run-002 · 里程碑进度报告（2026-09-05）
+  ✓   30 /tmp/.hr-155716-11947/C-data-accuracy/src/app.rs
+要我顺手把代码量那行改成正确值吗？✓ Done (8 steps)
+elapsed=23s
+########## C-data-instability.terminal ##########
+--- R7-1B ---
+你现在指的是哪件事？✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=22s
+--- R7-1A ---
+我会尽力核实并给出准确答案。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=1s
+--- R8B ---
+在此之前，我不会再随便报一个数字。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=2s
+--- R8A ---
+你能告诉我具体是什么数字吗？这样我能真正帮到你，而不是继续猜。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=2s
+########## C-done-usability.terminal ##########
+--- R7-1B ---
+  ✓ "     1\t# hearth-tui 已知缺陷账本\n     2\t\n     3\t> 规则：每条缺陷必须带\"发现轮次/复测轮次\"；宣称修复必须附复测通过证据，否则不得关闭。\n     4\t\n     5\t## BUG-003 · 鼠标点击完全无反应（未修复）\n     6\t\n     7\t- **现象**：用户手工实测——点击会话列表与消息区均无任何反应，鼠标事件…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (10 steps)
+elapsed=902s
+--- R7-1A ---
+  ✓ app.rs
+✗ 工具出错: error: error: command timed out
+  ✓ src/main.rs:2://! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，
+3. 手工复测后再关闭 BUG-003，否则按 BUGS.md 规则仍禁止宣称修复。✓ Done (8 steps)
+elapsed=615s
+--- R8B ---
+  ✓ "     1\t[package]\n     2\tname = \"hearth-tui\"\n     3\tversion = \"0.1.0\"\n     4\tedition = \"2021\"\n     5\t\n     6\t[dependencies]\n     7\tratatui = \"0.26\"\n     8\tcrossterm = \"0.27\"\n…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (10 steps)
+elapsed=901s
+--- R8A ---
+  ✓ (no matches)
+  ✓      1	# hearth-tui 已知缺陷账本
+✗ 工具出错: error: error: command timed out
+**结论**：核心 TUI 功能（渲染、滚动、SSE）已可用，但**鼠标交互完全失效**，且上次宣称"修完"后用户手工复测确认失败。按 BUGS.md 规则，无复测证据不得关闭缺陷，所以不能宣称"能用"。✓ Done (6 steps)
+elapsed=706s
+########## C-fix-status.terminal ##########
+--- R7-1B ---
+  ✓ "总计 32\ndrwxrwxr-x 4 wutao wutao 4096  9月  7 02:39 .\ndrwxrwxr-x 9 wutao wutao 4096  9月  7 02:39 ..\n-rw-rw-r-- 1 wutao wutao 1222  9月  7 02:39 BUGS.md\n-rw-rw-r-- 1 wutao wutao  117  9月  7 02:39 Carg…
+  ✓ "     1\t[package]\n     2\tname = \"hearth-tui\"\n     3\tversion = \"0.1.0\"\n     4\tedition = \"2021\"\n     5\t\n     6\t[dependencies]\n     7\tratatui = \"0.26\"\n     8\tcrossterm = \"0.27\"\n…
+  ✓ "     1\t# hearth-tui\n     2\t\n     3\tHearth 的终端 UI（TUI）客户端——在终端里与 hearth 引擎对话、查看任务状态与产物。\n     4\t\n     5\t## 技术栈\n     6\t\n     7\t- Rust 2021 + ratatui 0.26 + crossterm 0.27\n     8\t- 经 heart…
+需我动手修复吗？✓ Done (19 steps)
+elapsed=66s
+--- R7-1A ---
+✗ 工具出错: error: error: command timed out
+  ✓      1	//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。
+✗ 工具出错: error: error: command timed out
+需要继续修复吗？✓ Done (8 steps)
+elapsed=901s
+--- R8B ---
+  ✓ "     1\t//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。\n     2\t//! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，\n     3\t//! 见 BUGS.md BUG-003 与 app.rs:52）。\n     4\t\n     5\tuse cross…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 901s >= 900s（任务级 wall-clock 上限）
+✗ Done (9 steps)
+elapsed=901s
+--- R8A ---
+✗ 工具出错: error: read failed for /tmp/.hr-155716-15677/C-fix-status/reports: Is a directory (os error 21)
+  ✓ run-001.md
+  ✓      1	//! 渲染层（骨架——fixture 只需给语料以"项目存在"的上下文）。
+3. **只汇报现状**：如上，不继续改代码✓ Done (8 steps)
+elapsed=6s
+########## C-l285-curl.terminal ##########
+--- R7-1B ---
+  ✓ Checklist (R6-3 模型自持清单):
+— 1/1 completed, 0 in progress —
+✓ Done (25 steps)
+  ✓ Task completed（25 步）——目标达成（未验证），产物见报告
+elapsed=62s
+--- R7-1A ---
+⚙ todo_write → todos: [{"content":"用 curl 测试网络连通性","status":"completed"}]
+  ✓ Checklist (R6-3 模型自持清单):
+— 1/1 completed, 0 in progress —
+任务完成，网络连通性测试通过。✓ Done (6 steps)
+elapsed=3s
+--- R8B ---
+连接状态：✓ 可达  ▸ span [plan] 2026-09-07T14:28:10.646873176+00:00
+  ✓   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+✓ Done (25 steps)
+  ✓ Task completed（25 步）——目标达成（未验证），产物见报告
+elapsed=233s
+--- R8A ---
+  ✓ <!doctype html><html lang="en"><head><title>Example Domain</title><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{background:#eee;width:6…
+成功返回了 Example Domain 的 HTML 页面内容，说明网络连接正常。✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告
+elapsed=34s
+########## C-progress-overall.terminal ##########
+--- R7-1B ---
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 900s >= 900s（任务级 wall-clock 上限）
+✗ Done (15 steps)
+elapsed=900s
+--- R7-1A ---
+  ✓      1	# hearth-tui
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓ run-001.md
+**一句话总结**：核心渲染与键盘导航已可用，但鼠标交互功能（M4）因事件循环未处理 `Event::Mouse` 而阻塞，尚未修复通过复测；主题配色（M5）未启动。✓ Done (6 steps)
+elapsed=7s
+--- R8B ---
+  ✓ "     1\t//! 渲染层（骨架——fixture 只需给语料以\"项目存在\"的上下文）。\n     2\t\n     3\tuse crate::app::App;\n     4\t\n     5\tpub fn draw_to_stdout(app: &App) {\n     6\t    println!(\"── hearth-tui ── sessions: {}\",…
+⚙ todo_write → todos: [{"content":"Explore the project structure","status":"completed"},{"content":…
+  ✓ Checklist (R6-3 模型自持清单):
+**一句话总结**：核心渲染和滚动可用，SSE 事件回放验证通过，但鼠标交互是一个持续未解的 bug，是当前最大阻塞；M5 尚未动工。✓ Done (18 steps)
+elapsed=193s
+--- R8A ---
+  ✓ src/ui.rs
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓      1	# run-002 · 里程碑进度报告（2026-09-05）
+**结论**：核心功能（渲染、滚动、SSE）已完成，当前卡点在鼠标交互，解决后可进入主题配色阶段。✓ Done (6 steps)
+elapsed=8s
+########## C-progress.terminal ##########
+--- R7-1B ---
+  ✓ "run-001.md\nrun-002.md\n# hearth-tui 已知缺陷账本\n\n> 规则：每条缺陷必须带\"发现轮次/复测轮次\"；宣称修复必须附复测通过证据，否则不得关闭。\n\n## BUG-003 · 鼠标点击完全无反应（未修复）\n\n- **现象**：用户手工实测——点击会话列表与消息区均无任何反应，鼠标事件像是没接。\n- **发现**：手工测试 v0.2.23 轮（用…
+  ✓ "  30 /tmp/hearth-regress/20260906T175136Z/C-progress/src/app.rs\n  28 /tmp/hearth-regress/20260906T175136Z/C-progress/src/main.rs\n  11 /tmp/hearth-regress/20260906T175136Z/C-progress/src/ui.rs\n  69…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+**结论**：核心渲染与消息流链路已打通，SSE 接入通过回放验证；但**鼠标交互仍是关键堵点**（M4 阻塞），且**测试覆盖为零**。下一步应优先：① 复测并修复 BUG-003（检查事件循环分支 + SGR 协议）；② 补基础单元测试；③ 推进 M5 主题。✓ Done (10 steps)
+elapsed=903s
+--- R7-1A ---
+  ✓      1	# hearth-tui 进度看板
+  ✓ BUGS.md
+简言之：**核心功能已跑通，卡在一个鼠标交互的 bug 上**，等待修复后继续推进主题配色。要我帮你看看 BUG-003 的具体详情吗？✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告
+elapsed=3s
+--- R8B ---
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+⚙ todo_write → todos: [{"content":"检查 hearth TUI 项目的代码仓库结构和当前状态","status":"completed"},{"content":"…
+✗ deadline exceeded: 900s >= 900s（任务级 wall-clock 上限）
+✗ Done (14 steps)
+elapsed=901s
+--- R8A ---
+  ✓      1	# hearth-tui
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓ 总计 16
+> 进度口径以 `PROGRESS.md` 为唯一来源（见 BUG-007 规则）。✓ Done (4 steps)
+elapsed=7s
+########## C-retest-fail.terminal ##########
+--- R7-1B ---
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+  ✓ "     1\t//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。\n     2\t//! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，\n     3\t//! 见 BUGS.md BUG-003 与 app.rs:52）。\n     4\t\n     5\tuse cross…
+✗ deadline exceeded: 930s >= 900s（任务级 wall-clock 上限）
+✗ Done (25 steps)
+elapsed=930s
+--- R7-1A ---
+  ✓ src/ui.rs
+  ✓      1	# hearth-tui
+  ✓      1	# hearth-tui 已知缺陷账本
+问题很明确：BUG-003，鼠标点击无反应。根据 BUG-003 的描述，嫌疑是 `src/app.rs:52` 处只处理了键盘事件而未处理鼠标事件。让我读取源代码来确认并修复。✓ Done (4 steps)
+elapsed=2s
+--- R8B ---
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 933s >= 900s（任务级 wall-clock 上限）
+✗ Done (18 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 933s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续
+elapsed=933s
+--- R8A ---
+✗ 工具出错: error: error: command timed out
+  ✓      1	//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。
+✗ deadline exceeded: 900s >= 900s（任务级 wall-clock 上限）
+✗ Done (16 steps)
+elapsed=900s
+########## C-self-assess.terminal ##########
+--- R7-1B ---
+如果你们正在评估是否接入某类产品，建议先做小规模试点，重点验证错误率和对工作流的影响，再决定是否扩大使用范围。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=4s
+--- R7-1A ---
+你具体想用在哪个场景？我可以给更针对性的评估。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=2s
+--- R8B ---
+如果你有具体的业务场景需求，可以进一步讨论适合的使用模式和替代方案。✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=4s
+--- R8A ---
+你是有具体的生产场景想评估吗？✓ Done (2 steps)
+  ✓ Task completed（2 步）——目标达成（未验证），产物见报告
+elapsed=3s
+########## C-status-brief.terminal ##########
+--- R7-1B ---
+⚙ todo_write → todos: [{"content":"描述TUI（Text User Interface）的定义、特点、应用场景和优缺点","status":"completed"}]
+  ✓ Checklist (R6-3 模型自持清单):
+— 1/1 completed, 0 in progress —
+无未完成项，无需进一步操作。✓ Done (10 steps)
+elapsed=39s
+--- R7-1A ---
+  ✓ /tmp/hearth-regress/20260906T194050Z/C-status-brief/BUGS.md:1:# hearth-tui 已知缺陷账本
+  ✓ src/ui.rs
+  ✓      1	# hearth-tui 进度看板
+- `src/ui.rs`：UI 渲染（含 render_sessions）✓ Done (4 steps)
+elapsed=3s
+--- R8B ---
+  ✓ "     1\t//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。\n     2\t//! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，\n     3\t//! 见 BUGS.md BUG-003 与 app.rs:52）。\n     4\t\n     5\tuse cross…
+  ✓ "     1\t//! 会话状态与滚动（骨架）。\n     2\t\n     3\tpub struct App {\n     4\t    pub sessions: Vec<String>,\n     5\t    pub selected: usize,\n     6\t    pub scroll_offset: u16,\n     7\t}\n     8\t\n     …
+  ✓ "     1\t//! 渲染层（骨架——fixture 只需给语料以\"项目存在\"的上下文）。\n     2\t\n     3\tuse crate::app::App;\n     4\t\n     5\tpub fn draw_to_stdout(app: &App) {\n     6\t    println!(\"── hearth-tui ── sessions: {}\",…
+✗ Done (9 steps)
+elapsed=10s
+--- R8A ---
+  ✓      1	//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。
+  ✓      1	//! 渲染层（骨架——fixture 只需给语料以"项目存在"的上下文）。
+  ✓ run-001.md
+3. 启动 M5 主题配色✓ Done (6 steps)
+elapsed=68s
+########## C-target-correct.terminal ##########
+--- R7-1B ---
+  ✓ "     1\t//! 会话状态与滚动（骨架）。\n     2\t\n     3\tpub struct App {\n     4\t    pub sessions: Vec<String>,\n     5\t    pub selected: usize,\n     6\t    pub scroll_offset: u16,\n     7\t}\n     8\t\n     …
+  ✓ "     1\t//! 渲染层（骨架——fixture 只需给语料以\"项目存在\"的上下文）。\n     2\t\n     3\tuse crate::app::App;\n     4\t\n     5\tpub fn draw_to_stdout(app: &App) {\n     6\t    println!(\"── hearth-tui ── sessions: {}\",…
+  ✓ "总计 16\ndrwxrwxr-x 2 wutao wutao 4096  9月  7 03:39 .\ndrwxrwxr-x 4 wutao wutao 4096  9月  7 03:39 ..\n-rw-rw-r-- 1 wutao wutao  472  9月  7 03:39 run-001.md\n-rw-rw-r-- 1 wutao wutao  549  9月  7 03:39 r…
+✗ Done (21 steps)
+elapsed=77s
+--- R7-1A ---
+  ✓ src/ui.rs
+  ✓      1	[package]
+你具体想让我做什么？需要我查看当前代码状态，还是修复某个问题？✓ Done (4 steps)
+  ✓ Task completed（4 步）——目标达成（未验证），产物见报告
+elapsed=2s
+--- R8B ---
+✗ 工具出错: "read: read failed for /tmp/.hr-150485-5846/C-target-correct/reports: Is a directory (os error 21)"
+  ✓ "总计 16\ndrwxrwxr-x 2 wutao wutao 4096  9月  7 23:26 .\ndrwxrwxr-x 4 wutao wutao 4096  9月  7 23:26 ..\n-rw-rw-r-- 1 wutao wutao  472  9月  7 23:26 run-001.md\n-rw-rw-r-- 1 wutao wutao  549  9月  7 23:26 r…
+💭 [observe] [observe 判定] 本轮 1 个工具返回错误：#read [inferred:unclassified_error] "read: read failed for /tmp/.hr-150485-5846/C-target-correct/reports: Is a directory (os error 21)"
+请明确下一步动作，我会立即执行。✓ Done (19 steps)
+elapsed=310s
+--- R8A ---
+  ✓      1	//! 渲染层（骨架——fixture 只需给语料以"项目存在"的上下文）。
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓      1	# hearth-tui 进度看板
+请告诉我具体哪里理解错了，我来纠正。✓ Done (6 steps)
+elapsed=6s
+########## C-yes-no-demand.terminal ##########
+--- R7-1B ---
+  ✓ "     1\t# run-002 · 里程碑进度报告（2026-09-05）\n     2\t\n     3\t## 数字口径（唯一口径源 = PROGRESS.md，BUG-007 规则）\n     4\t\n     5\t- 里程碑：**3/5 完成（60%）**——M1 ✅ M2 ✅ M3 ✅ M4 ⚠️ M5 ⬜\n     6\t- 代码量：src/ 3 文件 214 行（`…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 927s >= 900s（任务级 wall-clock 上限）
+✗ Done (13 steps)
+elapsed=927s
+--- R7-1A ---
+  ✓      1	# run-002 · 里程碑进度报告（2026-09-05）
+  ✓      1	[package]
+  ✓      1	# hearth-tui
+你去验证吧——要我现在动手修的话，告诉我。✓ Done (12 steps)
+elapsed=33s
+--- R8B ---
+  ✓ "     1\t//! 会话状态与滚动（骨架）。\n     2\t\n     3\tpub struct App {\n     4\t    pub sessions: Vec<String>,\n     5\t    pub selected: usize,\n     6\t    pub scroll_offset: u16,\n     7\t}\n     8\t\n     …
+  ✓ "     1\t//! hearth-tui 入口：终端初始化 + 事件循环骨架（fixture 供回归语料上下文用）。\n     2\t//! NOTE(BUG-003): 当前事件循环只处理 Event::Key——鼠标事件未接（复测失败一次，\n     3\t//! 见 BUGS.md BUG-003 与 app.rs:52）。\n     4\t\n     5\tuse cross…
+  ✓ "     1\t//! 渲染层（骨架——fixture 只需给语料以\"项目存在\"的上下文）。\n     2\t\n     3\tuse crate::app::App;\n     4\t\n     5\tpub fn draw_to_stdout(app: &App) {\n     6\t    println!(\"── hearth-tui ── sessions: {}\",…
+如果你看到任何"已修复"的说法，请发给我具体锚点（commit / PR / 行号），我会按同样方式核验并告诉你是否属实。否则请按 BUG-003 当前状态处理。✓ Done (16 steps)
+elapsed=179s
+--- R8A ---
+  ✓ BUGS.md
+  ✓      1	# hearth-tui 已知缺陷账本
+  ✓ app.rs
+你要我去查/验证的话，我可以去看源码确认当前状态——你要继续吗？✓ Done (6 steps)
+elapsed=65s

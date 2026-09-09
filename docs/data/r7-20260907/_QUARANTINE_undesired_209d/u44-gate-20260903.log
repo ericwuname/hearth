@@ -1,0 +1,54 @@
+=== U44 GATE v2 START 2026-09-03T19:17:42+08:00 ===
+cargo: /home/wutao/.cargo/bin/cargo  ver: cargo 1.97.1 (c980f4866 2026-06-30)
+ENV  HEARTH_URL=[<unset>]  CGROUP_BASE=[/sys/fs/cgroup/hearth]  ALLOW_NO_CGROUP=[<unset>]
+--- cargo fmt --check -p codex-cli ---
+FMT_RC=0
+--- cargo clippy -p codex-cli --all-targets -- -D warnings ---
+    Checking agent-types v0.2.23 (/home/wutao/codex/crates/agent-types)
+    Checking resource-monitor v0.2.23 (/home/wutao/codex/crates/resource-monitor)
+    Checking lsp-bridge v0.2.23 (/home/wutao/codex/crates/lsp-bridge)
+    Checking experience v0.2.23 (/home/wutao/codex/crates/experience)
+    Checking sandbox v0.1.0 (/home/wutao/codex/crates/sandbox)
+   Compiling codex-cli v0.2.23 (/home/wutao/codex/crates/codex-cli)
+    Checking nervous-system v0.2.23 (/home/wutao/codex/crates/nervous-system)
+    Checking llm-gateway v0.2.23 (/home/wutao/codex/crates/llm-gateway)
+    Checking api v0.2.23 (/home/wutao/codex/crates/api)
+    Checking tool-runtime v0.2.23 (/home/wutao/codex/crates/tool-runtime)
+    Checking subconscious v0.2.23 (/home/wutao/codex/crates/subconscious)
+    Checking tools-builtin v0.2.23 (/home/wutao/codex/crates/tools-builtin)
+    Checking code-index v0.2.23 (/home/wutao/codex/crates/code-index)
+    Checking planner v0.2.23 (/home/wutao/codex/crates/planner)
+    Checking bridge v0.2.23 (/home/wutao/codex/crates/bridge)
+    Checking llm-openai v0.2.23 (/home/wutao/codex/crates/llm-openai)
+    Checking llm-local v0.2.23 (/home/wutao/codex/crates/llm-local)
+    Checking memory v0.2.23 (/home/wutao/codex/crates/memory)
+    Checking observer v0.2.23 (/home/wutao/codex/crates/observer)
+    Checking retriever v0.2.23 (/home/wutao/codex/crates/retriever)
+    Checking agent-core v0.2.23 (/home/wutao/codex/crates/agent-core)
+    Checking agent-runtime v0.2.23 (/home/wutao/codex/crates/agent-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.97s
+CLIPPY_RC=0
+--- cargo test -p codex-cli u44 -- --nocapture ---
+   Compiling codex-cli v0.2.23 (/home/wutao/codex/crates/codex-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.55s
+     Running unittests src/lib.rs (target/debug/deps/hearth-ca673322a9d31133)
+
+running 1 test
+test session_store::tests::test_u44_ensure_session_header_creates_and_never_overwrites ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+     Running unittests src/bin/codex.rs (target/debug/deps/codex-b833bbb4a48544c6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/hearth-a06c2ded0bb831f6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+TEST_RC=0
+=== U44 GATE v2 DONE 2026-09-03T19:17:49+08:00 ===

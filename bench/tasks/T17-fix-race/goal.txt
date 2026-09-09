@@ -1,0 +1,1 @@
+Counter::inc 有一个数据竞争 bug。修复 inc 方法使测试通过。提示：MutexGuard<{integer}> 的 += 操作不是原子的，需要先解引用赋值。cargo test 全绿。

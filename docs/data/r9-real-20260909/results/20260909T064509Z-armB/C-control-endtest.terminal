@@ -1,0 +1,5 @@
+  ✓ "app.rs\nmain.rs\nui.rs\n---\n[package]\nname = \"hearth-tui\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nratatui = \"0.26\"\ncrossterm = \"0.27\"\n"
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 902s >= 900s（任务级 wall-clock 上限）
+✗ Done (5 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 902s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

@@ -1,0 +1,16 @@
+{
+ "B": [
+  {
+   "terminal": "completed",
+   "valid": true,
+   "completed": true,
+   "failed": false,
+   "tool_exchanges": 124,
+   "unverified": true,
+   "steps": 37,
+   "len": 75070,
+   "censoring": [],
+   "log": "/home/wutao/fa/l1-b-strict/b1.log"
+  }
+ ]
+}

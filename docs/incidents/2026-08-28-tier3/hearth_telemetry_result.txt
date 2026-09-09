@@ -1,0 +1,52 @@
+RUN  1 SUCCESS rc=0 33.8s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2423 ↓2 (calls=1)
+RUN  2 SUCCESS rc=0 4.0s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2429 ↓2 (calls=1)
+RUN  3 SUCCESS rc=0 3.2s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2462 ↓7 (calls=1)
+RUN  4 SUCCESS rc=0 16.8s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2463 ↓2 (calls=1)
+RUN  5 SUCCESS rc=0 2.8s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2456 ↓2 (calls=1)
+RUN  6 SUCCESS rc=0 29.1s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2432 ↓7 (calls=1)
+RUN  7 SUCCESS rc=0 9.9s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2444 ↓2 (calls=1)
+RUN  8 SUCCESS rc=0 13.6s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2415 ↓2 (calls=1)
+RUN  9 SUCCESS rc=0 3.6s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2462 ↓2 (calls=1)
+RUN 10 SUCCESS rc=0 33.4s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2451 ↓7 (calls=1)
+RUN 11 SUCCESS rc=0 3.3s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2426 ↓2 (calls=1)
+RUN 12 SUCCESS rc=0 4.5s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2462 ↓2 (calls=1)
+RUN 13 SUCCESS rc=0 4.4s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2462 ↓2 (calls=1)
+RUN 14 SUCCESS rc=0 4.2s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2463 ↓7 (calls=1)
+RUN 15 SUCCESS rc=0 6.9s
+  tail:   ✓ Task completed（2 步）——目标达成，产物见报告
+  📊 tokens: ↑2415 ↓2 (calls=1)
+
+=== TALLY ===
+SUCCESS: 15
+CRASH: 0
+HANG: 0
+BACKEND_ERR: 0
+TOTAL: 15

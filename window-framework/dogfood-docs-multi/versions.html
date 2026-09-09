@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 版本迭代说明书</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div><h1>Codex-Rust 文档站</h1><small>v21.0 维护期 · 全局锚点</small></div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html" class="active">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html">架构与实现逻辑</a>
+        <a href="genes.html">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html">决策记录</a>
+        <a href="progress.html">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">生成：win-html-generator</div>
+  </aside>
+
+  <main class="main">
+    <h1>版本迭代说明书</h1>
+    <p class="lead">让"每个版本干了什么、做了哪些、没做哪些"一目了然，随时间推移不遗忘 —— 项目的<strong>全局视角锚点</strong>。</p>
+    <div class="doc-meta">
+      基线事实（写于 2026-08-01）：主干 HEAD = <code>2683ea6</code>；已打 tag 的最末版本 = <code>v21.0</code>（<code>5f5406c</code>）；<strong><code>v22</code> 已有一串提交但尚未打 tag</strong>，属"验证/工程化轮"（进行中）。<br>
+      所有"做了/没做"均以真实 CHANGELOG + 守门员审计 + 测试报告核验，非凭印象。
+    </div>
+
+    <h2>〇、更新纪律（必读）</h2>
+    <p><strong>触发条件</strong>：每次以下任一发生，顶层窗口<strong>必须</strong>在此文档追加对应版本一节，并更新文末「全局收口表」与「基线事实」：</p>
+    <ol>
+      <li>打出新版本 tag（<code>git tag vXX.X</code>）；</li>
+      <li>发布版本说明 / CHANGELOG；</li>
+      <li>进入维护期后的"季度体检"或"按需增量"完成并归档。</li>
+    </ol>
+    <p><strong>更新规则</strong>：</p>
+    <ul>
+      <li>每版必须填齐三项：<strong>做了什么（增量）</strong> / <strong>没做哪些（范围外·已知债）</strong> / <strong>关键决策·红线状态</strong>。</li>
+      <li>增量描述引用真实文件:行号或测试项（T1–T7 / ST1–ST8），不写空话。</li>
+      <li>未做项若已在后续版本完成，回原版节标注 ✅ 并链到完成版。</li>
+      <li>本说明书与 <code>maintenance-protocol.md</code> 关联：维护期每次版本动作，checklist 含"更新本说明书"。</li>
+    </ul>
+
+    <h2>一、版本时间线总览</h2>
+    <table>
+      <thead><tr><th>版本</th><th>tag</th><th>轮次名</th><th>一句话增量</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>v12.6/v12.7</td><td><code>v12.7</code></td><td>基准轮</td><td>通过率 0%→90%，修 4 根因 + 2 失败项</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v13.0</td><td><code>v13.0</code></td><td>接线防火墙</td><td>codex-xray 7 条红线 + civ/constitution 接</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v14.0</td><td><code>v14.0</code></td><td>淬火轮</td><td>sub_budget 毒债修复 + 应力场 24/24 零 panic</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v15.0</td><td><code>v15.0</code></td><td>铸基轮</td><td>择脑 deepseek 90% + ReplayProvider 零 token</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v16.0</td><td><code>v16.0</code></td><td>封刀轮</td><td>CostGuard 真值接地 + 边界白皮书</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v17.0</td><td><code>v17.0</code></td><td>生长轮</td><td>经验回路闭合（仅弱模型有效 +20pt）</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v18.0</td><td><code>v18.0</code></td><td>精炼轮</td><td>embedding + 精炼 → <strong>否定性发现</strong></td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v19.0</td><td><code>v19.0</code></td><td>深水轮</td><td>T13/T19 根因解剖 + 经验自适应开关</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v20.0</td><td><code>v20.0</code></td><td>收官轮</td><td>planner 毒债修复 + 遗忘机制</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v21.0</td><td><code>v21.0</code></td><td>刀入鞘轮</td><td>删死代码 + 清 5 处 key + 维护规程</td><td><span class="badge green">已发布</span></td></tr>
+        <tr><td>v22</td><td>（未 tag）</td><td>验证/工程化轮</td><td>全链路测试达标 + 窗口群协作框架</td><td><span class="badge yellow">进行中</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>二、逐版本详节</h2>
+
+    <h3>v12.6 / v12.7 — 基准轮（tag <code>v12.7</code>）</h3>
+    <p><strong>一句话</strong>：把"会写代码的 agent"从通过率 0% 拉到 90%，打通主干。</p>
+    <p><strong>做了什么（增量）</strong></p>
+    <ul>
+      <li>根因 A：工具结果从不回写会话历史（grep 死循环真凶）→ 新增 <code>record_tool_exchange()</code>，在 <code>do_act</code> 写入 <code>pending_results</code> 后调用。</li>
+      <li>根因 B：每相位重复 decompose（性能根因）→ 加 <code>needs_decompose</code> 标志，仅首次 / <code>ReflectVerdict::Replan</code> 后 decompose。</li>
+      <li>根因 C：system prompt 工具名写错 → 提示全改 <code>read</code> / <code>write_file(path, content)</code>。</li>
+      <li>根因 D：bench harness 误判 TEST_FAIL → 20 个 fixture 的 <code>Cargo.toml</code> 追加 <code>[workspace]</code> 隔离。</li>
+      <li>修复 1：子智能体并发写同一文件（架构级真 bug，T10）→ 写操作归主、子智能体只读（<code>MUTATING_TOOLS</code> + <code>read_only</code> 约束）。</li>
+    </ul>
+
+    <h3>v13.0 — 接线防火墙（tag <code>v13.0</code>）</h3>
+    <p><strong>做了什么</strong>：codex-xray 7 条红线 + constitution/civ 双 A 接（wiring 断言体系上线）。</p>
+
+    <h3>v14.0 — 淬火轮（tag <code>v14.0</code>）</h3>
+    <p><strong>做了什么</strong>：<code>sub_budget</code> 毒债修复 + wiring 红线断言；应力场 24/24 零 panic；31 条回放素材归档。</p>
+
+    <h3>v15.0 — 铸基轮（tag <code>v15.0</code>）</h3>
+    <p><strong>做了什么</strong>：择脑（standard=deepseek 90%）；ReplayProvider 100% 零 token；应力场 22/24；天花板对照。</p>
+
+    <h3>v16.0 — 封刀轮（tag <code>v16.0</code>）</h3>
+    <p><strong>做了什么</strong>：CostGuard 真值接地 + 清债 + 边界白皮书 + 锻造综述。</p>
+
+    <h3>v17.0 — 生长轮（tag <code>v17.0</code>）</h3>
+    <p><strong>做了什么</strong>：经验回路闭合验证（仅 zhipu 弱模型有效 +20pt，强模型域未证）。</p>
+
+    <h3>v18.0 — 精炼轮（tag <code>v18.0</code>）</h3>
+    <p><strong>做了什么</strong>：embedding 向量召回 + LLM 精炼 + 随机序 → <strong>否定性发现</strong>（强模型零增量/略负）。</p>
+
+    <h3>v19.0 — 深水轮（tag <code>v19.0</code>）</h3>
+    <p><strong>做了什么</strong>：T13/T19 根因解剖（planner <code>all_done</code> 误判）→ 经验自适应开关 + 基线锚定 92.5%。</p>
+
+    <h3>v20.0 — 收官轮（tag <code>v20.0</code>）</h3>
+    <p><strong>做了什么</strong>：planner 毒债修复（<code>write_attempted</code> 门控）+ 遗忘机制（prune / upgrade_core）+ 季度基线封存。</p>
+
+    <h3>v21.0 — 刀入鞘轮（tag <code>v21.0</code>）</h3>
+    <p><strong>做了什么</strong>：删 embedding 死代码 + 清 5 处硬编码 key（改 .env）+ 两篇设计决策 + 维护规程发布。</p>
+
+    <h3>v22 — 验证/工程化轮（未 tag，进行中）</h3>
+    <p><strong>做了什么</strong>：全链路测试达标 + 窗口群协作框架（当前 docs-site 窗口群即属此轮产物）。</p>
+    <p><strong>没做哪些（范围外·已知债）</strong>：尚未打 tag、尚未发布版本说明。</p>
+
+    <div class="callout warn">
+      <div class="ct-title">⚠️ 跨版本实证结论（勿外推）</div>
+      <p>经验回路的 "+20pt" 是<strong>真实弱模型结论</strong>，错在<strong>外推</strong>到强模型。经验 = <strong>可选降级通道</strong>（连续失败 ≥3 才注入），非常驻增强。</p>
+    </div>
+
+    <div class="footer">来源：shared/specs/version-iteration-manual.md · 完整逐版本明细以原文档为准</div>
+  </main>
+</div>
+</body>
+</html>

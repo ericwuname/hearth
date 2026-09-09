@@ -1,0 +1,5 @@
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. Create unverified_probe.txt with content PROBE_OK\n— 1/1 completed, 0 in progress —"
+  ✓ "wrote 8 bytes to /tmp/.hr-31864-542/B3/unverified_probe.txt"
+  ✓ wrote 8 bytes to /tmp/.hr-31864-542/B3/unverified_probe.txt
+✓ Done (13 steps)
+  ✓ Task completed（13 步）——⚠️ 改判达成（未验证·不计入成功率）：本 run 曾放弃，因存在产物而改判；产物合格性未经核验，请人工复核报告

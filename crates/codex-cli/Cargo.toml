@@ -1,0 +1,51 @@
+[package]
+name = "codex-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "hearth"
+path = "src/main.rs"
+
+# D2 (hearth-cli): 旧名 codex 保留为别名（hearth-naming.md——deprecated 别名，不强制改）。
+[[bin]]
+name = "codex"
+path = "src/bin/codex.rs"
+
+[lib]
+name = "hearth"
+path = "src/lib.rs"
+
+[dependencies]
+api.workspace = true
+agent-core.workspace = true
+agent-types.workspace = true
+agent-runtime.workspace = true
+observer.workspace = true
+llm-gateway.workspace = true
+llm-openai.workspace = true
+llm-local.workspace = true
+planner.workspace = true
+tool-runtime.workspace = true
+tools-builtin.workspace = true
+sandbox.workspace = true
+tokio = { workspace = true, features = ["full"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+colored.workspace = true
+rpassword.workspace = true
+reedline.workspace = true
+futures.workspace = true
+tokio-stream.workspace = true
+anyhow.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+toml = "0.8"
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

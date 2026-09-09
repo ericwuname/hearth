@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全局透视 v21 · codex-docs-a0</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand"><span class="logo">⌘</span><span>codex-docs-a0 文档站</span></div>
+  <nav class="site-nav">
+    <a href="index.html">首页</a>
+    <a href="architecture.html">架构总结</a>
+    <a href="panorama.html" class="active">全局透视 v21</a>
+    <a href="gene-expression.html">基因表达系统</a>
+    <a href="version-iteration.html">版本迭代说明书</a>
+  </nav>
+</header>
+
+<main class="container">
+  <article class="page">
+    <p class="crumbs"><a href="index.html">首页</a> / 全局透视 v21</p>
+    <h1>全局透视盘点 — v21 时点（2026-08-01，维护期入口）</h1>
+    <blockquote>supersede <code>docs/global-panorama-v18.md</code>（v18 写于 07-31，仅到 v18 WIP；本文刷新到 v21 已提交+维护期启动）。<br>
+    判据延续铁律：<strong>只认"生产路径可达"（grep 可证调用链），不采信提交信息/交付报告自报</strong>。<br>
+    本盘点基于真实主干：git HEAD = <code>4528fd6</code>（v21.0，已提交+tag）。</blockquote>
+
+    <h2>〇、版本状态（最重要的一句）</h2>
+    <p><strong>锻造九轮（v12→v20）已收官，v21「刀入鞘轮」把系统擦净并启动维护期。主干停在 v21.0，维护期纪律已发布。</strong></p>
+    <table>
+      <tr><th>项</th><th>状态</th></tr>
+      <tr><td>最新 tag</td><td><code>v21.0</code>（<code>4528fd6</code> 刀入鞘轮：消债固化 + 设计决策沉淀 + 维护期启动）</td></tr>
+      <tr><td>工作树</td><td>v21.0 提交干净；但树顶有未提交杂项</td></tr>
+      <tr><td>维护期</td><td><strong>已启动</strong>。规程 <code>docs/maintenance-protocol.md</code> 发布，季度体检 + 红线 + 不跑实验</td></tr>
+      <tr><td>wiring</td><td><strong>14/14 全绿</strong>（11 基础 + 3 新增）</td></tr>
+    </table>
+
+    <h2>一、轮次谱系（v12 → v21，全部已提交+tag）</h2>
+    <table>
+      <tr><th>版本</th><th>轮次名</th><th>主干实质贡献</th></tr>
+      <tr><td>v12.x</td><td>基准轮</td><td>Rust 自动编程基准 0%→95%/100%；工具 rename（edit→write_file）；ToolContext.cwd→session workspace</td></tr>
+      <tr><td>v13.0</td><td>接线防火墙</td><td>codex-xray + 接线断言（7 条 → 现 14 条）；constitution/civ 双 A 接</td></tr>
+      <tr><td>v14.0</td><td>淬火轮</td><td><code>sub_budget</code> 毒债修复 + wiring 红线断言；应力场 24/24 零 panic；31 条回放素材归档</td></tr>
+      <tr><td>v15.0</td><td>铸基轮</td><td>择脑（standard=deepseek 90%）；ReplayProvider 100% 零 token；应力场 22/24；天花板对照</td></tr>
+      <tr><td>v16.0</td><td>封刀轮</td><td>清债 + 边界白皮书 + 锻造综述</td></tr>
+      <tr><td>v17.0</td><td>生长轮</td><td>经验回路闭合验证（<strong>仅 zhipu 弱模型有效 +20pt</strong>，强模型域未证）</td></tr>
+      <tr><td>v18.0</td><td>精炼轮</td><td>embedding 向量召回 + LLM 精炼 + 随机序 → <strong>否定性发现</strong>（强模型零增量/略负）</td></tr>
+      <tr><td>v19.0</td><td>深水轮</td><td><strong>T13/T19 根因解剖</strong>（planner <code>all_done</code> 误判）→ 经验自适应开关 + 基线锚定 92.5%</td></tr>
+      <tr><td>v20.0</td><td>收官轮</td><td>planner 毒债修复（<code>write_attempted</code> 门控）+ 遗忘机制（prune/upgrade_core）+ 季度基线封存</td></tr>
+      <tr><td>v21.0</td><td>刀入鞘轮</td><td>删 embedding 死代码 + 清 5 处硬编码 key（改 .env）+ 两篇设计决策 + 维护规程发布</td></tr>
+    </table>
+
+    <div class="callout warn">⚠️ <strong>经验回路的真相（跨 v17/v18/v19 实证）</strong>：经验对<strong>弱模型(zhipu) +20pt 有效</strong>，对<strong>强模型(deepseek, 生产标准脑) 零增量甚至 -5pt 有害</strong>。结论 = 经验是<strong>可选降级通道</strong>（连续失败≥3 才注入），非常驻增强。v17 的"+20pt"是真实弱模型结论，错在<strong>外推</strong>。</div>
+
+    <h2>二、基因层级系统（v12.1 确立，维护期不变）</h2>
+    <p>出处 <code>docs/gene-expression-system-design.md:28-31</code>：</p>
+    <table>
+      <tr><th>层</th><th>名称</th><th>牙齿</th><th>表达器官</th><th>硬上限</th></tr>
+      <tr><td>G0</td><td>结构基因</td><td>物理不可能违反</td><td>sandbox/landlock/seccomp、审批门、进程隔离</td><td>无上限，每条=拓扑级</td></tr>
+      <tr><td>G1</td><td>反射基因</td><td>代码分支必然执行</td><td>相位钩子（subconscious/nervous/CostGuard）</td><td>每条必挂 wiring 断言</td></tr>
+      <tr><td>G2</td><td>检索基因</td><td>正确时机出现在眼前</td><td><code>experience</code> 判例卡+情境召回（<strong>降级通道化</strong>）</td><td>无上限</td></tr>
+    </table>
+    <p>（G3 叙事基因 ≤10 条，详见《基因表达系统设计》页。）</p>
+  </article>
+
+  <footer class="site-footer">由 win-win_docs_site 生成 · 数据源：shared/specs/global-panorama-v21.md</footer>
+</main>
+</body>
+</html>

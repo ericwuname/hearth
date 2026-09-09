@@ -1,0 +1,5 @@
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ deadline exceeded: 902s >= 900s（任务级 wall-clock 上限）
+✗ Done (25 steps)
+✗   ✗ Task failed — deadline exceeded（900s 上限，用时 902s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续

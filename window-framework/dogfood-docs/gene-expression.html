@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基因表达系统设计 · codex-docs-a0</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand"><span class="logo">⌘</span><span>codex-docs-a0 文档站</span></div>
+  <nav class="site-nav">
+    <a href="index.html">首页</a>
+    <a href="architecture.html">架构总结</a>
+    <a href="panorama.html">全局透视 v21</a>
+    <a href="gene-expression.html" class="active">基因表达系统</a>
+    <a href="version-iteration.html">版本迭代说明书</a>
+  </nav>
+</header>
+
+<main class="container">
+  <article class="page">
+    <p class="crumbs"><a href="index.html">首页</a> / 基因表达系统设计</p>
+    <h1>基因表达系统设计图纸（Gene Expression System）v1.0</h1>
+    <blockquote>状态：顶层设计定稿，待审计窗口审计 → 拆解 → 执行 → 验收<br>
+    作者：顶层设计窗口 · 2026-07-30<br>
+    一句话原则：<strong>基因 = 会被自动表达的约束。不能被机器表达的，不配叫基因，只配叫文化文档。</strong></blockquote>
+
+    <h2>§0 设计目标与一句话原则</h2>
+    <p><strong>目标</strong>：让规则、SOP、复盘、知识不再以"文字沉积"的方式生长，而是被强制编译进四层表达机制，由机器自动表达——把灵魂侧"靠自觉的栏杆"全部换成身体侧"有牙齿的必然"。</p>
+    <p><strong>要解决的五个实证病灶</strong>（全部来自启元N 的真实反馈）：</p>
+    <ol>
+      <li>规则太多（53 条全量加载，注意力稀释）</li>
+      <li>栏杆没有牙齿（文字规则可轻易越过，靠自觉）</li>
+      <li>设计了不执行、不读取（civ 线五个版本未兑现、"连接大脑"靠 CEO 记得说）</li>
+      <li>复盘了后面忘了用（心跳#10 教训写成规则二十一，身体又原样栽一遍）</li>
+      <li>10G 知识库闲置（只有存，没有召回推送）</li>
+    </ol>
+
+    <h2>§1 四层基因分类（按牙齿硬度，不按内容主题）</h2>
+    <table>
+      <tr><th>层</th><th>名称</th><th>牙齿</th><th>表达器官（身体侧）</th><th>数量红线</th></tr>
+      <tr><td><strong>G0</strong></td><td>结构基因</td><td>物理不可能违反</td><td>sandbox(landlock/seccomp)、审批门、CLI 进程隔离</td><td>无上限，但每条=拓扑级改动，极少新增</td></tr>
+      <tr><td><strong>G1</strong></td><td>反射基因</td><td>代码分支必然执行</td><td>相位钩子（subconscious gate / nervous query / CostGuard / 交付三门）</td><td>每条必须挂 wiring 接线断言测试</td></tr>
+      <tr><td><strong>G2</strong></td><td>检索基因</td><td>正确时机出现在眼前</td><td>experience crate（判例卡 + 情境召回 + 自动注入 prompt）</td><td>无上限，受 KPI 淘汰</td></tr>
+      <tr><td><strong>G3</strong></td><td>叙事基因</td><td>无牙齿（只做偏置）</td><td>constitution.md → build_messages 注入</td><td><strong>≤10 条，永不放宽</strong></td></tr>
+    </table>
+
+    <h3>判别式（给审计窗口用）</h3>
+    <p>一条规则属于哪层，问一句"<strong>违反它的那一刻，会发生什么？</strong>"</p>
+    <ul>
+      <li>什么都不发生 → 它现在是栏杆。要么下沉到 G1/G0 给它装牙，要么承认它是 G3 价值偏置（占 10 席之一），要么降为文化文档。</li>
+      <li>报错/相位拒绝/审批弹窗 → 已有牙，登记它的表达器官和断言测试即可。</li>
+    </ul>
+
+    <div class="callout warn"><strong>入籍铁律</strong>：每条基因入籍时必须声明三元组 <strong>（层级，表达器官，验证方式）</strong>。G1 缺接线断言、G2 缺判例卡格式、G3 超 10 条——任一违反，自动拒绝入籍，退回为文化文档。</div>
+
+    <h2>§2 消化道设计（本图纸的核心增量）</h2>
+    <p>§1 是静态解剖，§2 是动态代谢。回答的问题：<strong>未来的规则/SOP/复盘涌入时，系统靠什么不变成第二个 AGENTS.md V4.0？</strong></p>
+
+    <h3>2.1 单一入口（Intake Gate）</h3>
+    <p>所有新治理物料——不管叫规则、SOP、复盘、军师令、圆桌决议——<strong>只有一个合法入口</strong>：提交一张"入籍申请"，走下面的管线。禁止直接往 constitution.md / docs/ 追加规则性文字（追加文化文档除外，但文化文档不得使用"必须/禁止/铁律"字样——用了就说明它想当基因，就得走管线）。</p>
+
+    <h3>2.2 管线五步（每步有产物，有拒绝出口）</h3>
+    <pre><code>① 提交申请 ──→ ② 分层判定 ──→ ③ 编译 ──→ ④ 表达验证 ──→ ⑤ 挂 KPI
+   事故/复盘/     用§1判别式      产出三选一      故意违反一次，   进入退役
+   提案原文       定 G0-G3        (见2.3)       牙齿必须咬合     计数循环
+      │              │
+      │              └─ 判不出层级 → 拒绝入籍 → 归档为文化文档
+      └─ 无真实事故/需求支撑 → 拒绝（防冲动立法）</code></pre>
+
+    <h3>2.3 复盘编译义务（消灭"复盘了忘了用"）</h3>
+    <p><strong>复盘的合法交付物不是文档，是以下三选一</strong>（散文结尾的复盘视同没复盘）：</p>
+    <table>
+      <tr><th>交付物</th><th>去处</th><th>成本</th><th>例</th></tr>
+      <tr><td>（一）结构基因补丁 / 审批门新增</td><td>G0</td><td>高（拓扑改动）</td><td>—</td></tr>
+      <tr><td>（二）反射基因新相位钩子 / 断言</td><td>G1 + wiring 测试</td><td>中</td><td>—</td></tr>
+      <tr><td>（三）判例卡入 experience</td><td>G2 情境召回</td><td>低</td><td>—</td></tr>
+    </table>
+    <p>（注：本节为图纸核心段落摘要，完整三选一表格与例见原稿。）</p>
+  </article>
+
+  <footer class="site-footer">由 win-win_docs_site 生成 · 数据源：shared/specs/gene-expression-system-design.md</footer>
+</main>
+</body>
+</html>

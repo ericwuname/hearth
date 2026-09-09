@@ -1,0 +1,17 @@
+group=G3 | base=goose  1.49.0 | model=agnes-2.5-flash | started_utc=20260908T003009Z
+── [G3/A1] rc=0 4s ──
+── [G3/A2] rc=0 36s ──
+── [G3/A3] rc=0 5s ──
+── [G3/A4] rc=0 36s ──
+── [G3/A5] rc=0 40s ──
+── [G3/A6] rc=0 5s ──
+── [G3/A7] rc=0 10s ──
+── [G3/A8] rc=0 156s ──
+── [G3/A9] rc=0 14s ──
+── [G3/A10] rc=0 40s ──
+── [G3/B1] rc=0 49s ──
+── [G3/B2] rc=0 45s ──
+── [G3/B3] rc=0 104s ──
+── [G3/B4] rc=0 4s ──
+── [G3/B5] rc=0 88s ──
+[G3] 完成。产物：/home/wutao/r9-pkgB/results/G3/

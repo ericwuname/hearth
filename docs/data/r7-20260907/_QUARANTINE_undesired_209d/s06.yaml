@@ -1,0 +1,17 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# scenario s06 — Continue 继续型（矩阵场景；输入骨架逐字取自语料/黄金集）
+schema: simuser-scenario-v1.0
+id: s06
+name: "Continue 继续型"
+class: Continue
+mode: operational
+persona_ref: p01
+description: "入口事件=「继续」型输入（三形态 #2 强制）；v0.2.23 盲测 B 臂残留观察点"
+inputs:
+  - "建产物任务 → 「继续」→「继续跑吧」→「那你继续吧」（逐字黄金集）"
+detectors_expected:
+  - consecutive_failure_run
+  - user_visible_completion
+# Node 12 纪律：每场景必须留 success + failure + counterexample 三样本（禁只存失败）
+sample_policy: success+failure+counterexample

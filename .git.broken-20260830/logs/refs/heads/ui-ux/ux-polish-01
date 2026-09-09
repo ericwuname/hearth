@@ -1,0 +1,9 @@
+0000000000000000000000000000000000000000 0b159c5eac9483d8733fa7e05044a0d5e5e50b2b ericwuname <874659639@qq.com> 1786086897 +0800	branch: Created from demo-v21j-frozen
+0b159c5eac9483d8733fa7e05044a0d5e5e50b2b 9b8d13b534925819d4bb608f073f0c1c487336c6 ericwuname <874659639@qq.com> 1786091156 +0800	commit: fix(v24-post P1 深化): read-only 永不 Done——根治 T19 只读虚假完成 + acted 判定
+9b8d13b534925819d4bb608f073f0c1c487336c6 83f8cb07dab5d1b059b271c7735b62df634eccc2 ericwuname <874659639@qq.com> 1786091191 +0800	commit: docs: P1/P2 LLM 验证补报——T13 3/3 PASS + T19 能力墙归因 + read-only gate 根治
+83f8cb07dab5d1b059b271c7735b62df634eccc2 ee9d86910aa280ce161e4a3ccf4b326dfc0f625d ericwuname <874659639@qq.com> 1786093843 +0800	commit: fix(v24-post): landlock ABI v8 兼容——空 attr 探测改带权限位（根治 G0 隔离退化）
+ee9d86910aa280ce161e4a3ccf4b326dfc0f625d 61605854f84eb1ee60b6addd8e804bead98a7cb2 ericwuname <874659639@qq.com> 1786094494 +0800	commit: feat(v24-post): 挂账清账第 3 批——Q8 on_timeout 默认值 + Q3 Observer 报告落盘 + N7 密钥复核
+61605854f84eb1ee60b6addd8e804bead98a7cb2 13e74199e19e8f295761af4de4a20ec4d6bdddb1 ericwuname <874659639@qq.com> 1786098174 +0800	commit: docs: 挂账清账验收报告——Q9/landlock/体检/Q8/Q3/N7 全部闭环
+13e74199e19e8f295761af4de4a20ec4d6bdddb1 b8f6bfc9ce776aff445e7d34fb1294d899aea046 ericwuname <874659639@qq.com> 1787323799 +0800	commit: feat(demo): UI/UX 窗口收口 — 暗色主题/焦点环/空态加载态/减少动效 + 折叠修复 (ui-ux/ux-polish-01)
+b8f6bfc9ce776aff445e7d34fb1294d899aea046 12455ec00407351dc860fd222f11fdfdfc28ae4d ericwuname <874659639@qq.com> 1787324127 +0800	commit: chore(demo): 冻结头注释改准(39→90 断言) + 签发 UI/UX 任务书 #02(可用性审计面扩展)
+0000000000000000000000000000000000000000 12455ec00407351dc860fd222f11fdfdfc28ae4d ericwuname <874659639@qq.com> 1787324394 +0800	branch: Created from 12455ec

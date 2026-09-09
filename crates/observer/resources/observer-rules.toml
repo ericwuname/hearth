@@ -1,0 +1,42 @@
+# WP-6 (v23 phase4): Observer 规则表——阈值配置（Metrics → Finding）
+# 确定性：规则按数组顺序遍历；evidence 由引擎格式化（凭值可复现）。
+
+[[rules]]
+name = "cost_per_step_high"
+metric = "cost_per_step"
+op = ">"
+threshold = 0.05
+severity = "warn"
+recommendation = "任务成本超预期，检查是否有冗余 LLM 调用"
+
+[[rules]]
+name = "autonomy_low"
+metric = "autonomy_rate"
+op = "<"
+threshold = 0.5
+severity = "info"
+recommendation = "人工介入偏多，考虑增强 Policy 决策覆盖"
+
+[[rules]]
+name = "error_rate_high"
+metric = "error_rate"
+op = ">"
+threshold = 0.3
+severity = "warn"
+recommendation = "错误率过高，检查工具调用参数与相位逻辑"
+
+[[rules]]
+name = "retry_storm_high"
+metric = "retry_rate"
+op = ">"
+threshold = 0.8
+severity = "critical"
+recommendation = "重试风暴——G0 红线，建议熔断停机"
+
+[[rules]]
+name = "wait_high"
+metric = "wait_ratio"
+op = ">"
+threshold = 0.5
+severity = "info"
+recommendation = "等待人工响应占比过高，检查交互是否可自动化"

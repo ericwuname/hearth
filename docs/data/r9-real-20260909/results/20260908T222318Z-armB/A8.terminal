@@ -1,0 +1,5 @@
+3. **登记并观察** ✓ —— 任务目标已分解并记录
+**核心观察：'✗ Done 后直接 give_up 未尝试恢复'**
+- 历史会话（d462a42e）在 steps=4 后以 `completed` 终止，但 `written_files=[]`
+请确认下一步意图。✓ Done (28 steps)
+  ✓ Task completed（28 步）——目标达成（未验证），产物见报告

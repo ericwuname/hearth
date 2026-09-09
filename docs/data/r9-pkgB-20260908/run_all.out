@@ -1,0 +1,9 @@
+[run_all] G1 开始 00:20:44
+[run_all] G1 结束 00:25:15 rc=0
+[run_all] G2 开始 00:25:15
+[run_all] G2 结束 00:30:09 rc=0
+[run_all] G3 开始 00:30:09
+[run_all] G3 结束 00:40:45 rc=0
+[run_all] G4 开始 00:40:45
+[run_all] G4 结束 00:48:39 rc=0
+[run_all] 全部完成 00:48:39

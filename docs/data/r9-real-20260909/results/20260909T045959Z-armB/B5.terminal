@@ -1,0 +1,5 @@
+  ✓ "CapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n---\ncannot read seccomp net\n---\n0\n1\n2\n3\n4\n---\n总计 0\ndr-…
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ 工具出错: "bash: error: command timed out\nstdout:\n\nstderr:\ncommand timed out"
+✗ Done (25 steps)
+✗   ✗ Task failed — status=failed（25 步）——报告含已完成/剩余工作，可直接下指令继续

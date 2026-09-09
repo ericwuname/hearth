@@ -1,0 +1,17 @@
+group=G2 | base=codex-cli codex-cli 0.153.4 | model=agnes-2.5-flash | started_utc=20260908T002515Z
+── [G2/A1] rc=0 42s ──
+── [G2/A2] rc=1 36s ──
+── [G2/A3] rc=1 39s ──
+── [G2/A4] rc=1 38s ──
+── [G2/A5] rc=1 13s ──
+── [G2/A6] rc=1 6s ──
+── [G2/A7] rc=1 6s ──
+── [G2/A8] rc=1 7s ──
+── [G2/A9] rc=1 40s ──
+── [G2/A10] rc=1 5s ──
+── [G2/B1] rc=1 6s ──
+── [G2/B2] rc=1 6s ──
+── [G2/B3] rc=1 6s ──
+── [G2/B4] rc=0 39s ──
+── [G2/B5] rc=1 5s ──
+[G2] 完成。产物：/home/wutao/r9-pkgB/results/G2/

@@ -1,0 +1,1 @@
+group=G3 | base=goose  1.49.0 | model=agnes-2.5-flash | started_utc=20260908T003009Z

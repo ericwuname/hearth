@@ -1,0 +1,1 @@
+提取 validate_length(s, max) 公共函数，替换 validate_email 和 validate_phone 中重复的 len > max 检查。所有测试必须通过。

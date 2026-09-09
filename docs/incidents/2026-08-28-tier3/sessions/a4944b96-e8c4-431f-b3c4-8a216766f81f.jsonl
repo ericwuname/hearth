@@ -1,0 +1,2 @@
+{"index":0,"messages":[{"id":"user","role":"User","content":{"Text":"用一句话回答：法国的首都是哪个城市？只输出城市名。"},"created_at":"2026-08-28T10:57:15.833216395Z","meta":{"token_count":null,"source":null},"reasoning_content":null}],"actions":[]}
+{"index":0,"messages":[{"id":"assistant","role":"Assistant","content":{"Text":"巴黎"},"created_at":"2026-08-28T10:57:20.900932364Z","meta":{"token_count":null,"source":null},"reasoning_content":"The user asks: what is the capital of France? Output only the city name. Answer: Paris."}],"actions":[]}

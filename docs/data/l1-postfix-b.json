@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "source": "VM .131 ~/fa/l1-postfix/summary.json (raw copy, 2026-09-03)",
+    "binary": "~/hearth-l1 (l1-b3-rescue branch release build)",
+    "baseline_commit": "117a947 (v0.2.23)",
+    "branch_commit": "0ce93aa (l1-b3-rescue)",
+    "gate": "491/0 (agent-core 135 + workspace 356)",
+    "method": "PTY driver (tools/simuser/driver.py), B-arm = 13 polluted-prefix inputs replayed then continuation '继续你的提议吧'; A-arm = create-file task then continuation",
+    "known_instrument_issues": [
+      "rescued field reads terminal text only; L1_B3_NONPRODUCT_RESCUE is emitted via tracing to diagnostics.log, NOT the terminal -> rescued=false is an artifact; the authoritative signal is unverified/completed",
+      "A-arm first batch (this file's A array) is INVALID: driver turn_timeout 240s too short, continuation triggered 'glob **/*' over 354 sessions -> turns truncated (a1.log only 995 chars, first turn not captured). NOT a code regression. Re-run in progress at ~/fa/l1-postfix-a2/ with turn_timeout 900s"
+    ]
+  },
+  "B_arm": {
+    "n": 5,
+    "completed": 4,
+    "rate": "4/5 = 80%",
+    "pre_fix_baseline": "27% (campaign v1.2, 40 runs)",
+    "unverified_marked": 4,
+    "sole_failure": {
+      "run": "b5",
+      "shape": "PLAN-phase stall x3 (do_plan_inner identical TaskGraph), zero tool exchanges in the run",
+      "interpretation": "anti-idle-spin guard correctly withheld rescue; whether the plan-phase stall exit reaches the rescue helper is under Li adjudication"
+    },
+    "per_run": [
+      {"run": "b1", "completed": true, "unverified": true},
+      {"run": "b2", "completed": true, "unverified": true},
+      {"run": "b3", "completed": true, "unverified": true},
+      {"run": "b4", "completed": true, "unverified": true},
+      {"run": "b5", "completed": false, "unverified": false}
+    ]
+  },
+  "A_arm": {
+    "n": 3,
+    "status": "INVALID - instrument failure, re-running at ~/fa/l1-postfix-a2/",
+    "note": "D2 rule is a conjunction (B>=3/5 AND A>=2/3); A not landed -> D2 not finalized, adjudication belongs to Li"
+  }
+}

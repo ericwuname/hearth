@@ -1,0 +1,17 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# scenario s07 — Failure-diagnostic 失败诊断（矩阵场景；输入骨架逐字取自语料/黄金集）
+schema: simuser-scenario-v1.0
+id: s07
+name: "Failure-diagnostic 失败诊断"
+class: Failure-diagnostic
+mode: operational
+persona_ref: p04
+description: "失败后追问原因（「上一轮放弃了，✗ Done (5 steps) 这个原因是什么」）；诊断投影完整性"
+inputs:
+  - "诱因失败 → 逐字黄金集诊断追问"
+detectors_expected:
+  - user_visible_completion
+  - projection_leak
+# Node 12 纪律：每场景必须留 success + failure + counterexample 三样本（禁只存失败）
+sample_policy: success+failure+counterexample

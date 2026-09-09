@@ -1,0 +1,16 @@
+id,group,exit_code,steps_hint,artifact_count
+A1,A,0,,2KB
+A2,A,0,,2KB
+A3,A,0,,2KB
+A4,A,0,,2KB
+A5,A,0,,2KB
+A6,A,0,,2KB
+A7,A,0,,3KB
+A8,A,0,,13KB
+A9,A,0,,2KB
+A10,A,0,,2KB
+B1,B,0,,2KB
+B2,B,0,,2KB
+B3,B,0,,1KB
+B4,B,0,,2KB
+B5,B,0,,2KB

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 新人操作演示 · 一次完整的 agent 会话</title>
+<style>
+  :root{
+    --bg:#1a1b26; --panel:#24283b; --term:#16161e; --border:#414868;
+    --text:#c0caf5; --muted:#7c83a3; --blue:#7aa2f7; --red:#f7768e;
+    --green:#9ece6a; --amber:#e0af68; --cyan:#7dcfff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    line-height:1.6;padding:24px}
+  .wrap{max-width:1000px;margin:0 auto}
+  header h1{font-size:22px;font-weight:600;margin:0 0 4px}
+  header p{margin:0 0 18px;color:var(--muted);font-size:14px}
+  .statusbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .chip{padding:5px 11px;border-radius:999px;background:var(--panel);
+    border:1px solid var(--border);font-size:12px;color:var(--muted);
+    transition:.25s}
+  .chip.on{background:var(--blue);color:#1a1b26;border-color:var(--blue);font-weight:600}
+  .chip.on.approve{background:var(--red);border-color:var(--red)}
+  .chip.on.safe{background:var(--green);border-color:var(--green)}
+  .columns{display:flex;gap:16px;flex-wrap:wrap}
+  .term,.note{flex:1;min-width:300px;border-radius:12px;padding:18px}
+  .term{background:var(--term);border:1px solid var(--border);
+    font-family:"SFMono-Regular",Consolas,monospace;font-size:13px;
+    white-space:pre-wrap;min-height:300px}
+  .term .prompt{color:var(--green)}
+  .term .sys{color:var(--cyan)}
+  .term .agent{color:var(--amber)}
+  .term .warn{color:var(--red);font-weight:600}
+  .term .ok{color:var(--green)}
+  .cursor{display:inline-block;width:8px;height:15px;background:var(--blue);
+    vertical-align:middle;animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+  .note{background:var(--panel);border:1px solid var(--border)}
+  .step-title{color:var(--amber);font-size:14px;font-weight:600;margin:0 0 10px}
+  .note p{margin:0;font-size:15px}
+  .controls{display:flex;gap:10px;align-items:center;margin-top:18px;flex-wrap:wrap}
+  button{font-family:inherit;font-size:14px;border:0;border-radius:8px;
+    padding:9px 18px;cursor:pointer;font-weight:600}
+  .btn-main{background:var(--blue);color:#1a1b26}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .progress{display:flex;gap:6px;margin-left:auto}
+  .dot{width:9px;height:9px;border-radius:999px;background:var(--border);transition:.25s}
+  .dot.on{background:var(--blue)}
+  .hint{margin-top:14px;color:var(--muted);font-size:13px}
+  .hint b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Codex-Rust 新人操作演示</h1>
+    <p>跟着走一遍「让 agent 帮我创建 hello.py」的完整会话。顶部高亮的是当前所处的系统层级。</p>
+  </header>
+
+  <div class="statusbar" id="statusbar">
+    <span class="chip" data-k="cli">终端 CLI</span>
+    <span class="chip" data-k="service">Service</span>
+    <span class="chip" data-k="init">Init</span>
+    <span class="chip" data-k="plan">Plan</span>
+    <span class="chip" data-k="act">Act</span>
+    <span class="chip" data-k="observe">Observe</span>
+    <span class="chip" data-k="reflect">Reflect</span>
+    <span class="chip" data-k="llm">LLM</span>
+    <span class="chip" data-k="sandbox">Sandbox</span>
+    <span class="chip approve" data-k="approve">审批门</span>
+  </div>
+
+  <div class="columns">
+    <div class="term" id="term"></div>
+    <div class="note">
+      <p class="step-title" id="stepTitle"></p>
+      <p id="narration"></p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn-ghost" id="btnPrev">上一步</button>
+    <button class="btn-main" id="btnNext">下一步</button>
+    <button class="btn-ghost" id="btnPlay">自动播放</button>
+    <button class="btn-ghost" id="btnReset">重置</button>
+    <div class="progress" id="progress"></div>
+  </div>
+
+  <p class="hint">提示：点 <b>自动播放</b> 当视频看；点 <b>下一步</b> 手动学；红色 <b>审批门</b> 高亮时，就是「人硅边界」——agent 要碰真实文件，必须由你批准。</p>
+</div>
+
+<script>
+const steps = [
+  { active:["service"], title:"1 / 启动后台服务（系统内核）",
+    cli:[
+      {c:"prompt",t:"$ cargo run -p service"},
+      {c:"sys",t:"   Compiling service ..."},
+      {c:"sys",t:"   Service listening on 0.0.0.0:3000"}
+    ],
+    narration:"先启动「系统内核」Service——它常驻运行，承载 agent 的全部思考与执行。开发态一条 cargo 命令即可；生产环境用 docker compose up。这是必须第一个跑的，因为下面所有操作都发给它。" },
+
+  { active:["cli"], title:"2 / 打开交互终端（发令的壳）",
+    cli:[
+      {c:"prompt",t:"$ cargo run -p codex-cli -- repl"},
+      {c:"sys",t:"   ┌─ Codex REPL ────────────┐"},
+      {c:"sys",t:"   │ 多轮对话 · 输入目标即可 │"},
+      {c:"sys",t:"   └─────────────────────────┘"},
+      {c:"prompt",t:"   > "}
+    ],
+    narration:"再开一个终端，进入 REPL 交互模式。记住：codex 只是个「发令 + 审批的壳」，真正干活的是刚启动的 Service。终端里你既下指令、也拍板。" },
+
+  { active:["cli"], title:"3 / 用自然语言描述任务",
+    cli:[
+      {c:"prompt",t:"   > 帮我创建一个 hello.py，打印 Hello, Qiyuan"},
+      {c:"sys",t:"   (请求已通过 HTTP 发往 localhost:3000)"}
+    ],
+    narration:"你只描述「想要什么」，不用写代码。回车后请求走 HTTP 发给本机 :3000 的 Service。这就是你唯一要做的「编程」——把意图说清楚。" },
+
+  { active:["service","init"], title:"4 / Service 接收并建会话",
+    cli:[
+      {c:"sys",t:"[Service] POST /api/v1/sessions"},
+      {c:"sys",t:"   → 创建 session a1b2c3"},
+      {c:"sys",t:"   → 进入 Init 相位"}
+    ],
+    narration:"Service 收到请求，建立一个会话把你的目标存进去，agent 主循环从 Init 相位启动。会话让你后续能查历史、取消、审批。" },
+
+  { active:["plan"], title:"5 / Plan 相位：先规划，不蛮干",
+    cli:[
+      {c:"agent",t:"[Agent] Init → Plan"},
+      {c:"agent",t:"   Plan: 1) 写 hello.py"},
+      {c:"agent",t:"         2) 验证文件已生成"}
+    ],
+    narration:"agent 不会直接动手，先规划步骤。这就是 Init→Plan→Act→Observe→Reflect 主循环的前两步。好 agent 先想清楚再动。" },
+
+  { active:["act","llm"], title:"6 / Act 相位：调 LLM 生成内容",
+    cli:[
+      {c:"agent",t:"[Agent] Plan → Act"},
+      {c:"agent",t:"   调用 LLM(deepseek) 生成内容"},
+      {c:"sys",t:"   ┌─ hello.py ─────┐"},
+      {c:"sys",t:'   │ print("Hello, Qiyuan")'},
+      {c:"sys",t:"   └────────────────┘"}
+    ],
+    narration:"进入 Act，agent 调用 LLM 生成文件内容。注意：此时还没碰真实文件系统——只是「想好要写什么」。LLM 是 Service 调用的下游之一。" },
+
+  { active:["act","approve"], title:"7 / 审批挂起：要写真实文件了",
+    cli:[
+      {c:"agent",t:"[Agent] 工具调用待审批："},
+      {c:"agent",t:"   WriteFile(path=/workspace/hello.py,"},
+      {c:"agent",t:'             content=print("Hello, Qiyuan"))'},
+      {c:"warn",t:"   [挂起] 已暂停，等待你 approve"}
+    ],
+    narration:"关键一步！agent 要写真实文件，系统立刻挂起，通过审批门把请求抛给你。这就是「人硅边界」——执行权在你手里，不在 agent。它想干啥都得先问你。" },
+
+  { active:["cli","approve"], title:"8 / 你在终端审批",
+    cli:[
+      {c:"prompt",t:"   > approve a1b2c3 w4f7"},
+      {c:"ok",t:"   [通过] 审批通过，继续执行"}
+    ],
+    narration:"你在终端输入 approve（或 deny 拒绝）。只有你点头，agent 才会真正执行这个写文件调用。deny 的话它就得换方案。你永远握着最终开关。" },
+
+  { active:["sandbox"], title:"9 / Sandbox 隔离执行",
+    cli:[
+      {c:"sys",t:"[Service] 在 Sandbox 内执行 WriteFile"},
+      {c:"sys",t:"   landlock + seccomp 生效"},
+      {c:"ok",t:"   /workspace/hello.py 写入成功 (40 bytes)"}
+    ],
+    narration:"工具调用在 Sandbox 里执行——只读挂载 + 写白名单，物理隔离。agent 若想写 /etc 会被直接拦死，这是 G0 硬边界，代码层面绕不过。安全不是靠自觉，是靠隔离。" },
+
+  { active:["reflect"], title:"10 / 完成，流式回复你",
+    cli:[
+      {c:"agent",t:"[Agent] Observe → Reflect → Done"},
+      {c:"agent",t:'   SSE 流式回复：'},
+      {c:"agent",t:'   "已创建 hello.py，还要继续吗？"'},
+      {c:"prompt",t:"   > "}
+    ],
+    narration:"一轮结束：Observe 看结果、Reflect 复盘，结果经 SSE 流式回到你的终端。你可以继续对话，或输入 exit 退出。到此你已完整跑通一次可信委托。" }
+];
+
+const term = document.getElementById('term');
+const titleEl = document.getElementById('stepTitle');
+const narrEl = document.getElementById('narration');
+const statusbar = document.getElementById('statusbar');
+const progress = document.getElementById('progress');
+let cur = 0, timer = null, playing = false;
+
+steps.forEach(()=>{ const d=document.createElement('span'); d.className='dot'; progress.appendChild(d); });
+
+function setChips(active){
+  statusbar.querySelectorAll('.chip').forEach(ch=>{
+    ch.classList.toggle('on', active.includes(ch.dataset.k));
+  });
+}
+function typeStep(i){
+  clearInterval(timer);
+  const s = steps[i];
+  setChips(s.active);
+  titleEl.textContent = s.title;
+  narrEl.textContent = s.narration;
+  progress.querySelectorAll('.dot').forEach((d,idx)=>d.classList.toggle('on', idx===i));
+  term.innerHTML = '';
+  let lines = s.cli, li = 0, ci = 0, curEl = null;
+  function appendChar(){
+    if(li >= lines.length){ const c=document.createElement('span'); c.className='cursor'; term.appendChild(c); return; }
+    const line = lines[li];
+    if(ci === 0){
+      curEl = document.createElement('div');
+      if(line.c) curEl.className = line.c;
+      term.appendChild(curEl);
+    }
+    curEl.textContent += line.t[ci] || '';
+    ci++;
+    if(ci >= line.t.length){ li++; ci = 0; }
+    timer = setTimeout(appendChar, 12);
+  }
+  appendChar();
+}
+function next(){ if(cur < steps.length-1){ cur++; typeStep(cur); } else stopPlay(); }
+function prev(){ if(cur > 0){ cur--; typeStep(cur); } }
+function play(){ if(playing) return; playing=true; document.getElementById('btnPlay').textContent='暂停';
+  timer=setInterval(()=>{ if(cur>=steps.length-1){ stopPlay(); return;} next(); }, 2600); }
+function stopPlay(){ playing=false; clearInterval(timer); document.getElementById('btnPlay').textContent='自动播放'; }
+function reset(){ stopPlay(); cur=0; typeStep(0); }
+
+document.getElementById('btnNext').onclick = ()=>{ stopPlay(); next(); };
+document.getElementById('btnPrev').onclick = ()=>{ stopPlay(); prev(); };
+document.getElementById('btnPlay').onclick = ()=>{ playing?stopPlay():play(); };
+document.getElementById('btnReset').onclick = reset;
+
+typeStep(0);
+</script>
+</body>
+</html>

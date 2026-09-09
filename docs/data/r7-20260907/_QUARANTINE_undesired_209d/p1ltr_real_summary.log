@@ -1,0 +1,14 @@
+T9: terminal=failed(deadline exceeded) dur=40.4s
+T10: terminal=failed(status=failed) dur=29.8s
+T11: terminal=failed(deadline exceeded) dur=40.7s
+T12: terminal=failed(deadline exceeded) dur=15.3s
+T14_cancel: ⏹=True deadline_exceeded_leak=False
+LTSK: terminal=completed dur=43.4s
+
+=== P1-LTR REAL-MACHINE SUMMARY ===
+  ('T9_sleep300_d30', 'failed(deadline exceeded)', 40.4, 'expect≈30s deadline_exceeded')
+  ('T10_sleep10_d30', 'failed(status=failed)', 29.8, 'expect completed')
+  ('T11_tool10_d30', 'failed(deadline exceeded)', 40.7, 'taskdeadline_marker=0（expect 0——tool timeout 优先）')
+  ('T12_sleep60_d15', 'failed(deadline exceeded)', 15.3, 'expect deadline_exceeded')
+  ('T14_cancel', 'cancelled', 0, '⏹=True')
+  ('LTSK_longrun_d120', 'completed', 43.4, 'artifact_seen=True')

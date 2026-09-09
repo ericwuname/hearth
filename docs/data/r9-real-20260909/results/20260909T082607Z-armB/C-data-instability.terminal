@@ -1,0 +1,5 @@
+  ✓ "     1\t# hearth-tui 已知缺陷账本\n     2\t\n     3\t> 规则：每条缺陷必须带\"发现轮次/复测轮次\"；宣称修复必须附复测通过证据，否则不得关闭。\n     4\t\n     5\t## BUG-003 · 鼠标点击完全无反应（未修复）\n     6\t\n     7\t- **现象**：用户手工实测——点击会话列表与消息区均无任何反应，鼠标事件…
+  ✓ "  30 /tmp/.hr-34663-24066/C-data-instability/src/app.rs\n  28 /tmp/.hr-34663-24066/C-data-instability/src/main.rs\n  11 /tmp/.hr-34663-24066/C-data-instability/src/ui.rs\n  69 总计\n"
+  ✓ "(no matches)"
+如果你发现 PROGRESS.md 里的数字不对，告诉我具体哪里错了，我来修。✓ Done (10 steps)
+  ✓ Task completed（10 步）——目标达成（未验证），产物见报告

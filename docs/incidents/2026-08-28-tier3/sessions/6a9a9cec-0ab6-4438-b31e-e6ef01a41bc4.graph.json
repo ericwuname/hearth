@@ -1,0 +1,75 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "delegable": false,
+        "deps": [],
+        "description": "制定 log-aggregator 设计文档大纲，拆分为配置加载、日志解析、过滤与聚合、输出格式化、主流程编排五个模块，并确定模块间通信方式与整体数据流，确保最终论述不少于700字",
+        "id": "plan_outline",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "plan_outline"
+        ],
+        "description": "编写「配置加载」模块：给出配置结构体、load_config 等函数签名、关键字段与默认值、实现思路（如 TOML/JSON 解析、错误处理），并说明如何向后续模块提供配置与共享数据",
+        "id": "write_config_module",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "write_config_module"
+        ],
+        "description": "编写「日志解析」模块：给出 LogEntry 结构体、parse_line/parse_stream 等函数签名、正则/分隔符解析实现思路，以及解析结果如何传递到过滤聚合模块",
+        "id": "write_parsing_module",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "write_parsing_module"
+        ],
+        "description": "编写「过滤与聚合」模块：给出 Filter/Aggregation 结构与 run 函数签名，描述过滤条件组合、按时间/级别/字段聚合思路，以及消费 LogEntry 并生产统计结果的通信接口",
+        "id": "write_filter_aggregation_module",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "write_filter_aggregation_module"
+        ],
+        "description": "编写「输出格式化」模块：给出 Formatter trait、Text/Json 等实现、render 函数签名，描述如何将聚合结果渲染成终端文本或 JSON，并定义输出层与主流程的接口",
+        "id": "write_output_module",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "write_output_module"
+        ],
+        "description": "编写「主流程编排」：给出 main 与 run 函数签名，完整描述初始化配置、打开日志源、解析、过滤聚合、输出、错误处理与退出码的执行流程，并串联各模块的通信关系",
+        "id": "write_orchestration_main",
+        "result": null,
+        "status": "Pending"
+      },
+      {
+        "delegable": false,
+        "deps": [
+          "write_orchestration_main"
+        ],
+        "description": "通读并润色完整设计文档，核查五个模块均包含完整函数签名、关键数据结构、核心实现思路与模块间通信说明，确认正文不少于700字且逻辑连贯",
+        "id": "polish_document",
+        "result": null,
+        "status": "Pending"
+      }
+    ]
+  },
+  "state_revision": 2
+}

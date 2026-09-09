@@ -1,0 +1,17 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# scenario s09 — Material-dump 材料投喂（矩阵场景；输入骨架逐字取自语料/黄金集）
+schema: simuser-scenario-v1.0
+id: s09
+name: "Material-dump 材料投喂"
+class: Material-dump
+mode: strategic
+persona_ref: p11
+description: "贴长材料不下指令（38.3% 陈述喂料）；长贴截断检测"
+inputs:
+  - "贴 >5000 字材料（B4 §D：不得静默截断）→ 观察处理"
+detectors_expected:
+  - longpaste_truncation
+  - paste_error_probe_quality
+# Node 12 纪律：每场景必须留 success + failure + counterexample 三样本（禁只存失败）
+sample_policy: success+failure+counterexample

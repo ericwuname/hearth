@@ -1,0 +1,4 @@
+为 sum_range 和 sum_formula 添加基准测试。只需两处改动，不要动其他文件：
+1) 新建 benches/bench.rs：为 sum_range 和 sum_formula 各写一个普通 #[test] 函数（函数体内多次调用目标函数即可算基准；不要用 criterion，不要用不稳定的 test::Bencher，不要写 fn main）。
+2) Cargo.toml 追加一节：[[bench]] name = "bench"（不要写 harness = false）。
+保留 src/lib.rs 原有的函数和测试，cargo test 必须仍然全绿。

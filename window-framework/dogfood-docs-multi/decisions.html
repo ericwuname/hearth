@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 决策记录</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div><h1>Codex-Rust 文档站</h1><small>v21.0 维护期 · 全局锚点</small></div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html">架构与实现逻辑</a>
+        <a href="genes.html">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html" class="active">决策记录</a>
+        <a href="progress.html">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">生成：win-html-generator</div>
+  </aside>
+
+  <main class="main">
+    <h1>决策记录</h1>
+    <p class="lead">docs-site 项目的 ADR（Architecture Decision Records）登记处。</p>
+
+    <div class="callout ok">
+      <div class="ct-title">📋 当前状态</div>
+      <p>决策记录目前为空 —— 尚未有正式 ADR 入册。</p>
+    </div>
+
+    <h2>已有决策锚点（源自共享 specs）</h2>
+    <p>尽管决策记录表尚为空，以下关键决策已在各设计文档中定型，可作为后续 ADR 的候选回溯项：</p>
+    <table>
+      <thead><tr><th>决策</th><th>出处</th><th>要点</th></tr></thead>
+      <tbody>
+        <tr><td>经验=可选降级通道</td><td>global-panorama-v21</td><td>连续失败 ≥3 才注入，非常驻增强（弱模型 +20pt / 强模型 -5pt）</td></tr>
+        <tr><td>基因入籍三元组</td><td>gene-expression-system-design</td><td>（层级，表达器官，验证方式），任一违反自动拒绝入籍</td></tr>
+        <tr><td>只认生产路径可达</td><td>global-panorama-v21</td><td>grep 可证调用链为准，不采信自报</td></tr>
+        <tr><td>Intake Gate 单一入口</td><td>gene-expression-system-design</td><td>禁止直接向 constitution/docs 追加规则性文字</td></tr>
+        <tr><td>maintenance 不跑实验</td><td>global-panorama-v21 / version-iteration-manual</td><td>维护期季度体检 + 红线，不跑实验</td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer">来源：shared/decisions.md（当前为空，本文档为锚点视图）</div>
+  </main>
+</div>
+</body>
+</html>

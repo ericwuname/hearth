@@ -1,0 +1,5 @@
+sample-01 = T4_pivot_C
+sample-02 = T2_multistep_B
+sample-03 = T4_pivot_B
+sample-04 = T2_multistep_C
+（变体语义：_B=Hearth 完整流水线；_C=Hearth+精简约束前缀。EC-03 基线初评分见 docs/hearth-r2c-preconstruction-decision.md）

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex-Rust 文档站 · 架构与实现逻辑</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CR</div>
+      <div><h1>Codex-Rust 文档站</h1><small>v21.0 维护期 · 全局锚点</small></div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">总览</div>
+        <a href="index.html">首页 · 站点地图</a>
+        <a href="panorama.html">全局透视 v21</a>
+        <a href="versions.html">版本迭代说明书</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">架构</div>
+        <a href="architecture.html" class="active">架构与实现逻辑</a>
+        <a href="genes.html">基因表达系统设计</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">治理</div>
+        <a href="decisions.html">决策记录</a>
+        <a href="progress.html">进度板</a>
+      </div>
+    </nav>
+    <div class="meta">生成：win-html-generator</div>
+  </aside>
+
+  <main class="main">
+    <h1>Codex-Rust 架构与实现逻辑总结</h1>
+    <p class="lead">Rust 编写的自主编码 Agent 系统：目标 → LLM 规划 → 工具循环执行 → 观察反思 → 产出结果。</p>
+    <div class="doc-meta">
+      整理于 2026-07-28 · 结论均基于源码直接核对（loop.rs / planner/src/lib.rs / service/src/main.rs / sandbox/src/lib.rs 等）<br>
+      核验基线：Cargo workspace 实际声明 <strong>17 个 crate</strong>（非某些文档口径的 19 个）
+    </div>
+
+    <h2>1. 总体定位</h2>
+    <p>给定目标 → LLM 规划 → 循环调用工具（bash / read / write_file / glob / grep）执行 → 观察结果 / LSP 诊断 / 语义检索 → 反思是否继续 / 重规划 / 放弃 → 产出结果。</p>
+    <p>对外通过 <code>service</code> crate（<code>axum</code> HTTP 服务）暴露 SSE 流式 API；LLM 后端支持 OpenAI / Ollama / vLLM / 腾讯混元，并可配置降级链。</p>
+
+    <h2>2. 分层与依赖方向</h2>
+    <p>依赖自上而下、底层在右（箭头 = "依赖于"）：</p>
+<pre><code>service (bin, main.rs)  唯一可执行入口，聚合所有能力
+   │
+   ├── agent-core  ──引擎：AgentLoop 主循环、上下文、调度
+   │      │ 依赖：llm-gateway / tool-runtime / planner / retriever / code-index / lsp-bridge
+   │      └── 这些都以 Arc&lt;dyn Trait&gt; 形式注入（依赖倒置）
+   │
+   ├── tools-builtin (5 个内置工具) ── tool-runtime (Tool trait + 分发/审批)
+   │                                     └── sandbox (命令隔离)
+   ├── llm-openai / llm-local / llm-cn ── llm-gateway (LlmProvider 抽象 + 注册表 + 降级链 + 计费)
+   ├── memory (会话 JSONL 持久化)
+   └── api (北向契约：AgentEvent / 请求/响应类型)
+              │
+        agent-types  ← 所有 crate 的共享数据基座（消息、工具调用、TaskGraph、运行状态）</code></pre>
+
+    <h3>要点</h3>
+    <ul>
+      <li><code>agent-types</code> 是零依赖的共享类型层，被全部 crate 依赖。</li>
+      <li><code>agent-core</code> 是引擎，但<strong>不带任何断言/LLM 实现</strong>，所有能力（planner / retriever / lsp / provider）都通过 trait 注入。</li>
+      <li><code>telemetry</code> 是叶子 crate（独立 eval 测试台），未被 <code>service</code> 依赖。</li>
+    </ul>
+
+    <h2>3. 核心抽象（trait 与关键类型）</h2>
+    <p>各能力以独立 crate 中的 trait 定义，<code>agent-core</code> 仅持有 <code>Arc&lt;dyn ...&gt;</code>：</p>
+    <table>
+      <thead><tr><th>Trait / 类型</th><th>所在 crate</th><th>关键签名</th></tr></thead>
+      <tbody>
+        <tr><td><code>LlmProvider</code></td><td>llm-gateway</td><td><code>chat()</code> / <code>stream()</code> / <code>embed()</code>；配套 <code>ProviderRegistry</code>、<code>FallbackChain</code>（有界顺序重试）、<code>CostMeter</code>（真实 token 计费）</td></tr>
+        <tr><td><code>Tool</code></td><td>tool-runtime</td><td><code>name()</code> / <code>description()</code> / <code>execute(args, ctx)</code>；<code>ToolDispatcher</code> 注册、串/并行分发、超时(30s)、按 <code>session_id</code> 隔离的审批状态机</td></tr>
+        <tr><td><code>Planner</code></td><td>planner</td><td><code>decompose(goal, ctx) -&gt; TaskGraph</code> / <code>reflect(obs, state) -&gt; ReflectVerdict</code></td></tr>
+        <tr><td><code>Retriever</code></td><td>retriever</td><td><code>search(query, top_k)</code>；BM25 + 向量 RRF 融合（实现完整，但生产未接线）</td></tr>
+        <tr><td><code>LspBridge</code></td><td>lsp-bridge</td><td><code>diagnostics(file)</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>4. 版本与维护期状态</h2>
+    <table>
+      <thead><tr><th>项</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>最新 tag</td><td><span class="badge green">v21.0</span> <code>4528fd6</code>（刀入鞘轮：消债固化 + 设计决策沉淀 + 维护期启动）</td></tr>
+        <tr><td>工作树</td><td>v21.0 提交干净；树顶有未提交杂项</td></tr>
+        <tr><td>维护期</td><td>已启动：季度体检 + 红线 + 不跑实验</td></tr>
+        <tr><td>wiring</td><td><span class="badge green">14/14 全绿</span>（11 基础 + 3 新增）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout ok">
+      <div class="ct-title">✅ 一句话原则</div>
+      <p><strong>基因 = 会被自动表达的约束。不能被机器表达的，不配叫基因，只配叫文化文档。</strong>（详见<a href="genes.html">基因表达系统设计</a>）</p>
+    </div>
+
+    <div class="footer">来源：shared/specs/architecture-summary.md</div>
+  </main>
+</div>
+</body>
+</html>

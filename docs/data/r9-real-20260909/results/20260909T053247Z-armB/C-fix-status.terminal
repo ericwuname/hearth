@@ -1,0 +1,5 @@
+  ✓ "Checklist (R6-3 模型自持清单):\n[~] 1. 检查 BUG-003 鼠标点击是否已修复\n[ ] 2. 验证 main.rs 是否有 Event::Mouse 分支\n[ ] 3. 验证 PROGRESS.md 中 M4 里程碑状态是否更新\n— 0/3 completed, 1 in progress —"
+  ✓ "/tmp/.hr-24167-26227/C-fix-status/src/app.rs:24:    /// BUG-003 嫌疑路径：点击会话选中——从未被事件循环调用（main.rs Mouse 分支缺失）。\n/tmp/.hr-24167-26227/C-fix-status/src/main.rs:20:                // TODO(BUG-003): Event::…
+  ✓ "(no matches)"
+如需修复，需在 `main.rs` 事件循环中添加 `Event::Mouse` 分支并调用 `app.select_session(idx)`，然后复测验证。✓ Done (18 steps)
+  ✓ Task completed（18 步）——目标达成（未验证），产物见报告

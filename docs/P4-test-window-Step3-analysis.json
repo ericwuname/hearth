@@ -1,0 +1,176 @@
+{
+ "summary": {
+  "A_total": 5,
+  "A_pass": 0,
+  "A_rc52": 5,
+  "A_driver_timeout": 0,
+  "A_inconclusive": 0,
+  "B_total": 5,
+  "B_pass": 0,
+  "B_rc52": 4,
+  "B_driver_timeout": 1,
+  "B_inconclusive": 0
+ },
+ "rows": [
+  {
+   "cond": "A1",
+   "driver_task": "completed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "8e0e6cdd"
+  },
+  {
+   "cond": "A2",
+   "driver_task": "completed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "647f084e"
+  },
+  {
+   "cond": "A3",
+   "driver_task": "completed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "db18276d"
+  },
+  {
+   "cond": "A4",
+   "driver_task": "completed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "984ac4d9"
+  },
+  {
+   "cond": "A5",
+   "driver_task": "completed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "082a35fc"
+  },
+  {
+   "cond": "B1",
+   "driver_task": "failed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "3dc7c241"
+  },
+  {
+   "cond": "B2",
+   "driver_task": "failed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "2cdc33ba"
+  },
+  {
+   "cond": "B3",
+   "driver_task": "failed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 0,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "1c67dd2b"
+  },
+  {
+   "cond": "B4",
+   "driver_task": "failed",
+   "driver_cont": "timeout",
+   "real_global": "give_up",
+   "verdict": "DRIVER_TIMEOUT(chatter,no-real-fail)",
+   "cont_signals": {
+    "give_up": 0,
+    "stalled": 0,
+    "task_failed": 0,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "6e8e9e73"
+  },
+  {
+   "cond": "B5",
+   "driver_task": "failed",
+   "driver_cont": "failed",
+   "real_global": "give_up",
+   "verdict": "RC52_REPRO",
+   "cont_signals": {
+    "give_up": 1,
+    "stalled": 2,
+    "task_failed": 1,
+    "task_completed": 0,
+    "goal_restored": 0,
+    "rc47_done": 0
+   },
+   "session": "37b76432"
+  }
+ ]
+}

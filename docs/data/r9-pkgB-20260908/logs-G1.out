@@ -1,0 +1,17 @@
+group=G1 | base=raw-agnes-api(curl,无框架无工具) | model=agnes-2.5-flash | started_utc=20260908T002044Z
+── [G1/A1] rc=0 65s ──
+── [G1/A2] rc=0 3s ──
+── [G1/A3] rc=0 2s ──
+── [G1/A4] rc=0 2s ──
+── [G1/A5] rc=0 2s ──
+── [G1/A6] rc=0 4s ──
+── [G1/A7] rc=0 75s ──
+── [G1/A8] rc=0 4s ──
+── [G1/A9] rc=0 38s ──
+── [G1/A10] rc=0 3s ──
+── [G1/B1] rc=0 4s ──
+── [G1/B2] rc=0 2s ──
+── [G1/B3] rc=0 55s ──
+── [G1/B4] rc=0 2s ──
+── [G1/B5] rc=0 10s ──
+[G1] 完成。产物：/home/wutao/r9-pkgB/results/G1/

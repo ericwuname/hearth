@@ -1,0 +1,33 @@
+评测材料 sample-01
+任务：先创建 c.txt 内容为 first plan。完成后再创建 d.txt 内容为 second plan，然后删除 c.txt。（隐含约束/换向类）
+
+===== 执行 transcript（原样，含终态投影与全部工具调用）=====
+🔒 landlock+seccomp (fail-closed)  (session 4fe85748)
+⚠ cgroup: /sys/fs/cgroup 不可写（Permission denied (os error 13)）——资源限制不会生效。设 HEARTH_CGROUP_BASE=<delegation 子树> 或 HEARTH_ALLOW_NO_CGROUP=1 显式降级
+
+> [执行约束：用最少步骤直接完成任务，不要探索、不要过度设计、不要创建任务清单之外的文件。] 先创建 a.txt 内容为 first plan。完成后再创建 b.txt 内容为 second plan，然后删除 a.txt。
+
+  🎯 任务目标已锚定（original_goal 持久化）
+◆ Init
+  ▸ span [plan] 2026-08-28T17:31:52.372292373+00:00
+◆ Plan
+┌─ 🗺 规划草案（steps=3 gaps=1 待问=0 自动假设=1）
+   🤖 ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设）
+   · Create a.txt with content 'first plan' [Pending]
+   · Create b.txt with content 'second plan' [Pending]
+   · Delete a.txt [Pending]
+   ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设） → 
+└─
+  ◂ span 耗时 3899ms
+💭 [plan] 正在规划任务分解
+
+⚙ write_file → path: a.txt
+
+⚙ write_file → path: b.txt
+
+⚙ bash → cmd: rm a.txt
+
+⚙ bash → cmd: ls *.txt && cat b.txt
+  ▸ span [act] 2026-08-28T17:31:56.271570680+00:00
+◆ Act
+⛔ approval — 批准? [y/N] 

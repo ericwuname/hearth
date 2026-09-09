@@ -1,0 +1,1 @@
+给这个 Rust 项目添加一个 multiply(a, b) 函数（返回 a * b），并在 tests 模块里加一个 test_multiply 测试（断言 2*3=6）。改完后运行 cargo test 确保通过。

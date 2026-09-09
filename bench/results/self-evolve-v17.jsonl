@@ -1,0 +1,1 @@
+{"provider": "zhipu", "baseline_ok": 26, "baseline_n": 40, "baseline_pct": 65.0, "injection_ok": 32, "injection_n": 40, "injection_pct": 80.0, "delta_pt": 15.0, "improved": 8, "regressed": 2, "experiences_after_baseline": 37}

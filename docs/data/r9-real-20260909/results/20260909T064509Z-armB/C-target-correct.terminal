@@ -1,0 +1,5 @@
+  ✓ "wrote 1181 bytes to /tmp/.hr-28357-8800/C-target-correct/CONFIRMATION.md"
+  ✓ "Checklist (R6-3 模型自持清单):\n[x] 1. Re-verify the Hearth TUI project name and context\n[x] 2. Search for existing Hearth TUI conversation or context\n[x] 3. Understand what was misunderstood or forgotte…
+✓ Done (31 steps)
+  ✓ Task completed（31 步）——⚠️ 改判达成（未验证·不计入成功率）：本 run 曾放弃，因存在产物而改判；产物合格性未经核验，请人工复核报告
+✗   ⚠ G-F goal_drift 疑似：终局产物与原始目标语义相关度存疑（独立判定认为任务被替换/漂移）——请人工核对产物是否确实是你要的

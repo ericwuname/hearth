@@ -1,0 +1,19 @@
+# ⚠ G1-PENDING：相关矩阵评审（砺）通过前，本文件仅供备案，campaign 不得引用（放行令 §4 硬门禁）
+
+# persona p07 — 复发抱怨（语料原生类别，向量派生自种子话语标注）
+schema: simuser-persona-v1.0
+id: p07
+category: "复发抱怨"
+mode: operational
+corpus_count: 6
+weight_natural: 0.0021
+weight_amplified: 0.0300
+length_dist: {"100-300": 1.0}
+multi_intent_dist: {"2": 1.0}
+style_dist: {"陈述": 1.0}
+tone_dist: {"中性": 1.0}
+anaphora_rate: 1.0
+budget_behavior: "同类失败反复出现时出现；RC52 吸引子伴生信号"
+session_shape: "短轮次爆发"
+seed_utterances:
+  - "\"<path>\" 这个文件读一下，总结一下，因为我用了这个agnes之后，2个对话框都由于400问题被终止了，还没有到上下文极限就被截断了。无法恢复。所以我们需要总结复盘一下经验，这样才能避免同样的问题发生与出现。"
