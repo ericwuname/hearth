@@ -200,6 +200,7 @@ fn parse_hunyuan_sse_line(line: &str) -> Option<Result<StreamEvent>> {
                             call_id: tc.id.clone().unwrap_or_default(),
                             name: func.name.clone(),
                             args_delta: func.arguments.clone().unwrap_or_default(),
+                            index: tc.index as usize,
                         }));
                     }
                 }

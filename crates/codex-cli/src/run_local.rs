@@ -65,8 +65,48 @@ pub(crate) fn build_provider(cfg: &ResolvedConfig) -> Result<Arc<dyn llm_gateway
 }
 
 fn build_provider_inner(cfg: &ResolvedConfig) -> Result<Arc<dyn llm_gateway::LlmProvider>> {
-    let name = cfg.provider.as_str();
-    let model = cfg.model.clone().unwrap_or_else(|| match name {
+    // S9（手术包二）：配置了多通道降级链（providers 有序数组，len>1）→
+    // FallbackChain 包装：通道级不可恢复错误（401/403/400/畸形流/策略）自动切
+    // 下一通道（投影 `[fallback] provider: a → b`——降级数据必须标通道，换
+    // provider=换模型层，基准对照不可比）；transient 交回 S7 长退避。
+    if cfg.providers.len() > 1 {
+        let mut items: Vec<(String, Arc<dyn llm_gateway::LlmProvider>)> = Vec::new();
+        for (i, name) in cfg.providers.iter().enumerate() {
+            let key = cfg
+                .provider_keys
+                .get(name)
+                .cloned()
+                .or_else(|| cfg.api_key.clone());
+            // 首通道沿用显式 url（--url/config）；其余通道走各自默认端点。
+            let url = if i == 0 { cfg.url.clone() } else { None };
+            let p = build_single_provider(name, None, url, key)?;
+            items.push((name.clone(), p));
+        }
+        let chain = llm_gateway::FallbackChain::new(items).with_switch_callback(Arc::new(
+            |from: &str, to: &str| {
+                eprintln!(
+                    "  🔁 [fallback] provider: {from} → {to}（降级链——数据按通道分账，基准对照不可比）"
+                );
+            },
+        ));
+        return Ok(Arc::new(chain));
+    }
+    build_single_provider(
+        &cfg.provider,
+        cfg.model.clone(),
+        cfg.url.clone(),
+        cfg.api_key.clone(),
+    )
+}
+
+/// S9：单通道构造（原 match 抽出——链模式复用；key 缺失给可行动错误）。
+fn build_single_provider(
+    name: &str,
+    model: Option<String>,
+    url: Option<String>,
+    api_key: Option<String>,
+) -> Result<Arc<dyn llm_gateway::LlmProvider>> {
+    let model = model.unwrap_or_else(|| match name {
         "deepseek" => "deepseek-v4-flash".into(),
         "openai" => "gpt-4o".into(),
         "gemini" => "gemini-3.6-flash".into(),
@@ -76,46 +116,36 @@ fn build_provider_inner(cfg: &ResolvedConfig) -> Result<Arc<dyn llm_gateway::Llm
     });
     match name {
         "deepseek" => {
-            cfg.require_api_key()?;
-            let url = cfg
-                .url
-                .clone()
-                .unwrap_or_else(|| "https://api.deepseek.com/v1".into());
+            let key = provider_key_or_bail(name, &api_key)?;
+            let url = url.unwrap_or_else(|| "https://api.deepseek.com/v1".into());
             Ok(Arc::new(llm_openai::OpenAiProvider::new(
                 "deepseek",
                 model,
                 Some(url),
-                cfg.api_key.clone().unwrap_or_default(),
+                key,
             )))
         }
         // R7 (v0.1.4): gemini 通道——OpenAI 兼容端点（generativelanguage /v1beta/openai）。
-        // 用户首选通道；deepseek 限流/故障时 `--provider gemini` 一键切换，harness 不绑单通道。
         "gemini" => {
-            cfg.require_api_key()?;
-            let url = cfg.url.clone().unwrap_or_else(|| {
+            let key = provider_key_or_bail(name, &api_key)?;
+            let url = url.unwrap_or_else(|| {
                 "https://generativelanguage.googleapis.com/v1beta/openai".into()
             });
             Ok(Arc::new(llm_openai::OpenAiProvider::new(
                 "gemini",
                 model,
                 Some(url),
-                cfg.api_key.clone().unwrap_or_default(),
+                key,
             )))
         }
         "openai" => {
-            cfg.require_api_key()?;
+            let key = provider_key_or_bail(name, &api_key)?;
             Ok(Arc::new(llm_openai::OpenAiProvider::new(
-                "openai",
-                model,
-                cfg.url.clone(),
-                cfg.api_key.clone().unwrap_or_default(),
+                "openai", model, url, key,
             )))
         }
         "ollama" => {
-            let url = cfg
-                .url
-                .clone()
-                .unwrap_or_else(|| "http://localhost:11434".into());
+            let url = url.unwrap_or_else(|| "http://localhost:11434".into());
             Ok(Arc::new(llm_local::OllamaProvider::new(
                 "ollama",
                 model,
@@ -123,34 +153,42 @@ fn build_provider_inner(cfg: &ResolvedConfig) -> Result<Arc<dyn llm_gateway::Llm
             )))
         }
         "vllm" => {
-            let url = cfg
-                .url
-                .clone()
-                .context("vllm 需要 url（--url 或 config set url）——下一步: hearth config set url http://localhost:8000/v1")?;
+            let url = url.context("vllm 需要 url（--url 或 config set url）——下一步: hearth config set url http://localhost:8000/v1")?;
             Ok(Arc::new(llm_local::VllmProvider::new(
                 "vllm",
                 model,
                 Some(url),
-                cfg.api_key.clone(),
+                api_key,
             )))
         }
         // T1 (v0.2.3): agnes——OpenAI 兼容，默认端点/模型（用户会员通道）
         "agnes" => {
-            cfg.require_api_key()?;
-            let url = cfg
-                .url
-                .clone()
-                .unwrap_or_else(|| "https://api.agnes-ai.cn/v1".into());
+            let key = provider_key_or_bail(name, &api_key)?;
+            let url = url.unwrap_or_else(|| "https://api.agnes-ai.cn/v1".into());
             Ok(Arc::new(llm_openai::OpenAiProvider::new(
                 "agnes",
                 model,
                 Some(url),
-                cfg.api_key.clone().unwrap_or_default(),
+                key,
             )))
         }
         other => anyhow::bail!(
             "未知 provider: {other}——可用: deepseek / openai / gemini / agnes / ollama / vllm。\n\
              下一步: hearth config set provider deepseek"
+        ),
+    }
+}
+
+/// S9：通道 key 缺失 → 可行动错误（含 provider_keys 写法；key 永不入 git）。
+fn provider_key_or_bail(name: &str, api_key: &Option<String>) -> Result<String> {
+    match api_key.as_deref() {
+        Some(k) if !k.is_empty() => Ok(k.to_string()),
+        _ => anyhow::bail!(
+            "未配置 API key（通道 {name}）。\n\
+             下一步（任选其一）：\n\
+             1. hearth config set api-key <你的key>\n\
+             2. export HEARTH_API_KEY=<你的key>\n\
+             3. config.toml 增加 [provider_keys] {name} = \"<key>\"（权限 600，永不入 git）"
         ),
     }
 }
@@ -197,6 +235,14 @@ pub(crate) fn rebuild_agent(
     Ok(fresh)
 }
 
+/// PC-2 修复（P0/P1 修复任务书 v1.0）：resume **预算追加**——总预算 = 断点已用
+/// + 追加额度。语义：steps 接着数（agent 侧 resume_keep_steps 恢复旧计数），
+/// 追加的部分是净余量（`hearth resume <id> --budget N` 的 N 默认 = REPL_BUDGET）。
+/// 纯函数（CLI resume 分支调用；无副作用可单测）。
+pub(crate) fn resume_budget(steps_used: u64, extra: u64) -> u64 {
+    steps_used.saturating_add(extra)
+}
+
 /// S3（P5-FOUNDATION-01 N13）：turn 级 checkpoint——每个工具交换原子落盘。
 /// 此前快照只在 run() Ok 收尾（下方 Ok 分支），Ctrl-C/panic/kill 丢整轮进度；
 /// 回调内部 save_snapshot 为 tmp+rename 原子写，失败不阻断主路径。
@@ -207,6 +253,7 @@ pub(crate) fn attach_session_safety(
 ) {
     let ck_sid = sid.to_string();
     let snap_sid = sid.to_string();
+    let ck_cwd = cwd.to_path_buf();
     agent.set_on_turn_checkpoint(Box::new(move |cp| {
         if let Err(e) = crate::session_store::save_snapshot(&ck_sid, cp.turns) {
             tracing::warn!(error = %e, "turn checkpoint 落盘失败（不阻断）");
@@ -220,6 +267,14 @@ pub(crate) fn attach_session_safety(
         if let Err(e) = crate::session_store::save_taskgoal(&ck_sid, &cp.taskgoal, rev) {
             tracing::warn!(error = %e, "taskgoal checkpoint 落盘失败（不阻断）");
         }
+        // S8（手术包二）：run 级断点状态同点落盘（steps/预算位/产物/scratch）——
+        // kill -9 后 `hearth resume <sid>` 恢复执行位（不止历史）。
+        if let Err(e) = crate::session_store::save_run_state(&ck_sid, &cp.run_state) {
+            tracing::warn!(error = %e, "run 断点状态落盘失败（不阻断）");
+        }
+        // PC-2 修复：workspace 镜像（`.hearth/runs/<sid>.json`）——断点在项目内
+        // 可发现（实测 PC-2 附带缺陷：断点只落 config 区，执行窗找不到）。
+        crate::session_store::save_run_state_mirror(&ck_cwd, &ck_sid, &cp.run_state);
     }));
     // S2：写前快照（改前内容 → ~/.config/hearth/snapshots/<sid>/）
     let snap_cwd = cwd.to_path_buf();
@@ -288,6 +343,9 @@ pub(crate) fn build_dispatcher(cwd: std::path::PathBuf) -> Arc<ToolDispatcher> {
     dispatcher.register(Arc::new(tools_builtin::IntrospectTool::new()));
     // WS10 (v0.2): web_fetch 受控联网——deny-by-default 出网白名单（HEARTH_EGRESS_ALLOWLIST）
     dispatcher.register(Arc::new(tools_builtin::WebTool::new()));
+    // S13（手术包二）：web_search 内置联网搜索——查资料的一等公民（零 key：
+    // DuckDuckGo HTML 主源 + 必应回落；出网走 S2 默认放开，显式白名单时收紧）。
+    dispatcher.register(Arc::new(tools_builtin::WebSearchTool::new()));
     let _ = cwd;
     Arc::new(dispatcher)
 }
@@ -469,11 +527,19 @@ pub async fn run_local_continue(
             }
         }
     }
+    // S11（手术包二）：中断句柄——必须在 agent move 进 task **之前**取（Ctrl-C
+    // 时置位 + 唤醒 in-flight 模型调用，agent 优雅收尾后交还，上下文保留）。
+    let interrupt_flag = agent.interrupt_handle();
+    let interrupt_notify = agent.interrupt_notify();
     // B2: run_take——run 结束后把 agent 拿回（保留历史供下一轮）
-    let agent_future = tokio::spawn(async move { agent.run_take(run_goal).await });
+    let mut agent_handle = tokio::spawn(async move { agent.run_take(run_goal).await });
 
     // REPL 体验 (v0.2.1): 运行中 Ctrl-C 取消本轮——select 事件流 / agent 完成 / Ctrl-C。
-    // Ctrl-C → abort agent task（历史保留到上一轮快照）→ (None, cancelled report)。
+    // S11（手术包二）：Ctrl-C 由"abort 整个 task（本轮进度只能退回到上一轮快照）"
+    // 升级为**优雅打断**——置位 + notify → agent 在步边界/in-flight 模型调用处
+    // 立即停下，走 interrupted 收尾（paused 语义）并交还 agent 本体；本轮上下文
+    // 完整保留，回到提示符后可追问"刚才做到哪"。仅当优雅收尾超时（5s）才兜底
+    // abort（历史回落到上一轮快照）。
     // 输入阶段由 reedline 处理 Ctrl-C（转义序列），运行阶段走这里（SIGINT handler）。
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
@@ -483,7 +549,8 @@ pub async fn run_local_continue(
         Result<Result<(agent_core::RunReport, AgentLoop), anyhow::Error>, tokio::task::JoinError>;
     enum RunOutcome {
         Finished(Box<RunResult>),
-        Cancelled(serde_json::Value),
+        /// S11：Ctrl-C 优雅打断——等待 agent 收尾（agent 本体不丢）。
+        Interrupted,
     }
     let outcome = loop {
         tokio::select! {
@@ -507,27 +574,47 @@ pub async fn run_local_continue(
                         let is_done = matches!(api_evt, AgentEvent::Done { .. });
                         render_agent_event(session_id, &dispatcher, &api_evt, &mut depth).await?;
                         if is_done {
-                            break RunOutcome::Finished(Box::new(agent_future.await)); // 拿到最终 RunReport
+                            break RunOutcome::Finished(Box::new((&mut agent_handle).await)); // 拿到最终 RunReport
                         }
                     }
                     None => {
-                        break RunOutcome::Finished(Box::new(agent_future.await)); // 事件通道关闭（agent 已结束）
+                        break RunOutcome::Finished(Box::new((&mut agent_handle).await)); // 事件通道关闭（agent 已结束）
                     }
                 }
             }
             _ = &mut ctrl_c => {
-                // 取消本轮：abort agent task（agent move 进 task 无法拿回 → None；
-                // 历史已由上一轮快照保留，REPL 会 rebuild + restore 继续）
-                tracing::info!("run cancelled by Ctrl-C");
-                agent_future.abort();
-                let cancel_report = serde_json::json!({
-                    "ok": false,
-                    "status": "cancelled",
-                    "error": "本轮已取消（Ctrl-C）——历史保留，可输入新目标继续",
-                    "goal": goal_text,
-                    "steps": 0,
-                });
-                break RunOutcome::Cancelled(cancel_report);
+                // S11（手术包二）：优雅打断——置位（步边界收手）+ notify（唤醒
+                // in-flight 模型调用）。不在此处 abort：下方的收敛块等待 agent
+                // 收尾（≤5s）后走通用路径（快照落盘 + agent 交还，上下文保留）。
+                tracing::info!("run interrupted by Ctrl-C (S11 graceful interrupt)");
+                interrupt_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                interrupt_notify.notify_waiters();
+                break RunOutcome::Interrupted;
+            }
+        }
+    };
+    // S11: 打断收敛——等待 agent 优雅收尾（interrupted 收尾已 emit Done，事件
+    // 循环可能已提前 break，这里以 JoinHandle 为准）。超时兜底 abort（保留
+    // "永不挂死"旧语义——agent 卡在不可打断调用里时仍有出路）。
+    let outcome_result: Option<RunResult> = match outcome {
+        RunOutcome::Finished(r) => Some(*r),
+        RunOutcome::Interrupted => {
+            const INTERRUPT_GRACE_SECS: u64 = 5;
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(INTERRUPT_GRACE_SECS),
+                &mut agent_handle,
+            )
+            .await
+            {
+                Ok(res) => Some(res),
+                Err(_) => {
+                    tracing::warn!(
+                        grace_s = INTERRUPT_GRACE_SECS,
+                        "S11: graceful interrupt timed out — aborting agent task (fallback)"
+                    );
+                    agent_handle.abort();
+                    None
+                }
             }
         }
     };
@@ -535,9 +622,19 @@ pub async fn run_local_continue(
     // X1-3 (v0.1.6): 崩溃隔离——agent 任务 panic 不杀进程（真机 `agent task join failed`
     // 直接崩掉整个 REPL，前面 20 轮对话全丢）。panic 转成本轮失败报告 + None agent：
     // 进程活着、transcript 已落盘（X1-1），可 resume 续接。
-    let (agent_back, report) = match outcome {
-        RunOutcome::Cancelled(report) => (None, report),
-        RunOutcome::Finished(agent_future) => match *agent_future {
+    let (agent_back, report) = match outcome_result {
+        // S11: 优雅打断超时兜底（agent 卡死）→ 取消报告（历史回落到上一轮快照）。
+        None => {
+            let cancel_report = serde_json::json!({
+                "ok": false,
+                "status": "cancelled",
+                "error": "本轮已取消（Ctrl-C）——历史保留，可输入新目标继续",
+                "goal": goal_text,
+                "steps": 0,
+            });
+            (None, cancel_report)
+        }
+        Some(agent_future) => match agent_future {
             Ok(Ok((r, agent))) => {
                 // X1-1 (v0.1.6): 会话持久化——每轮结束把完整历史 Turn 快照落盘
                 // （~/.config/hearth/sessions/<sid>.jsonl，原子写；失败不阻断主路径）。
@@ -712,6 +809,16 @@ pub async fn run_local_continue(
             } else {
                 vec!["本轮未完成——直接输入新指令继续（历史已保留）".into()]
             },
+            // S12（手术包二）：产物自检结果入报告（Done 事件顶层字段；未跑=null）
+            selfcheck: report.get("selfcheck").cloned().filter(|v| !v.is_null()),
+            // S14（手术包二）：任务总结（TL;DR）入报告头部（agent 侧 run 单一
+            // exit 生成——含机械降级块；永不编造，非 empty 才写）。
+            summary: report
+                .get("summary")
+                .and_then(|s| s.get("run_summary"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(String::from),
         };
         match crate::report::write_run_report(&workspace, &input) {
             Ok(p) => render::info(&format!("  📄 执行报告: {}", p.display())),
@@ -799,9 +906,22 @@ pub async fn run_local_continue(
                 // 当前状态 + 建议，**非 Task failed**（护栏触发 ≠ 判定失败）。
                 // .133 真机 A9 实证缺口：normalize 已映射 paused，但本投影层
                 // 曾落入 other 臂渲染 "✗ Task failed — budget_exhausted"。
-                render::info(&format!(
-                    "  ⏸ 预算护栏触发（{steps} 步）——任务未完成但非失败，控制权交还"
-                ));
+                // S8（手术包二）：统一暂停语义——provider 故障/窗口耗尽同走本臂，
+                // 一律显示"断点已存 + resume 指引"（不再有不可恢复的 failed）。
+                let reason = report
+                    .get("summary")
+                    .and_then(|s| s.get("reason"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let label = if reason == "interrupted" {
+                    // S11（手术包二）：Ctrl-C 打断——上下文保留，非失败非取消。
+                    "  ⏹ 本轮已打断（Ctrl-C）——上下文保留，可直接继续"
+                } else if reason.starts_with("provider") {
+                    "  ⏸ 暂停（provider 故障）——上下文与断点均已保留"
+                } else {
+                    "  ⏸ 预算护栏触发——任务未完成但非失败，控制权交还"
+                };
+                render::info(&format!("{label}（{steps} 步）"));
                 if let Some(handover) = report.get("summary").and_then(|s| s.get("handover")) {
                     if let Some(state) = handover.get("state").and_then(|v| v.as_str()) {
                         render::info(&format!("  ── 交还 | 做到哪了: {state}"));
@@ -822,6 +942,22 @@ pub async fn run_local_continue(
                     if let Some(sugg) = handover.get("suggestion").and_then(|v| v.as_str()) {
                         render::info(&format!("  ── 交还 | 建议: {sugg}"));
                     }
+                }
+                // S8：断点/resume 指引（provider 路径在 summary.resume_hint，
+                // 预算路径在 summary.handover.resume_hint——两处都投影）。
+                let resume_hint = report
+                    .get("summary")
+                    .and_then(|s| s.get("resume_hint"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        report
+                            .get("summary")
+                            .and_then(|s| s.get("handover"))
+                            .and_then(|h| h.get("resume_hint"))
+                            .and_then(|v| v.as_str())
+                    });
+                if let Some(hint) = resume_hint {
+                    render::info(&format!("  ── 断点 | {hint}"));
                 }
             }
             "aborted" => {
@@ -930,6 +1066,29 @@ pub async fn run_local_continue(
             if drift {
                 render::error(
                     "  ⚠ G-F goal_drift 疑似：终局产物与原始目标语义相关度存疑（独立判定认为任务被替换/漂移）——请人工核对产物是否确实是你要的",
+                );
+            }
+        }
+        // ── S14（手术包二）：任务总结（TL;DR）——收尾最后一块，也是"事后不用
+        // 看过程"的答案（用户原话"内容太多，我未必会看过程"）。数据源 =
+        // report.summary.run_summary（agent 侧 run 单一 exit 生成：一次
+        // ≤800 token 调用；模型不可用/超时/缺段 → 机械降级；打断轮不发起
+        // 额外调用）——CLI 只投影，不二次生成、不加工内容。
+        if let Some(block) = report
+            .get("summary")
+            .and_then(|s| s.get("run_summary"))
+            .and_then(|v| v.as_str())
+            .filter(|b| !b.trim().is_empty())
+        {
+            render::summary_block(block);
+            if report
+                .get("summary")
+                .and_then(|s| s.get("run_summary_generated"))
+                .and_then(|v| v.as_bool())
+                == Some(false)
+            {
+                render::info(
+                    "  ↳ 本总结为**机械降级**（模型不可用/超时/被打断）——产物·自检为实数据，叙述段标「生成失败」；过程事实见执行报告",
                 );
             }
         }
@@ -1052,19 +1211,18 @@ async fn render_agent_event(
                         || err.contains("read body")
                         || err.contains("transient")
                         || err.contains("deadline");
-                    // T2 (v0.2.3): 区分"通道死"（Fatal——重试无意义，提示换通道）与
-                    // "瞬时抖动"（Transient——提示重试）。Fatal 文案不得含"请重试"。
-                    let channel_dead = err.contains("通道不可达")
-                        || err.contains("connection refused")
-                        || err.contains("unreachable")
-                        || err.contains("name or service not known");
-                    if is_provider && !channel_dead {
+                    // PC-3 修复（P0/P1 修复任务书 v1.0）：provider 层已统一口径——
+                    // 连接拒绝/超时/502/5xx 全部 Transient（长退避重试 → 窗口耗尽
+                    // 则暂停可 resume）；"端点死→换通道"的旧提示不再适用（那条
+                    // 分类已删除）。仅"连续 read-body 畸形流"仍 Fatal（不重试）。
+                    let malformed_stream = err.contains("read body failed twice");
+                    if is_provider && !malformed_stream {
                         render::info(
-                            "provider 通道瞬时故障——可重试；若持续失败检查网络/API key/限流",
+                            "provider 通道瞬时故障（连接拒绝/超时/502/5xx）——已长退避重试；窗口耗尽会暂停（可 resume），持续失败请检查网络/API key/限流",
                         );
-                    } else if is_provider && channel_dead {
+                    } else if is_provider && malformed_stream {
                         render::info(
-                            "provider 通道不可达（端点死）——重试无意义；请 hearth config set provider <其他可用通道>（如 openai/agnes）后重试",
+                            "provider 响应流连续畸形（read body 两次失败）——重试同一通道无意义；请稍后重试或 hearth config set provider <其他通道>",
                         );
                     } else {
                         render::info("任务失败——详见上方错误信息，调整后重试");
@@ -1283,5 +1441,60 @@ mod tests {
         assert_eq!(goal_tier("hi").1, 20);
         assert_eq!(goal_tier("1+1").1, 20);
         assert_eq!(goal_tier("重构模块 A 并补充测试").1, 50);
+    }
+
+    /// S9（手术包二）：多通道配置 → FallbackChain 包装（非单通道）；
+    /// 单通道/空链 → 行为不变（原 provider 直通）。
+    #[test]
+    fn test_s9_build_provider_multi_channel_yields_chain() {
+        let base = || crate::config::ResolvedConfig {
+            provider: "agnes".into(),
+            model: None,
+            url: None,
+            api_key: Some("test-key".into()),
+            mode: "auto".into(),
+            feedback_prompt: true,
+            egress_allowlist: vec![],
+            url_warning: None,
+            read_roots: None,
+            providers: Vec::new(),
+            provider_keys: std::collections::HashMap::new(),
+        };
+        // 多通道 → 链
+        let mut multi = base();
+        multi.providers = vec!["agnes".into(), "gemini".into()];
+        let p = build_provider_inner(&multi).expect("多通道链构造必须成功");
+        assert_eq!(p.name(), "fallback", "多通道必须包 FallbackChain");
+        assert_eq!(p.model(), "agnes", "链 model 报告主通道（分账归属）");
+        // 单通道 → 直通（行为不变）
+        let single = base();
+        let p2 = build_provider_inner(&single).expect("单通道构造必须成功");
+        assert_eq!(p2.name(), "agnes", "单通道保持原 provider（零行为变化）");
+        // 链内缺 key → 可行动错误
+        let mut nokey = base();
+        nokey.api_key = None;
+        nokey.providers = vec!["agnes".into(), "gemini".into()];
+        let err = match build_provider_inner(&nokey) {
+            Ok(_) => panic!("链内缺 key 必须报错（不允许静默空 key）"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err.contains("provider_keys") || err.contains("api-key"),
+            "缺 key 必须给可行动指引: {err}"
+        );
+    }
+
+    /// PC-2 修复（P0/P1 修复任务书 v1.0）：resume 预算追加——总预算 = 断点已用
+    /// + 追加额度（steps 接着数，追加部分是净余量）。饱和加法防溢出。
+    #[test]
+    fn test_pc2_resume_budget_adds_extra() {
+        assert_eq!(super::resume_budget(7, 40), 47, "总预算 = 已用 + 追加");
+        assert_eq!(super::resume_budget(0, 40), 40, "无已用 = 纯追加");
+        assert_eq!(super::resume_budget(3, 0), 3, "零追加 = 保持已用水位");
+        assert_eq!(
+            super::resume_budget(u64::MAX, 5),
+            u64::MAX,
+            "饱和加法（防溢出回绕成小预算）"
+        );
     }
 }

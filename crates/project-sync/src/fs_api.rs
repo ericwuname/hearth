@@ -26,8 +26,11 @@ impl RestrictedFs {
     /// 返回 canonical 后的路径。
     pub fn resolve(&self, rel: impl AsRef<Path>) -> Result<PathBuf> {
         let rel = rel.as_ref();
-        // 词法层：拒绝绝对路径与 .. 逃逸（不依赖文件存在）
-        if rel.is_absolute() {
+        // 词法层：拒绝绝对路径与 .. 逃逸（不依赖文件存在）。
+        // Windows 移植：is_absolute() 对 "/etc/passwd" 为 false（无盘符前缀，
+        // 但含根组件）——补 has_root() 使根相对路径同样落入"绝对越界"拒绝
+        //（否则漏到下方组件循环报"根/前缀逃逸"，测试消息语义漂移）。
+        if rel.is_absolute() || rel.has_root() {
             return Err(format!("绝对路径被拒: {}", rel.display()).into());
         }
         for comp in rel.components() {

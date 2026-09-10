@@ -14,17 +14,32 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 
+use crate::classify_anyhow;
 use crate::provider::LlmProvider;
-use crate::types::{Capabilities, ChatRequest, ChatResponse, Embedding, StreamEvent};
+use crate::types::{Capabilities, ChatRequest, ChatResponse, Embedding, ErrorClass, StreamEvent};
+
+/// S9（手术包二）：通道切换通知回调——(失败通道, 下一通道)。CLI/上层据此
+/// 投影 `[fallback] provider: a → b`（降级数据必须标注通道：换 provider =
+/// 换模型层，基准对照不可比）。
+pub type SwitchFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// A chain of LLM providers used for graceful degradation.
 ///
 /// Providers are tried in order. On success, the result is returned.
 /// On error, the next provider is tried. If all providers fail,
 /// the last error is returned.
+///
+/// S9（手术包二）语义：**只有通道级不可恢复错误（fatal/param：401/403/400/
+/// 畸形流/策略拒绝）才切下一通道**；transient（网络抖动/超时/429/5xx）交回
+/// 上层 S7 长退避（等 1 分钟重试同通道）——避免"主通道瞬时抖动即换模型层"
+/// 污染同尺对照。窗口耗尽时的自动切换需链与 S7 窗口联动，属后续项（申报）。
 pub struct FallbackChain {
     /// Ordered list of (display_name, provider) pairs.
     providers: Vec<(String, Arc<dyn LlmProvider>)>,
+    /// S9：切换通知（可选）。
+    on_switch: Option<SwitchFn>,
+    /// S9：最近一次成功通道名（分账/报告标注"本轮实际用哪条通道"）。
+    last_used: std::sync::Mutex<Option<String>>,
 }
 
 impl FallbackChain {
@@ -32,7 +47,34 @@ impl FallbackChain {
     ///
     /// The first provider is the primary; subsequent ones are fallbacks.
     pub fn new(providers: Vec<(String, Arc<dyn LlmProvider>)>) -> Self {
-        Self { providers }
+        Self {
+            providers,
+            on_switch: None,
+            last_used: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// S9：挂切换回调（投影 [fallback] 用）。
+    pub fn with_switch_callback(mut self, cb: SwitchFn) -> Self {
+        self.on_switch = Some(cb);
+        self
+    }
+
+    /// S9：最近一次成功通道（None = 尚未成功调用）——分账标注用。
+    pub fn last_used(&self) -> Option<String> {
+        self.last_used.lock().ok().and_then(|g| g.clone())
+    }
+
+    fn note_success(&self, name: &str) {
+        if let Ok(mut g) = self.last_used.lock() {
+            *g = Some(name.to_string());
+        }
+    }
+
+    fn fire_switch(&self, from: &str, to: &str) {
+        if let Some(cb) = &self.on_switch {
+            cb(from, to);
+        }
     }
 
     /// Number of providers in the chain.
@@ -64,15 +106,23 @@ impl FallbackChain {
     pub async fn chat(&self, req: ChatRequest) -> Result<(String, ChatResponse)> {
         let mut last_err: Option<anyhow::Error> = None;
 
-        for (name, provider) in &self.providers {
+        for (idx, (name, provider)) in self.providers.iter().enumerate() {
             match provider.chat(req.clone()).await {
-                Ok(resp) => return Ok((name.clone(), resp)),
+                Ok(resp) => {
+                    self.note_success(name);
+                    return Ok((name.clone(), resp));
+                }
                 Err(e) => {
-                    tracing::warn!(
-                        provider = %name,
-                        error = %e,
-                        "fallback: provider failed, trying next"
-                    );
+                    let class = classify_anyhow(&e);
+                    tracing::warn!(provider = %name, error = %e, class = ?class, "fallback: provider failed");
+                    let has_next = idx + 1 < self.providers.len();
+                    // S9：transient 交回上层 S7 长退避（同通道等待重试）；只有
+                    // fatal/param（通道级不可恢复）且存在下一通道时才切换。
+                    if matches!(class, ErrorClass::Transient) || !has_next {
+                        return Err(e);
+                    }
+                    let next = self.providers[idx + 1].0.clone();
+                    self.fire_switch(name, &next);
                     last_err = Some(e);
                 }
             }
@@ -158,14 +208,24 @@ impl LlmProvider for FallbackChain {
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse> {
         let mut last_err: Option<anyhow::Error> = None;
 
-        for (name, provider) in &self.providers {
+        for (idx, (name, provider)) in self.providers.iter().enumerate() {
             match provider.chat(req.clone()).await {
                 Ok(resp) => {
                     tracing::debug!(provider = %name, "fallback: chat succeeded via {}", name);
+                    self.note_success(name);
                     return Ok(resp);
                 }
                 Err(e) => {
-                    tracing::warn!(provider = %name, error = %e, "fallback: provider failed, trying next");
+                    let class = classify_anyhow(&e);
+                    tracing::warn!(provider = %name, error = %e, class = ?class, "fallback: provider failed");
+                    let has_next = idx + 1 < self.providers.len();
+                    // S9：transient 不切（交回上层 S7 长退避）；fatal/param 且有
+                    // 下一通道 → 切（投影 [fallback] 由回调完成）。
+                    if matches!(class, ErrorClass::Transient) || !has_next {
+                        return Err(e);
+                    }
+                    let next = self.providers[idx + 1].0.clone();
+                    self.fire_switch(name, &next);
                     last_err = Some(e);
                 }
             }
@@ -235,6 +295,16 @@ mod tests {
                 model: "mock".into(),
                 should_fail,
                 fail_message: format!("{name} failed"),
+            }
+        }
+
+        /// S9：自定义失败消息（分级测试：fatal vs transient）。
+        fn with_message(name: &str, msg: &str) -> Self {
+            Self {
+                name: name.into(),
+                model: "mock".into(),
+                should_fail: true,
+                fail_message: msg.into(),
             }
         }
     }
@@ -370,6 +440,58 @@ mod tests {
         let (name, embeds) = chain.embed(&["test".into()]).await.unwrap();
         assert_eq!(name, "b");
         assert_eq!(embeds[0].values, vec![0.1, 0.2]);
+    }
+
+    /// S9（手术包二）：fatal（401/通道级不可恢复）→ 自动切下一通道 + 切换回调
+    /// 触发（[fallback] 投影源）+ last_used 记录实际通道（分账标注）。
+    #[tokio::test]
+    async fn test_s9_fatal_switches_next_with_callback() {
+        let switches = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
+        let s = switches.clone();
+        let chain = FallbackChain::new(vec![
+            (
+                "agnes".into(),
+                Arc::new(MockProvider::with_message("agnes", "HTTP 401 unauthorized")),
+            ),
+            ("zhipu".into(), Arc::new(MockProvider::new("zhipu", false))),
+        ])
+        .with_switch_callback(Arc::new(move |a: &str, b: &str| {
+            s.lock().unwrap().push((a.to_string(), b.to_string()));
+        }));
+
+        let (_name, resp) = chain.chat(test_req()).await.unwrap();
+        assert_eq!(
+            resp.content.unwrap(),
+            "response from zhipu",
+            "fatal 后必须切到次通道完成任务（单通道死等=全挂的病灶）"
+        );
+        assert_eq!(
+            chain.last_used().as_deref(),
+            Some("zhipu"),
+            "分账必须记录实际使用通道"
+        );
+        let sw = switches.lock().unwrap().clone();
+        assert_eq!(sw.len(), 1, "切换必须触发回调（[fallback] 投影源）");
+        assert_eq!(sw[0], ("agnes".to_string(), "zhipu".to_string()));
+    }
+
+    /// S9：transient（网络抖动/超时/429）**不切通道**——交回上层 S7 长退避
+    ///（同通道等待重试；瞬时抖动换模型层会污染同尺对照）。
+    #[tokio::test]
+    async fn test_s9_transient_does_not_switch_chain() {
+        let chain = FallbackChain::new(vec![
+            (
+                "agnes".into(),
+                Arc::new(MockProvider::with_message("agnes", "request timed out")),
+            ),
+            ("zhipu".into(), Arc::new(MockProvider::new("zhipu", false))),
+        ]);
+        let err = chain.chat(test_req()).await.unwrap_err();
+        assert!(
+            err.to_string().contains("timed out"),
+            "transient 必须原样上抛（不切换通道）: {err:#}"
+        );
+        assert!(chain.last_used().is_none(), "未成功调用 → 无实际通道记录");
     }
 
     #[test]

@@ -161,7 +161,6 @@ fn parse_sse_line(line: &str) -> Option<Result<StreamEvent>> {
         Ok(c) => c,
         Err(_) => return None,
     };
-
     for choice in chunk.choices {
         if let Some(delta) = &choice.delta {
             if let Some(content) = &delta.content {
@@ -176,6 +175,7 @@ fn parse_sse_line(line: &str) -> Option<Result<StreamEvent>> {
                             call_id: tc.id.clone().unwrap_or_default(),
                             name: func.name.clone(),
                             args_delta: func.arguments.clone().unwrap_or_default(),
+                            index: tc.index as usize,
                         }));
                     }
                 }
@@ -192,6 +192,39 @@ fn parse_sse_line(line: &str) -> Option<Result<StreamEvent>> {
     }
 
     None
+}
+
+// ── PC-3 修复（P0/P1 修复任务书 v1.0）：错误分类纯函数（可单测）──
+//
+// 病灶：provider 层把「连接拒绝 / 5xx（含 502 上游网关）」包成 `LlmError::Fatal`
+// ——**结构化路径短路了 classify_anyhow 的启发式表**（表里这些已是 Transient），
+// 实测 agnes 连接拒绝/502 → `provider unrecoverable error` 直接暂停零重试，而
+// gemini 超时（走 else 分支）→ Transient 长退避——同一层两套口径（PC-3）。
+// 抽成纯函数：分类口径集中一处、可审计、可单测。
+
+/// PC-3：HTTP 状态 → 错误类别。
+/// - 429（限流）与 5xx（含 500/502/503/504 上游网关）→ **Transient**（长退避重试；
+///   "通道真死"由长退避窗口兜底：窗口耗尽 → 暂停语义，可 resume）；
+/// - 其余 4xx（400 参数 / 401 / 403 / 模型不存在）→ **Param**（不重试，loop 立即终止）。
+///
+/// 与任务书一致：仅 401/403/400/模型不存在视为不可重试；502/5xx 统一 transient。
+pub(crate) fn classify_http_status(code: u16) -> llm_gateway::ErrorClass {
+    if code == 429 || code >= 500 {
+        llm_gateway::ErrorClass::Transient
+    } else {
+        llm_gateway::ErrorClass::Param
+    }
+}
+
+/// PC-3：传输层错误（连接拒绝 / 不可达 / DNS 解析失败 / 超时 / TLS）**统一
+/// Transient**——长退避序列（30s→1m→2m→5m…）配窗口上限（默认 30 分钟）即可，
+/// 无需区分"端点死"。此前"端点死=Fatal"使断网/通道抖动即零重试终止，与 S7
+/// "断网 2 分钟恢复续行"目标冲突。
+///
+/// 唯一保留的 Fatal 传输类是**连续 2 次 read-body 畸形流**（同一畸形流重试
+/// 不自愈）——那条判定在调用点原地保留，不入本函数（有意保留项，已申报）。
+pub(crate) fn classify_transport_error(_detail: &str) -> llm_gateway::ErrorClass {
+    llm_gateway::ErrorClass::Transient
 }
 
 // ── Provider implementation ──
@@ -377,18 +410,20 @@ impl LlmProvider for OpenAiProvider {
                             status = %status,
                             "chat NON-success — {text}"
                         );
-                        // B2 (v0.1.2 错误分类映射表): 429 速率限制=瞬时（稍等重试有意义）；
-                        // 其他 4xx=参数问题（replan，不重试）；5xx=供应商内部错误（give_up）。
+                        // B2 (v0.1.2 错误分类映射表) + PC-3 修复：分类口径统一走
+                        // classify_http_status（429/5xx 含 502 → Transient 长退避；
+                        // 其余 4xx → Param 不重试）。旧版 `code >= 500 → Fatal`
+                        // 使上游 502 直接暂停零重试（实测 PC-3 病灶）。
                         let code = status.as_u16();
-                        return if code == 429 {
-                            Err(
-                                llm_gateway::LlmError::Transient(format!("HTTP 429: {text}"))
+                        return match classify_http_status(code) {
+                            llm_gateway::ErrorClass::Transient => Err(
+                                llm_gateway::LlmError::Transient(format!("HTTP {code}: {text}"))
                                     .into(),
-                            )
-                        } else if code >= 500 {
-                            Err(llm_gateway::LlmError::Fatal(format!("HTTP {code}: {text}")).into())
-                        } else {
-                            Err(llm_gateway::LlmError::Param(format!("HTTP {code}: {text}")).into())
+                            ),
+                            _ => {
+                                Err(llm_gateway::LlmError::Param(format!("HTTP {code}: {text}"))
+                                    .into())
+                            }
                         };
                     }
 
@@ -447,20 +482,19 @@ impl LlmProvider for OpenAiProvider {
                 }
             }
         }
-        // 多次都失败：区分"端点死"（connection refused/unreachable/DNS——Fatal，重试无意义）
-        // 与"瞬时抖动"（timeout/429——Transient，可重试）。T2 (v0.2.3)。
+        // PC-3 修复：传输层错误（连接拒绝/不可达/DNS/超时/TLS）**统一 Transient**
+        // ——长退避窗口兜住"通道真死"（窗口耗尽 → 暂停语义，非 failed）。旧版
+        // 把 connection refused/unreachable/DNS 判 Fatal（"端点死"）→ 实测 agnes
+        // 连接拒绝零重试直接暂停，与 gemini 超时（Transient）口径不一致，且杀死
+        // S7"断网 2 分钟恢复续行"的目标。
         let detail = body_err
             .map(|e| format!("{e:#}"))
             .unwrap_or_else(|| "unknown transport error".into());
-        let low = detail.to_lowercase();
-        let fatal = low.contains("connection refused")
-            || low.contains("unreachable")
-            || low.contains("name or service not known")
-            || low.contains("dns");
-        if fatal {
-            Err(llm_gateway::LlmError::Fatal(format!("通道不可达（端点死）: {detail}")).into())
-        } else {
-            Err(llm_gateway::LlmError::Transient(detail).into())
+        match classify_transport_error(&detail) {
+            llm_gateway::ErrorClass::Transient => {
+                Err(llm_gateway::LlmError::Transient(detail).into())
+            }
+            _ => Err(llm_gateway::LlmError::Fatal(detail).into()),
         }
     }
 
@@ -882,5 +916,184 @@ mod tests {
     fn test_parse_sse_done() {
         let result = parse_sse_line("data: [DONE]");
         assert!(result.is_some());
+    }
+
+    /// PC-1 修复：真实 agnes/OpenAI 分片行——后续片 id 为 null、只有 index +
+    /// arguments 增量。parser 必须把 **index 透传**给消费端（消费端按 index
+    /// 聚合；此前 call_id 透传空串导致后续片被当成新 call → 工具全废）。
+    #[test]
+    fn test_parse_sse_tool_call_fragments_carry_index() {
+        let first = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"web_search","arguments":""}}]},"finish_reason":null}]}"#;
+        let second = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"que"}}]},"finish_reason":null}]}"#;
+        let third = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ry\":\"r\"}"}}]},"finish_reason":null}]}"#;
+
+        let Some(Ok(StreamEvent::ToolCallDelta {
+            call_id,
+            name,
+            args_delta,
+            index,
+        })) = parse_sse_line(first)
+        else {
+            panic!("首片必须解析出 ToolCallDelta");
+        };
+        assert_eq!(call_id, "call_x");
+        assert_eq!(name.as_deref(), Some("web_search"));
+        assert_eq!(index, 0);
+        assert_eq!(args_delta, "", "首片 arguments 为空串（增量从后续片开始）");
+
+        for (line, frag) in [(second, "{\"que"), (third, "ry\":\"r\"}")] {
+            let Some(Ok(StreamEvent::ToolCallDelta {
+                call_id,
+                name,
+                args_delta,
+                index,
+            })) = parse_sse_line(line)
+            else {
+                panic!("后续片必须解析出 ToolCallDelta: {line}");
+            };
+            assert_eq!(
+                call_id, "",
+                "后续片 id 为 null——空串透传（聚合按 index，不按 id）"
+            );
+            assert!(name.is_none(), "后续片无 name");
+            assert_eq!(args_delta, frag, "arguments 增量必须原样透传");
+            assert_eq!(index, 0, "index 必须透传（聚合 key）");
+        }
+    }
+
+    /// PC-3 修复（P0/P1 修复任务书 v1.0）：HTTP 状态分类——502/5xx/429 统一
+    /// Transient（长退避重试），其余 4xx（400/401/403/模型不存在）→ Param
+    /// （不重试）。实测 agnes 上游 502 被误判 unrecoverable 的红色回归。
+    #[test]
+    fn test_pc3_http_status_classification() {
+        use llm_gateway::ErrorClass::{Param, Transient};
+        // 5xx（含 502/503/504 上游网关）→ Transient
+        assert_eq!(classify_http_status(500), Transient);
+        assert_eq!(
+            classify_http_status(502),
+            Transient,
+            "502 上游网关必须可重试"
+        );
+        assert_eq!(classify_http_status(503), Transient);
+        assert_eq!(classify_http_status(504), Transient);
+        // 429 限流 → Transient
+        assert_eq!(classify_http_status(429), Transient);
+        // 4xx（参数/认证/模型不存在）→ Param（不重试）
+        assert_eq!(classify_http_status(400), Param);
+        assert_eq!(classify_http_status(401), Param);
+        assert_eq!(classify_http_status(403), Param);
+        assert_eq!(classify_http_status(404), Param, "模型不存在");
+        // 2xx/3xx 不会走到这里——但分类函数恒有值（不 panic/不 Fatal）
+        assert_eq!(classify_http_status(200), Param);
+    }
+
+    /// PC-3：传输层错误（连接拒绝/不可达/DNS/超时/TLS）**统一 Transient**——
+    /// "端点死=Fatal" 的旧口径直接杀死断网恢复能力（S7 目标冲突）。
+    #[test]
+    fn test_pc3_transport_error_uniformly_transient() {
+        use llm_gateway::ErrorClass::Transient;
+        for detail in [
+            "OpenAI request failed: error sending request: client error (Connect): tcp connect error: Connection refused (os error 10061)",
+            "send request error: network unreachable",
+            "error sending request: dns error: failed to lookup address information: Name or service not known",
+            "operation timed out",
+            "invalid peer certificate: UnknownIssuer",
+        ] {
+            assert_eq!(
+                classify_transport_error(detail),
+                Transient,
+                "传输层错误必须 Transient（长退避兜底）：{detail}"
+            );
+        }
+    }
+
+    /// PC-3 端到端（**本卡红色回归主体**）：真实 502 响应 → provider 产出的
+    /// 错误必须分类为 Transient（长退避重试）。修复前 call site 包成
+    /// `LlmError::Fatal` → 本测试红（实测 agnes 上游 502 直接暂停零重试）。
+    #[tokio::test]
+    async fn test_pc3_real_502_response_is_transient() {
+        use llm_gateway::ErrorClass::Transient;
+        // 本地最小 HTTP 服务：对任何请求回 502 Bad Gateway。
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定本地端口");
+        let addr = listener.local_addr().expect("取本地地址");
+        let server = std::thread::spawn(move || {
+            // 单次连接即可（非成功状态不重试）。
+            let Ok((mut s, _)) = listener.accept() else {
+                return;
+            };
+            use std::io::{Read as _, Write as _};
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf);
+            let body = r#"{"error":"bad gateway"}"#;
+            let resp = format!(
+                "HTTP/1.1 502 Bad Gateway\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = s.write_all(resp.as_bytes());
+            let _ = s.flush();
+        });
+
+        let p = OpenAiProvider::new(
+            "pc3-mock",
+            "m",
+            Some(format!("http://{addr}/v1")),
+            "k".to_string(),
+        );
+        let req = ChatRequest {
+            messages: vec![],
+            tools: vec![],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+        };
+        let err = p.chat(req).await.expect_err("502 必须报错");
+        assert_eq!(
+            llm_gateway::classify_anyhow(&err),
+            Transient,
+            "502 必须判 Transient（长退避重试）——Fatal = 实测 PC-3 病灶（零重试直接暂停）：{err:#}"
+        );
+        assert!(
+            !format!("{err:#}").contains("Fatal"),
+            "错误不得含 Fatal 标记：{err:#}"
+        );
+        let _ = server.join();
+    }
+
+    /// PC-3 端到端②：**真实连接拒绝**（端点已关闭）→ Transient（长退避重试）。
+    /// 这是实测锚点"agnes 连接拒绝 os error 10061 → unrecoverable 零重试"的
+    /// 直接回归。取一个刚释放的本地端口（绑定后立即 drop = 必然拒绝）。
+    #[tokio::test]
+    async fn test_pc3_real_connection_refused_is_transient() {
+        use llm_gateway::ErrorClass::Transient;
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").expect("取空闲端口");
+            l.local_addr().expect("地址").port()
+            // l 在此作用域结束即 drop → 端口释放 → 连接必被拒绝
+        };
+        let p = OpenAiProvider::new(
+            "pc3-refused",
+            "m",
+            Some(format!("http://127.0.0.1:{port}/v1")),
+            "k".to_string(),
+        );
+        let req = ChatRequest {
+            messages: vec![],
+            tools: vec![],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+        };
+        let err = p.chat(req).await.expect_err("连接拒绝必须报错");
+        let msg = format!("{err:#}");
+        assert_eq!(
+            llm_gateway::classify_anyhow(&err),
+            Transient,
+            "连接拒绝必须判 Transient（长退避重试）——Fatal = 实测 PC-3 病灶：{msg}"
+        );
+        assert!(
+            !msg.contains("端点死") && !msg.contains("unrecoverable"),
+            "不得再产出'端点死/unrecoverable'口径：{msg}"
+        );
     }
 }

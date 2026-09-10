@@ -155,6 +155,12 @@ enum Commands {
         /// Optional follow-up goal (empty = continue current goal).
         #[arg(default_value = "")]
         goal: String,
+
+        /// PC-2 修复（P0/P1 修复任务书 v1.0）：预算**追加**步数（总预算 =
+        /// 断点已用 + N；缺省 = 默认预算档）。resume 是同一任务的继续——
+        /// steps 接着数，追加的部分是净余量。
+        #[arg(long)]
+        budget: Option<u64>,
     },
 
     /// Interactive REPL: multi-turn conversation with approvals.
@@ -653,7 +659,7 @@ pub async fn hearth_main() -> Result<()> {
             }
         }
 
-        Commands::Resume { id, goal } => {
+        Commands::Resume { id, goal, budget } => {
             // X1-4 (v0.1.6): 本地直跑模式 resume——从落盘 JSONL 重建历史继续
             // （治"窗口废了重开"：前面 N 轮对话不丢，进程重启后无缝续接）。
             if url.is_none() {
@@ -677,11 +683,6 @@ pub async fn hearth_main() -> Result<()> {
                     cli.mode.as_deref(),
                     cli.model.as_deref(),
                 );
-                let msg = if goal.is_empty() {
-                    "continue".to_string()
-                } else {
-                    goal
-                };
                 let mut agent = match run_local::rebuild_agent(&resolved, &id, repl::REPL_BUDGET) {
                     Ok(a) => a,
                     Err(e) => {
@@ -690,6 +691,67 @@ pub async fn hearth_main() -> Result<()> {
                     }
                 };
                 agent.restore_history(turns);
+                // S8（手术包二）：run 级断点恢复——steps/预算位/产物清单/关键
+                // scratch 一并回灌（执行位接续，不止历史）。无断点 → 仅历史
+                // 恢复（退化不炸）。
+                // PC-2 修复（P0/P1 修复任务书 v1.0）：resume = **重新进入消息
+                // 循环继续执行**——①current_goal 随断点恢复（不被 "continue"
+                // 覆盖漂移）②steps 接着数（resume_keep_steps）③预算追加
+                // （总预算 = 已用 + --budget N，默认默认档）。
+                let mut prior_steps: u64 = 0;
+                let mut resume_goal: Option<String> = None;
+                if let Some(rs) = crate::session_store::load_run_state(&id) {
+                    prior_steps = rs.get("steps_used").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let artifacts = rs
+                        .get("written_files")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    // current_goal 优先（PC-2 新增字段）；旧断点退回 original_goal。
+                    resume_goal = rs
+                        .get("current_goal")
+                        .and_then(|v| v.as_str())
+                        .filter(|g| !g.is_empty())
+                        .map(String::from)
+                        .or_else(|| {
+                            rs.get("original_goal")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        });
+                    agent.restore_run_state(&rs);
+                    render::info(&format!(
+                        "  ⏱ 断点执行位已恢复（steps={prior_steps}，产物 {artifacts} 项，预算位/scratch 随附）"
+                    ));
+                    render::info(&format!(
+                        "  💾 断点文件: {}（workspace 镜像 .hearth/runs/{id}.json）",
+                        crate::session_store::runs_dir()
+                            .join(format!("{id}.json"))
+                            .display()
+                    ));
+                }
+                // PC-2：resume 是同一任务的继续——goal 为空（用户显式缺省）时用
+                // 断点里的 current_goal（不被 "continue" 覆盖 = 目标不漂移）。
+                let msg = if goal.is_empty() {
+                    match resume_goal {
+                        Some(g) => {
+                            render::info(&format!(
+                                "  🔁 续跑目标（断点恢复）: {}",
+                                g.chars().take(60).collect::<String>()
+                            ));
+                            g
+                        }
+                        None => "continue".to_string(),
+                    }
+                } else {
+                    goal
+                };
+                // PC-2：steps 接着数 + 预算追加（总预算 = 已用 + 追加额度）。
+                agent.set_resume_keep_steps(true);
+                let extra = budget.unwrap_or(repl::REPL_BUDGET);
+                let total_budget = run_local::resume_budget(prior_steps, extra);
+                render::info(&format!(
+                    "  ▶ 续跑模式：steps 接着数（已用 {prior_steps}），预算追加 {extra} 步（总 {total_budget}）——继续执行中"
+                ));
                 // 任务状态持久化 (v0.2): 恢复 task_graph——不重新 decompose、
                 // 不 replan 回旧方案（甘特图反复横跳的根）。
                 // R2-D (批示 2 + 补充 3, v0.2.7): state_revision 一致性校验——
@@ -735,7 +797,7 @@ pub async fn hearth_main() -> Result<()> {
                 }
                 // R7-5/D-4（线C手术）：task_graph 恢复已删（图本体消失）。
                 let (_agent, report) =
-                    run_local::run_local_continue(agent, &id, &msg, repl::REPL_BUDGET, Vec::new())
+                    run_local::run_local_continue(agent, &id, &msg, total_budget, Vec::new())
                         .await?;
                 let _ = report;
                 return Ok(());

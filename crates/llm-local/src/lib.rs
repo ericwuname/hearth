@@ -184,6 +184,7 @@ fn parse_ollama_sse_line(line: &str) -> Option<Result<StreamEvent>> {
                 call_id: String::new(), // Ollama doesn't provide call_id in stream
                 name: Some(tc.function.name.clone()),
                 args_delta: serde_json::to_string(&tc.function.arguments).unwrap_or_default(),
+                index: 0, // Ollama 每片是完整 call（无分片概念）——PC-1 修复后字段必填
             }));
         }
     }
@@ -672,6 +673,7 @@ fn parse_vllm_sse_line(line: &str) -> Option<Result<StreamEvent>> {
                             call_id: tc.id.clone().unwrap_or_default(),
                             name: func.name.clone(),
                             args_delta: func.arguments.clone().unwrap_or_default(),
+                            index: tc.index as usize,
                         }));
                     }
                 }

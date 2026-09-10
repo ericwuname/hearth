@@ -369,6 +369,7 @@ impl LlmProvider for ReplayProvider {
                 call_id: tc.call_id,
                 name: Some(tc.name),
                 args_delta: tc.args.to_string(),
+                index: 0, // replay 单片完整 call（无分片概念）
             }));
         }
         evs.push(Ok(StreamEvent::Finish {

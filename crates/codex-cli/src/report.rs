@@ -49,6 +49,12 @@ pub struct RunReportInput<'a> {
     /// Node 05 (N-3): 会话级审批委托投影——(delegated, 委托命令清单)。
     /// 仅修 projection（Markdown/审计可见），ApprovalPolicy/delegation 语义零改动。
     pub approval_delegated: (bool, Vec<String>),
+    /// S12（手术包二）：交付前产物自检结果（含逐项证据/未过项；None = 未跑）。
+    pub selfcheck: Option<serde_json::Value>,
+    /// S14（手术包二）：任务总结（TL;DR）块——report.summary.run_summary 原文
+    /// （六段模板；机械降级时也非空、叙述段标"生成失败"）。写入报告**头部**
+    /// （"打开报告先读总结再看流水"）。
+    pub summary: Option<String>,
 }
 
 /// 从 EnvelopedEvent 流提取 (工具名, 参数摘要, 失败) 序列。
@@ -189,6 +195,17 @@ pub fn write_run_report(cwd: &std::path::Path, input: &RunReportInput) -> Result
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
         input.steps,
     ));
+    // S14（手术包二）：任务总结（TL;DR）——**报告头部**（"打开报告先读总结再看
+    // 流水"）；块内六段为 agent 侧一次 ≤800 token 调用的产物（或机械降级块，
+    // 叙述段标"生成失败"），本层不动内容、只落原文。
+    if let Some(sum) = &input.summary {
+        if !sum.trim().is_empty() {
+            md.push_str("## 任务总结（TL;DR）\n\n```text\n");
+            md.push_str(sum.trim());
+            md.push_str("\n```\n\n");
+        }
+    }
+
     md.push_str("## 目标\n\n> ");
     md.push_str(input.goal);
     md.push_str("\n\n");
@@ -215,6 +232,50 @@ pub fn write_run_report(cwd: &std::path::Path, input: &RunReportInput) -> Result
             "验收标准已在 Task Continuity 注入"
         }
     ));
+
+    // S12（手术包二）：产物自检结果（证据入报告——"把任务交出来"的可审计面）
+    if let Some(sc) = &input.selfcheck {
+        if !sc.is_null() {
+            let passed = sc.get("passed").and_then(|v| v.as_bool()).unwrap_or(false);
+            md.push_str("## 产物自检（S12）\n\n");
+            md.push_str(&format!(
+                "- 结果: {}\n",
+                if passed {
+                    "**通过**"
+                } else {
+                    "**未过（已诚实交付，需人工）**"
+                }
+            ));
+            if let Some(fs) = sc.get("failures").and_then(|v| v.as_array()) {
+                for f in fs {
+                    if let Some(s) = f.as_str() {
+                        md.push_str(&format!("  - {}\n", s.replace('|', "\\|")));
+                    }
+                }
+            }
+            if let Some(checks) = sc.get("checks").and_then(|v| v.as_array()) {
+                md.push_str("\n| 产物 | 检查 | 结果 | 证据 |\n|---|---|---|---|\n");
+                for c in checks {
+                    md.push_str(&format!(
+                        "| `{}` | {} | {} | {} |\n",
+                        c.get("path").and_then(|v| v.as_str()).unwrap_or("?"),
+                        c.get("kind").and_then(|v| v.as_str()).unwrap_or("?"),
+                        if c.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+                            "✓"
+                        } else {
+                            "❌"
+                        },
+                        c.get("detail")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .replace('|', "\\|")
+                            .replace('\n', " ")
+                    ));
+                }
+            }
+            md.push('\n');
+        }
+    }
 
     if !input.tool_calls.is_empty() {
         md.push_str("## 工具调用\n\n| # | 工具 | 参数 | 结果 |\n|---|---|---|---|\n");
@@ -319,6 +380,12 @@ mod tests {
             remaining_work: vec!["继续修复 cargo build 失败（直接下指令即可）".into()],
             acceptance_verification: "none",
             approval_delegated: (false, vec![]),
+            selfcheck: None,
+            // S14: 总结块落报告头部（"打开报告先读总结再看流水"）
+            summary: Some(
+                "═══════════ 任务总结 ═══════════\n【一句话】把 bug 记录写进了 BUG_LEDGER.md\n【产物】\n- BUG_LEDGER.md\n══════════════════════════════"
+                    .to_string(),
+            ),
         };
         let path = write_run_report(&dir, &input).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
@@ -333,6 +400,14 @@ mod tests {
             "未完成必须含剩余工作段（G1-03）"
         );
         assert!(content.contains("❌ 失败"), "失败工具调用须标红");
+        // S14: 总结在报告**头部**（'## 目标' 之前）——"先读总结再看流水"
+        let sum_at = content.find("## 任务总结（TL;DR）").expect("总结段必须在");
+        let goal_at = content.find("## 目标").expect("目标段必须在");
+        assert!(
+            sum_at < goal_at,
+            "总结必须排在目标/流水之前（报告头部）: {content}"
+        );
+        assert!(content.contains("【一句话】"), "总结六段原文进报告");
         // 同会话第二轮序号递增
         let path2 = write_run_report(&dir, &input).unwrap();
         assert!(path2.to_string_lossy().contains("run-002"));
@@ -365,6 +440,8 @@ mod tests {
                 remaining_work: vec![],
                 acceptance_verification: "none",
                 approval_delegated: (false, vec![]),
+                selfcheck: None,
+                summary: None,
             };
             let path = write_run_report(&dir, &input).unwrap();
             let content = std::fs::read_to_string(&path).unwrap();

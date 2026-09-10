@@ -171,6 +171,56 @@ pub fn list_sessions() -> Vec<(String, usize)> {
         .collect()
 }
 
+/// S8（手术包二）：runs 目录——run 级断点状态（`<sessions>/runs/<run_id>.json`）。
+/// HEARTH_RUNS_DIR 可覆盖（测试隔离）。run_id = session_id（chat/repl 的会话即
+/// run 标识，`hearth resume <id>` 两用）。
+pub fn runs_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("HEARTH_RUNS_DIR") {
+        return PathBuf::from(d);
+    }
+    sessions_dir().join("runs")
+}
+
+/// S8：run 级断点状态落盘（原子写 tmp+rename，防半写）——steps/预算位/产物
+/// 清单/scratch 关键位（agent-core `run_state_snapshot()` 产物）。kill -9 后
+/// `hearth resume` 由此恢复执行位（不止历史）。
+pub fn save_run_state(run_id: &str, state: &serde_json::Value) -> Result<()> {
+    let dir = runs_dir();
+    std::fs::create_dir_all(&dir).context("create runs dir")?;
+    let path = dir.join(format!("{run_id}.json"));
+    let tmp = dir.join(format!("{run_id}.json.tmp"));
+    std::fs::write(&tmp, serde_json::to_string_pretty(state)?).context("write run state tmp")?;
+    std::fs::rename(&tmp, &path).context("rename run state file")?;
+    Ok(())
+}
+
+/// S8：读 run 断点状态。None = 无断点/损坏 → resume 退化为仅历史恢复（不炸）。
+pub fn load_run_state(run_id: &str) -> Option<serde_json::Value> {
+    let path = runs_dir().join(format!("{run_id}.json"));
+    let s = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&s).ok()
+}
+
+/// S8：是否存在可续断点（resume 提示/投影用）。
+pub fn has_run_state(run_id: &str) -> bool {
+    runs_dir().join(format!("{run_id}.json")).exists()
+}
+
+/// PC-2 修复（P0/P1 修复任务书 v1.0）：断点文件 **workspace 镜像**——
+/// `<cwd>/.hearth/runs/<run_id>.json`。主存储在 config 区（`sessions/runs/`，
+/// resume 读它）；镜像让执行窗/用户在项目内可发现断点（实测 PC-2 附带：
+/// `.hearth/runs/` 目录不存在——落盘不可见）。best-effort：失败不阻断
+///（镜像只是取证面；run 可能含用户代码，私有内容纪律与 sessions 同规）。
+pub fn save_run_state_mirror(cwd: &std::path::Path, run_id: &str, state: &serde_json::Value) {
+    let dir = cwd.join(".hearth").join("runs");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(body) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(dir.join(format!("{run_id}.json")), body);
+    }
+}
+
 #[cfg(test)]
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -216,6 +266,45 @@ mod tests {
         assert_eq!(loaded.len(), 3, "追加 3 轮应读回 3 个 Turn");
         assert_eq!(loaded[2].index, 2, "顺序应保持");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// S8（手术包二）：run 级断点状态落盘/读回 roundtrip（原子写）——resume 的
+    /// 执行位来源；无断点 → None（退化仅历史恢复）。
+    #[test]
+    fn test_run_state_roundtrip() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("hearth_runs_{}", uuid::Uuid::new_v4()));
+        std::env::set_var("HEARTH_SESSIONS_DIR", &dir);
+        let state = serde_json::json!({
+            "steps_used": 5,
+            "budget": {"max_steps": 40},
+            "written_files": [{"path": "a.txt", "content_len": 3, "light_verified": true}],
+            "scratch": {"acceptance_result": "passed"}
+        });
+        save_run_state("run-1", &state).unwrap();
+        assert!(has_run_state("run-1"), "落盘后断点必须存在");
+        let back = load_run_state("run-1").expect("断点必须读回");
+        assert_eq!(back["steps_used"], 5);
+        assert_eq!(back["written_files"][0]["path"], "a.txt");
+        assert_eq!(back["scratch"]["acceptance_result"], "passed");
+        assert!(!has_run_state("nope"), "无断点 → 不存在");
+        assert!(load_run_state("nope").is_none(), "无断点 → None（不炸）");
+        // PC-2：workspace 镜像——`.hearth/runs/<run_id>.json` 可发现（取证面）
+        let mirror_dir =
+            std::env::temp_dir().join(format!("hearth_runs_mirror_{}", uuid::Uuid::new_v4()));
+        save_run_state_mirror(&mirror_dir, "run-1", &state);
+        let mirror_path = mirror_dir.join(".hearth").join("runs").join("run-1.json");
+        assert!(
+            mirror_path.exists(),
+            "workspace 镜像必须落盘: {}",
+            mirror_path.display()
+        );
+        let mirror: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&mirror_path).unwrap()).unwrap();
+        assert_eq!(mirror["steps_used"], 5, "镜像内容与主存储一致");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&mirror_dir);
+        std::env::remove_var("HEARTH_SESSIONS_DIR");
     }
 }
 #[cfg(test)]

@@ -999,9 +999,8 @@ impl SessionManager {
 /// Map agent-core internal events to API AgentEvent types.
 pub fn map_event(evt: Event) -> AgentEvent {
     match evt {
-        Event::Phase(phase) => AgentEvent::Phase {
-            phase: format!("{:?}", phase),
-        },
+        // S5：Event::Phase 载荷已是标签字符串（相位机拆除后不再包装 enum）。
+        Event::Phase(phase) => AgentEvent::Phase { phase },
         Event::Token(delta) => AgentEvent::Token { delta },
         Event::ToolCall(tc) => AgentEvent::ToolCall {
             call_id: tc.call_id,

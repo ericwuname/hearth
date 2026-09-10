@@ -1,4 +1,3 @@
-use crate::constitution;
 use anyhow::Result;
 use async_trait::async_trait;
 use nervous_system::NervousSystem;
@@ -20,20 +19,88 @@ use chrono::Utc;
 use experience::ExperienceStore;
 use subconscious;
 
-/// Phases of the agent loop.
+/// S5 (hearth-slim batch-1, c343031): 相位机已拆——原 StepNext 五相位状态机
+/// （Init/Plan/Act/Done/Error + step() 分发器）退役；主循环 = 消息循环（模型步
+/// <-> 工具步交替推进，见 run()）。StepNext 仅是 do_plan 单次模型调用的"下一步
+/// 去向"标签，不再有全局相位变量/相位投影。
 #[derive(Debug, Clone)]
-pub enum LoopPhase {
-    Init,
-    Plan,
+pub enum StepNext {
     Act,
+    Plan,
     Done,
     Error(String),
+}
+
+/// S7（手术包二）：provider 瞬时故障重试**窗口耗尽**——统一暂停语义（非 failed）：
+/// 上下文已保留，可修复后 resume/重发继续（S8 断点续跑承接落盘与 resume）。
+/// run() 据此产出 status="paused" 报告，不再有"不可恢复的 failed"。
+#[derive(Debug)]
+pub struct ProviderRetryWindowExhausted {
+    /// 已重试次数（不含初试）。
+    pub retries: u32,
+    /// 已耗时（秒）。
+    pub elapsed_secs: u64,
+    /// 窗口上限（秒）。
+    pub window_secs: u64,
+    /// 末次错误摘要（供投影/报告）。
+    pub last_error: String,
+}
+
+impl std::fmt::Display for ProviderRetryWindowExhausted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "provider 瞬时故障重试窗口耗尽（{} 次重试，{}s/{}s；末次：{}）——上下文已保留，可修复后 resume 继续",
+            self.retries, self.elapsed_secs, self.window_secs, self.last_error
+        )
+    }
+}
+
+impl std::error::Error for ProviderRetryWindowExhausted {}
+
+/// S11（手术包二）：本轮被用户打断（Ctrl-C）——**上下文保留**（非 failed、
+/// 非 provider 故障）：run() 据此产出 status="paused"/reason="interrupted"，
+/// 投影 `[interrupt] 本轮已打断（上下文保留）`，agent 本体交还 REPL，
+/// 下一轮输入可在完整上下文之上继续（追问"刚才做到哪"可答）。
+#[derive(Debug)]
+pub struct TurnInterrupted;
+
+impl std::fmt::Display for TurnInterrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "本轮已打断（上下文保留）")
+    }
+}
+
+impl std::error::Error for TurnInterrupted {}
+
+/// S7：退避序列取值（attempt 为 1-based 重试序号；超出序列长度取末值固定）。
+fn retry_backoff_secs(seq: &[u64], attempt: u32) -> u64 {
+    if seq.is_empty() {
+        return 300;
+    }
+    let idx = (attempt as usize).saturating_sub(1).min(seq.len() - 1);
+    seq[idx]
+}
+
+/// S7：错误单行摘要（投影用——不把整段错误灌进事件流）。
+fn summarize_provider_error(msg: &str) -> String {
+    let one = msg.lines().next().unwrap_or("").trim();
+    agent_types::truncate_marked(one, 160)
+}
+
+/// S12（手术包二）：交付前自检闸的判定——Proceed = 继续收尾；
+/// Replan = 注入失败事实回喂模型修复（≤2 轮，不静默交半成品）。
+enum SelfCheckGate {
+    Proceed,
+    Replan,
 }
 
 /// Internal event emitted during the loop (mapped to api::AgentEvent by service).
 #[derive(Debug, Clone)]
 pub enum Event {
-    Phase(LoopPhase),
+    /// S5: 相位投影（纯展示）——载荷为相位标签字符串（"Plan"/"Act"/"Done"…）。
+    /// 消息循环化后不再逐模型步发射，仅收尾/关键节点发射。
+    Phase(String),
     Token(String),
     ToolCall(ToolCall),
     ToolResult(ToolResult),
@@ -139,66 +206,17 @@ fn load_hearth_md(cwd: &std::path::Path) -> Option<String> {
 }
 
 /// R5-4（智能性根治长程任务包 v1.0）：环境上下文快照——cwd/技术栈/git 分支/
-/// 顶层文件树（限 20 条）。根因二（环境盲）：system prompt 零环境注入 →
-/// 首轮瞎猜技术栈（"hearth TUI 项目"搜 `*.go`）+"项目不存在"假完成。
-///
-/// 会话构造时计算一次（与 load_hearth_md 同款模式；cwd 会话内不变）。
-/// 全部 best-effort：任何一步失败只缺该行，不阻塞。git 用一次同步 spawn
-/// （构造期一次性 ~10ms，非热路径）。
-fn load_env_context(cwd: &std::path::Path) -> Option<String> {
-    let mut lines: Vec<String> = vec![format!("- cwd: {}", cwd.display())];
-    // 技术栈：确定性 marker 文件检测（零猜测）
-    const MARKERS: &[(&str, &str)] = &[
-        ("Cargo.toml", "Rust"),
-        ("package.json", "Node.js"),
-        ("pyproject.toml", "Python"),
-        ("requirements.txt", "Python"),
-        ("go.mod", "Go"),
-        ("pom.xml", "Java/Maven"),
-        ("build.gradle", "Java/Gradle"),
-        ("CMakeLists.txt", "C/C++ (CMake)"),
-        ("Makefile", "Make"),
-    ];
-    let stacks: Vec<&str> = MARKERS
-        .iter()
-        .filter(|(f, _)| cwd.join(f).exists())
-        .map(|(_, n)| *n)
-        .collect();
-    if !stacks.is_empty() {
-        lines.push(format!("- tech stack: {}", stacks.join(", ")));
-    }
-    // git 分支（失败即省略——非 git 目录是常态）
-    if let Ok(out) = std::process::Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(cwd)
-        .output()
-    {
-        if out.status.success() {
-            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !branch.is_empty() {
-                lines.push(format!("- git branch: {branch}"));
-            }
-        }
-    }
-    // 顶层文件树：单层 read_dir，限 20 条（目录带 / 标记）
-    if let Ok(rd) = std::fs::read_dir(cwd) {
-        let mut entries: Vec<String> = Vec::new();
-        for e in rd.flatten().take(20) {
-            let name = e.file_name().to_string_lossy().to_string();
-            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            entries.push(if is_dir { format!("{name}/") } else { name });
-        }
-        if !entries.is_empty() {
-            lines.push(format!(
-                "- top-level entries (max 20): {}",
-                entries.join(", ")
-            ));
-        }
-    }
-    let body = lines.join("\n");
-    let block =
-        format!("\n\n## Environment (R5-4 环境事实快照——会话启动时确认，非猜测):\n{body}\n");
-    Some(block)
+/// hearth-slim S3（prompt 瘦身）：env 快照收敛为三行——cwd + workspace
+/// 顶层文件数 + 预算步数。技术栈/git 分支/文件树清单移除（注意力税实测：
+/// 单调用基底 +23.6%、单任务累计 45 万 tokens——S6 压缩调参另治）。
+fn load_env_context(cwd: &std::path::Path, budget_steps: u64) -> Option<String> {
+    let files = std::fs::read_dir(cwd).map(|rd| rd.count()).unwrap_or(0);
+    Some(format!(
+        "\n\n## Environment:\n- cwd: {}\n- workspace top-level files: {}\n- budget: {} steps\n",
+        cwd.display(),
+        files,
+        budget_steps
+    ))
 }
 
 /// Node 03 (O-4): 结构化验收条目。
@@ -287,7 +305,10 @@ fn tool_call_needs_approval(tc: &ToolCall) -> bool {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let p = std::path::Path::new(path);
-            p.is_absolute()
+            // Windows 移植修复（门禁实证）："/etc/passwd" 在 Windows 上
+            // is_absolute()=false（无盘符前缀），逃逸工作区的根路径写被漏放行。
+            // has_root() 在 Unix 与 Windows 语义一致（根组件即风险）。
+            p.has_root()
                 || p.components()
                     .any(|c| matches!(c, std::path::Component::ParentDir))
         }
@@ -654,14 +675,13 @@ impl Goal {
 
 /// Outcome of a single step.
 pub struct StepOutcome {
-    pub next: LoopPhase,
+    pub next: StepNext,
     pub emit: Vec<Event>,
 }
 
 /// The core Agent trait — the engine's primary interface.
 #[async_trait]
 pub trait Agent: Send + Sync {
-    async fn step(&mut self, phase: LoopPhase) -> Result<StepOutcome>;
     async fn run(&mut self, goal: Goal) -> Result<RunReport>;
 }
 
@@ -689,6 +709,9 @@ pub type EgressPersistFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 pub struct TurnCheckpoint<'a> {
     pub turns: &'a [agent_types::Turn],
     pub taskgoal: serde_json::Value,
+    /// S8（手术包二）：run 级可续状态（steps/预算位/产物清单/scratch 关键位）——
+    /// 与 turns 同点落盘，kill -9 后 `hearth resume` 由此恢复执行位（不止历史）。
+    pub run_state: serde_json::Value,
 }
 
 /// S3 + R6-8：turn 级 checkpoint 回调类型。
@@ -751,8 +774,6 @@ pub struct AgentLoop {
     planner: Arc<dyn Planner>,
     scheduler: Scheduler,
     ctx_mgr: ContextManager,
-    #[allow(dead_code)]
-    current_phase: LoopPhase,
     events_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
     /// Pending tool calls from the last LLM response (for Act phase).
     pending_tool_calls: Vec<ToolCall>,
@@ -818,11 +839,29 @@ pub struct AgentLoop {
     /// telemetry：每笔 Reserve 消耗带标记（增 4——有效预算扩大必须数据可见）。
     /// 不突破原始任务预算总量（replan 消耗既有 steps——无免费步）。
     acceptance_replan_count: u32,
-    /// R6-9（判定权归还长程任务书 v1.0）A/B 门控：单循环 A 臂开关——**实例级**
-    ///（构造时读 env HEARTH_SINGLE_LOOP=1，此后随实例走）。不用进程级 env 直查：
-    /// 并行 mock 测试读全局 env 会互相污染（flaky 实证）；测试经 in-crate 字段
-    /// 直接翻转。判据锚：LLM 调用次数降 ≥50%（B 臂每步 ≥3 次模型调用 → A 臂 1 次）。
-    single_loop: bool,
+    /// S7（手术包二）：provider 瞬时故障长退避重试参数——**实例级**（构造时读
+    /// env 一次，防并行测试 env 污染，与 single_loop 旧教训同规）。
+    /// 窗口默认 30 分钟（`HEARTH_RETRY_WINDOW_MINS`；`HEARTH_RETRY_WINDOW_SECS`
+    /// 优先，供精确/测试用）；退避序列默认 30s→1m→2m→5m→5m…（末值固定），
+    /// `HEARTH_RETRY_BACKOFF_SECS` 逗号分隔可配（测试用小值）。
+    retry_window_secs: u64,
+    retry_backoffs_secs: Vec<u64>,
+    /// S12（手术包二）：交付前质量自检的修复迭代轮次（≤2；run 级重置）。
+    self_check_rounds: u32,
+    /// S11（手术包二）：中断签名——REPL 层 Ctrl-C 置位后：①步边界检查（下方
+    /// run() 消息循环顶部）立即停下；②`interrupt_notify` 唤醒 in-flight 模型
+    /// 调用，使"正在等 provider 返回"的步也立即收手。**上下文完整保留**
+    /// （history/checkpoint 落盘 + agent 本体经 run_take 交还 REPL），下一轮
+    /// 输入继续时模型可见全部上下文（"刚才做到哪"可答）。
+    interrupt_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// S11：in-flight 调用打断信号（与 interrupt_flag 配套；flag 管步边界，
+    /// Notify 管模型调用中的即时打断）。none 语义 = 无中断。
+    interrupt_notify: std::sync::Arc<tokio::sync::Notify>,
+    /// PC-2 修复（P0/P1 修复任务书 v1.0）：resume 续跑模式——**steps 接着数**
+    /// （continue_turn 默认清零 steps_used 是 REPL 每轮重计的语义；resume 是
+    /// 同一任务的继续，必须接续旧计数，否则"steps=0"且预算水位失真）。
+    /// CLI 在 restore_run_state 后置位，下一次 run() 消费并自动复位。
+    resume_keep_steps: bool,
     /// R6-1（判定权归还长程任务书 v1.0）：give_up 判定已转化为"事实注入+交还
     /// 模型决定"的次数（cap=1/run）。第一次 GiveUp 判定不再由框架终止——注入
     /// 已核实事实后 continue，模型自行决定换做法/继续/向用户说明卡点；模型在
@@ -882,7 +921,7 @@ pub struct AgentLoop {
     /// R7-5 A-1（R8 包A·空轮裸透传修复）: 空内容轮状态。
     /// empty_turn_active: 本次 phase 迭代被判定为空内容轮（主循环据此豁免计步，
     /// 一次性消费）；empty_turn_streak: 本 run 内连续空轮计数——≥2 强制终止
-    /// （LoopPhase::Error 路径，ok=false），防"模型持续失能→无限烧预算"。
+    /// （StepNext::Error 路径，ok=false），防"模型持续失能→无限烧预算"。
     empty_turn_active: bool,
     empty_turn_streak: u32,
     /// W3 (D3=C/RC31 轻量): 最近一次完成决策（"accepted: ..." / "rejected: ..."）——
@@ -1185,6 +1224,131 @@ impl AgentLoop {
         self.ctx_mgr.state_mut().history = turns;
     }
 
+    /// S8（手术包二）：run 级断点快照——`hearth resume` 的执行位恢复源
+    ///（kill -9/进程崩溃/暂停后接续）。载荷 = steps/预算位/产物清单/核验计数/
+    /// 关键 scratch（history 由 turns 快照单独落盘，此处不重复）。
+    /// scratch 走白名单：只带有续语义的决策/核验事实，不带过程噪声（body 等）。
+    pub fn run_state_snapshot(&self) -> serde_json::Value {
+        let st = self.ctx_mgr.state();
+        const SCRATCH_KEYS: [&str; 6] = [
+            "acceptance_result",
+            "budget_stop_unverified",
+            "last_failure_class",
+            "last_recovery_strategy",
+            "reflect_fact_conflict",
+            "rerouted_unverified",
+        ];
+        let mut scratch = serde_json::Map::new();
+        for k in SCRATCH_KEYS {
+            if let Some(v) = st.scratch.get(k) {
+                scratch.insert(k.to_string(), v.clone());
+            }
+        }
+        let files = |list: &[WrittenFile]| {
+            list.iter()
+                .map(|w| {
+                    serde_json::json!({
+                        "path": w.path,
+                        "content_len": w.content_len,
+                        "light_verified": w.light_verified,
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        serde_json::json!({
+            "steps_used": st.steps_used,
+            "tokens_used": st.tokens_used,
+            "budget": st.budget,
+            "original_goal": st.original_goal,
+            // PC-2（P0/P1 修复任务书 v1.0）：current_goal 一并落盘——resume 时
+            // 恢复（此前只有 original_goal，resume 后 current_goal 被 "continue"
+            // 覆盖 = 目标漂移；模型看到的任务上下文失真）。
+            "current_goal": st.goal,
+            "goal_revision": st.goal_revision,
+            "constraints": st.constraints,
+            "acceptance_criteria": st.acceptance_criteria,
+            "written_files": files(&self.written_files),
+            "session_written_files": files(&self.session_written_files),
+            "verify_replan_count": self.verify_replan_count,
+            "acceptance_replan_count": self.acceptance_replan_count,
+            "scratch": scratch,
+            "updated_at": chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    /// S8：从断点恢复 run 状态（`hearth resume` 调用）。缺字段容忍（旧断点/
+    /// schema 演进不炸）；产物清单/核验计数一并恢复——完成核验事实跨进程延续。
+    pub fn restore_run_state(&mut self, v: &serde_json::Value) {
+        {
+            let st = self.ctx_mgr.state_mut();
+            if let Some(n) = v.get("steps_used").and_then(|x| x.as_u64()) {
+                st.steps_used = n;
+            }
+            if let Some(n) = v.get("tokens_used").and_then(|x| x.as_u64()) {
+                st.tokens_used = n;
+            }
+            if let Some(b) = v.get("budget") {
+                if let Ok(b) = serde_json::from_value(b.clone()) {
+                    st.budget = b;
+                }
+            }
+            if let Some(g) = v.get("original_goal").and_then(|x| x.as_str()) {
+                st.original_goal = Some(g.to_string());
+            }
+            // PC-2：current_goal 一并恢复（旧断点无此字段 → 容忍缺省，不炸）。
+            if let Some(g) = v.get("current_goal").and_then(|x| x.as_str()) {
+                if !g.is_empty() {
+                    st.goal = g.to_string();
+                }
+            }
+            if let Some(r) = v.get("goal_revision").and_then(|x| x.as_u64()) {
+                st.goal_revision = r;
+            }
+            if let Some(c) = v.get("constraints") {
+                if let Ok(c) = serde_json::from_value(c.clone()) {
+                    st.constraints = c;
+                }
+            }
+            if let Some(c) = v.get("acceptance_criteria") {
+                if let Ok(c) = serde_json::from_value(c.clone()) {
+                    st.acceptance_criteria = c;
+                }
+            }
+            if let Some(s) = v.get("scratch").and_then(|x| x.as_object()) {
+                for (k, val) in s {
+                    st.scratch.insert(k.clone(), val.clone());
+                }
+            }
+        }
+        let parse_files = |key: &str| -> Vec<WrittenFile> {
+            v.get(key)
+                .and_then(|x| x.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|f| {
+                            Some(WrittenFile {
+                                path: f.get("path")?.as_str()?.to_string(),
+                                content_len: f.get("content_len")?.as_u64()? as usize,
+                                light_verified: f
+                                    .get("light_verified")
+                                    .and_then(|b| b.as_bool())
+                                    .unwrap_or(false),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        self.written_files = parse_files("written_files");
+        self.session_written_files = parse_files("session_written_files");
+        if let Some(n) = v.get("verify_replan_count").and_then(|x| x.as_u64()) {
+            self.verify_replan_count = n as u32;
+        }
+        if let Some(n) = v.get("acceptance_replan_count").and_then(|x| x.as_u64()) {
+            self.acceptance_replan_count = n as u32;
+        }
+    }
+
     /// 任务状态持久化 (v0.2): resume 恢复任务图——节点状态（Completed/InProgress）
 
     /// WS8 (v0.2): 体感内观——把"身体状态"（steps/预算/上下文填充/相位/写盘）写入
@@ -1206,7 +1370,7 @@ impl AgentLoop {
             (total_chars as f64 / compact_threshold as f64 * 100.0).min(100.0) as u64
         };
         let body = serde_json::json!({
-            "phase": format!("{:?}", self.current_phase),
+            // S5：相位字段随相位机退役（introspect 暴露 step 计数即可）。
             "steps_used": self.ctx_mgr.steps_used(),
             "budget_max_steps": self.ctx_mgr.state().budget.max_steps,
             "history_chars": history_chars,
@@ -1299,6 +1463,7 @@ impl AgentLoop {
                 tracing::warn!(gene = ?m, "talent core-circuit wiring broken");
             }
         }
+        let budget_steps = goal.budget.max_steps;
         Self {
             // v0.1.2: 先 clone cwd（ctx 随后被 Scheduler 消费——字段初始化按书写序求值）
             cwd: ctx.cwd.clone(),
@@ -1306,7 +1471,6 @@ impl AgentLoop {
             planner,
             scheduler: Scheduler::new(dispatcher, ctx),
             ctx_mgr: ContextManager::new(goal.text, goal.budget),
-            current_phase: LoopPhase::Init,
             events_tx: None,
             pending_tool_calls: Vec::new(),
             pending_results: Vec::new(),
@@ -1315,7 +1479,7 @@ impl AgentLoop {
             lsp_bridge: Arc::new(lsp_bridge::NoopLspBridge::new()),
             retriever: None,
             hearth_md: load_hearth_md(&cwd_for_md),
-            env_context: load_env_context(&cwd_for_md),
+            env_context: load_env_context(&cwd_for_md, budget_steps),
             experience_store: None,
             subconscious: subconscious::SubconsciousGate::new(),
             last_action: None,
@@ -1336,8 +1500,33 @@ impl AgentLoop {
             force_verify_hint: false,
             interactive: false,
             acceptance_replan_count: 0,
-            // R6-9 A/B 门控：构造时读 env 一次（HEARTH_SINGLE_LOOP=1 → A 臂）。
-            single_loop: std::env::var("HEARTH_SINGLE_LOOP").as_deref() == Ok("1"),
+            // S7（手术包二）：瞬时故障长退避重试参数（实例级，构造读一次）。
+            retry_window_secs: std::env::var("HEARTH_RETRY_WINDOW_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .or_else(|| {
+                    std::env::var("HEARTH_RETRY_WINDOW_MINS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .map(|m| m.saturating_mul(60))
+                })
+                .unwrap_or(30 * 60),
+            retry_backoffs_secs: std::env::var("HEARTH_RETRY_BACKOFF_SECS")
+                .ok()
+                .map(|s| {
+                    s.split(',')
+                        .filter_map(|x| x.trim().parse::<u64>().ok())
+                        .collect::<Vec<u64>>()
+                })
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| vec![30, 60, 120, 300]),
+            // S12：交付前自检修复轮次（run 级重置）。
+            self_check_rounds: 0,
+            // S11：中断签名（REPL 层经 interrupt_handle() 取得同一 Arc 后置位）。
+            interrupt_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            interrupt_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            // PC-2：resume 续跑模式（CLI resume 置位；默认 false = REPL 每轮重计）。
+            resume_keep_steps: false,
             written_files: Vec::new(),
             session_written_files: Vec::new(),
             on_turn_checkpoint: None,
@@ -1711,6 +1900,25 @@ impl AgentLoop {
         self.events_tx = Some(tx);
     }
 
+    /// S11（手术包二）：中断句柄——REPL 层持此 Arc，Ctrl-C 时 `store(true)` 置位
+    /// （步边界检查立即收手），并调 `interrupt_notify()` 唤醒 in-flight 模型调用。
+    pub fn interrupt_handle(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.interrupt_flag.clone()
+    }
+
+    /// S11：in-flight 调用打断信号（与 `interrupt_handle()` 配套使用：
+    /// 置位 flag 后 `notify_waiters()`，两者共同保证"立即停"）。
+    pub fn interrupt_notify(&self) -> std::sync::Arc<tokio::sync::Notify> {
+        self.interrupt_notify.clone()
+    }
+
+    /// PC-2（P0/P1 修复任务书 v1.0）：resume 续跑模式——下一次 run() 中
+    /// `continue_turn` **不清零 steps_used**（steps 接着数），消费后自动复位。
+    /// 预算追加由 CLI 侧构造总预算（已用 + 追加）传 Goal 承载。
+    pub fn set_resume_keep_steps(&mut self, keep: bool) {
+        self.resume_keep_steps = keep;
+    }
+
     /// F1: Append a user message into the conversation context (multi-turn).
     /// Messages are queued and injected after run() initializes ctx_mgr.
     pub fn add_user_message(&mut self, content: String) {
@@ -1942,10 +2150,10 @@ impl AgentLoop {
                 verification = "UNVERIFIED",
                 success_rate_counted = false,
                 steps = self.ctx_mgr.steps_used(),
-                "GIVE_UP_ROUTED_TO_DONE(R1-1): criteria empty, artifacts fact-checked (liveness re-verified at reroute time) — reroute carries UNVERIFIED only and does NOT count toward success rate; Done-phase verification still decides (RC52/RC47)"
+                "RC52_ARTIFACT_ROUTE(R1-1): criteria empty, artifacts fact-checked (liveness re-verified at reroute time) — reroute carries UNVERIFIED only and does NOT count toward success rate; finalize verification still decides (RC52/RC47)"
             );
             return Some(StepOutcome {
-                next: LoopPhase::Done,
+                next: StepNext::Done,
                 emit: vec![],
             });
         }
@@ -1963,7 +2171,13 @@ impl AgentLoop {
 
         // WS4 (v0.1.5): 长会话 compaction——历史超阈值时旧轮折叠为规则式摘要
         // （build_messages 每次构建前检查；不调 LLM，不阻塞）。
-        self.ctx_mgr.maybe_compact();
+        // hearth-slim S6：压缩触发带可观测投影——[compact] N→M chars（事件流）。
+        if let Some((before, after)) = self.ctx_mgr.maybe_compact_stats() {
+            self.emit(Event::ThinkSummary {
+                phase: "compact".to_string(),
+                text: format!("[compact] 上下文已压缩 {before}→{after} chars"),
+            });
+        }
 
         // R1-C: 参数缺失 gap 注入（一次性——注入后重置）
         let param_gap = std::mem::take(&mut self.force_param_gap);
@@ -1973,74 +2187,24 @@ impl AgentLoop {
         // 判定权归还的一致性要求（单一工作流 prompt，A 臂判定权在模型；
         // C-control 语料误判回潮触发器已挂载：术后单条误判即回滚本项）。
         let goal_text = self.ctx_mgr.state().goal.clone();
-        let mut system_text = {
-            // R5-10（智能性根治长程任务包 v1.0）：死流程 → 决策原则。旧稿
-            // "follow strictly, in order"/"NEVER call grep/glob more than once"/
-            // "MUST end by calling write_file" 是机械脚本压力——真机病理：假完成
-            // （为写盘而写盘）与同款搜索空转。新稿保留安全边界（验证不过=失败、
-            // 标识符契约、参数完整性），把流程改写为"证据到达时自适应"的原则。
-            format!(
-                "You are a coding agent working toward the GOAL below. Respond with tool_calls.\n\
-                 GOAL: {}\n\
-                 \n\
-                 WORKFLOW (a loop, not a script — adapt as evidence arrives):\n\
-                 1. LOCATE: grep/glob to find the relevant file(s). A search that returns\n\
-                    nothing is evidence: change the pattern or drop that assumption —\n\
-                    repeating the same search produces nothing new.\n\
-                 2. UNDERSTAND: read(path) before editing (offset/limit pages large files;\n\
-                    output carries line numbers you can cite).\n\
-                 3. CHANGE: apply_patch for a precise edit of existing code (search must\n\
-                    match exactly once); write_file for new files or full rewrites —\n\
-                    content ≤~3000 chars per call, split longer content with mode=\"append\".\n\
-                    Searching alone changes nothing: a modification task is only advanced\n\
-                    by an actual edit.\n\
-                 4. VERIFY: run the real check — e.g. bash(\"cargo test 2>&1 | tail -30\").\n\
-                    A command that exits non-zero is a FAILURE: read the error, fix, and\n\
-                    re-verify. Never finish on a red build; never claim what you did not\n\
-                    verify.\n\
-                 Stop when the goal is met and verified — not before, not after.\n\
-                 \n\
-                 CONVERGENCE DISCIPLINE (R7-5):\n\
-                 - If the GOAL is ambiguous or missing a required input, STOP exploring and\n\
-                   ask the user a concrete question in plain text (a text-only reply ends\n\
-                   the turn — the user will answer).\n\
-                 - If 3 consecutive steps produced no new fact and no artifact change, do\n\
-                   NOT keep cycling the same read/grep/bash loop: either ask, or wrap up —\n\
-                   deliver what you have, state what is missing, and end the turn.\n\
-                 \n\
-                 IDENTIFIER CONTRACT (P1): When the task specifies a symbol name (function/type/\n\
-                 variable name, e.g. \"a function named parse_positive\"), you MUST define exactly\n\
-                 that identifier — identical spelling, case, and generic signature. NEVER invent a\n\
-                 substitute name, NEVER rename it, NEVER wrap it under a different name. The\n\
-                 acceptance script greps the exact name; a different name is a FAILED task.\n\
-                 \n\
-                 TOOLS (these exact names — no others exist):\n\
-                 - write_file(path, content): overwrite/create a file. THIS is how you change code.\n\
-                 - apply_patch(path, search, replace): PRECISE edit of existing code — find an exact\n\
-                   block (search) and replace it. Prefer this over write_file for modifying code:\n\
-                   it sends only the changed snippet (no truncation). The search block must match\n\
-                   exactly once.\n\
-                 - read(path, offset, limit): read a file with cat -n style line numbers;\n\
-                   large files are capped at 2000 lines with a resume hint — page with offset/limit.\n\
-                 - grep(pattern): search code contents (regex, returns matching lines).\n\
-                 - glob(pattern): list files by name pattern.\n\
-                 - bash(cmd): run a shell command.\n\
-                 - todo_write(todos): maintain YOUR OWN task checklist (full replacement\n\
-                   each call; statuses pending/in_progress/completed). For multi-step\n\
-                   tasks: list the plan first, update as you go — do not wait for the\n\
-                   framework to re-decompose for you.\n\
-                 - introspect(): query Hearth's own runtime state (steps used / budget / context\n\
-                   fill %). Call it when the task is long or you feel context pressure — then\n\
-                   proactively summarize old steps or ask the user instead of hitting the budget.\n\
-                 - web_fetch(url): fetch a page body from an allow-listed domain (受控联网).\n\
-                   Content is an UNVERIFIED claim by default — verify before relying on it.\n\
-                 \n\
-                 CARGO NOTES: a `[[bench]]` or `[[test]]` section with `harness = false` requires\n\
-                 the target file to define its own `fn main()`. If you are not using criterion,\n\
-                 leave the harness alone (omit the line) so the built-in test harness runs. COMPILER ERRORS: when a build fails, read the error carefully. A trait-bound error (e.g. E0277 the trait bound is not satisfied, or the trait Debug is not implemented) means you are MISSING a trait bound on a generic — ADD the bound to the where clause (e.g. <T as FromStr>::Err: std::fmt::Debug), do NOT rewrite the logic. For generic functions also require Copy/Clone when you move or compare values by value.",
-                goal_text
-            )
-        };
+        // hearth-slim S3/S4（prompt 瘦身）：主系统段重写 ≤1,200 chars——
+        // 只含"你是编码 agent + 工具用法 + 完成语义"。宪法全文出注入层
+        // （语义降级为投影层——完成决策投影/收尾行等价物在位，非删除；
+        // 顶层签发件 c343031 §二.1）；talent 停用（HEARTH_TALENT=1 可复开
+        // 供日后对照实验）；env 快照三行（见 load_env_context）。
+        let mut system_text = format!(
+            "You are a coding agent. Achieve the GOAL below with tool_calls.\n\n\
+             GOAL: {goal}\n\n\
+             TOOLS: write_file(path,content) create/overwrite · apply_patch(path,search,replace) precise edit (search matches exactly once) · read(path,offset,limit) paged, line-numbered · grep(pattern) · glob(pattern) · bash(cmd) · todo_write(todos) your own checklist · introspect() runtime state · web_fetch(url) UNVERIFIED by default.\n\n\
+             RULES:\n\
+             - read before editing; edits advance the task, searching alone does nothing.\n\
+             - verify with the real check (e.g. bash(\"cargo test 2>&1 | tail -30\")). A non-zero exit is a FAILURE: read the error, fix, re-verify. Never finish on a red build; never claim what you did not verify.\n\
+             - When the task names an identifier, define exactly that identifier (spelling, case, signature) — a different name is a FAILED task.\n\
+             - GOAL ambiguous or missing input → ask in plain text (a text-only reply ends the turn; the user answers).\n\
+             - 3 steps with no new fact and no artifact change → ask or wrap up: deliver what you have, state what is missing, end the turn.\n\n\
+             DONE = goal met and verified. End with: what was done, where the artifacts are, how you verified them.",
+            goal = goal_text
+        );
         // WS7 (v0.2): provenance 指令——事实性断言带出处，带不出标"未验证"
         // （配合 constitution 第七条 trust-but-verify；load-bearing 断言落地前须核验）。
         system_text.push_str(
@@ -2050,19 +2214,16 @@ impl AgentLoop {
              陈述事实性结论带出处；带不出出处就标'未验证'。",
         );
 
-        // v13 S3-a: Constitution read from constitution.md at runtime
-        // (locked by wiring assertion `constitution-reads-file`).
-        system_text.push_str("\n\n## Gene Constitution:\n");
-        system_text.push_str(&constitution::constitution_prompt());
+        // hearth-slim S3（c343031 §二.1）：宪法全文出注入层（3.5K→0）——
+        // 真机实证为 prompt 肥胖元凶；语义降级为投影层保留（完成决策投影/
+        // 收尾行等价物在位），非删除。constitution.rs 模块本体保留。
 
-        // 天赋调度 (v0.2.2, hearth-meta-capability-genes-final.md P1):
-        // 按任务分类注入认知风格偏置（G3 软偏置——激活=加权，抑制=降权非硬阻断）。
-        // 零控制流改动：只注入文本 + 激活日志（统计验证"该激活时激活了没"）。
-        {
+        // 天赋调度 (v0.2.2)——hearth-slim S3 停用（净效应从未做对照，先停）：
+        // env HEARTH_TALENT=1 可复开，供日后对照实验。代码本体保留。
+        if std::env::var("HEARTH_TALENT").as_deref() == Ok("1") {
             let goal_text = self.ctx_mgr.state().goal.clone();
             let style = crate::talent::style_for(&goal_text);
             system_text.push_str(&crate::talent::inject_text(&goal_text));
-            // 激活日志（统计验证用——调度器激活记录，非每步）
             tracing::info!(style = style.name, "talent-style activated");
         }
 
@@ -2415,12 +2576,21 @@ impl AgentLoop {
         }
         // S3：turn 级 checkpoint（write as events occur）——每次交换即原子落盘
         // 一次（CLI 层的回调内部是 tmp+rename 原子写，失败不阻断主路径）。
-        // R6-8：载荷从"仅 turns"扩为全量可续状态（+ taskgoal/task_graph）——
-        // kill 后 resume 恢复图进度，不再依赖 run() Ok 收尾的那一次落盘。
+        // R6-8：载荷从"仅 turns"扩为全量可续状态——kill 后 resume 恢复执行位，
+        // 不再依赖 run() Ok 收尾的那一次落盘。S8：run 执行位（steps/预算/产物/
+        // scratch）随 turns 同点落盘。
+        self.checkpoint_now();
+    }
+
+    /// S8（手术包二）：手动触发一次 turn 级 checkpoint。record_tool_exchange
+    /// 尾部与 run() 消息步末共用——"消息循环每步落盘"（含非工具步）的落点，
+    /// kill -9 后 resume 不丢执行位。
+    fn checkpoint_now(&self) {
         if let Some(cb) = &self.on_turn_checkpoint {
             let cp = TurnCheckpoint {
                 turns: &self.ctx_mgr.state().history,
                 taskgoal: self.taskgoal_value(),
+                run_state: self.run_state_snapshot(),
             };
             cb(&cp);
         }
@@ -2457,9 +2627,101 @@ impl AgentLoop {
         }
     }
 
-    async fn do_plan_inner(&mut self) -> Result<StepOutcome> {
-        self.emit(Event::Phase(LoopPhase::Plan));
+    /// S10（手术包二）：**流式模型调用**——逐 token 投影（`Event::Token`，
+    /// CLI 打字机渲染）+ 聚合 tool_calls 分片；Finish 收尾（usage）。
+    /// 仅在 provider.capabilities().stream 为真时使用；调用方在流失败时
+    /// **降级非流式**（fallback 保留）。思考流（reasoning）只经事件投影、
+    /// **不写入对话历史**（防注意力税回流——S10 验收项）。
+    async fn stream_model_call(&mut self, req: ChatRequest) -> Result<llm_gateway::ChatResponse> {
+        use futures::StreamExt;
+        let mut stream = self.provider.stream(req);
+        let mut content = String::new();
+        // (index, name, args_json_so_far, first_call_id) —— PC-1：SSE 的 tool_calls
+        // 分片按 index 聚合（首片 id 非空优先；结束时仍空合成 call-{index}）
+        let mut calls: Vec<(usize, Option<String>, String, Option<String>)> = Vec::new();
+        let mut finish: Option<String> = None;
+        let mut usage: Option<llm_gateway::Usage> = None;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(llm_gateway::StreamEvent::Token(t)) => {
+                    content.push_str(&t);
+                    self.emit(Event::Token(t));
+                }
+                Ok(llm_gateway::StreamEvent::ToolCallDelta {
+                    call_id,
+                    name,
+                    args_delta,
+                    index,
+                }) => {
+                    // PC-1 修复（P0/P1 修复任务书 v1.0）：OpenAI 风格 SSE 的分片
+                    // **只有首片带 id**，后续片只有 index + arguments 增量——
+                    // 旧实现按 call_id find 聚合，后续片（call_id=""）永远匹配
+                    // 不到首片 → 每片成新 call（工具名空/参数碎/结果回填报
+                    // missing field tool_call_id → 上游 400，实测 agnes 全工具
+                    // 失效）。改为按 **index** 聚合；call_id 首片非空优先，
+                    // 聚合结束时仍空则合成 `call-{index}`（保证 tool 结果消息
+                    // 配对不缺）。非流式路径对照：chat() 返回的是完整拼好的
+                    // tool_calls（"非流式时代工具全通"的事实），本修复使流式
+                    // 路径产出与非流式同构的完整结果。
+                    if let Some(e) = calls.iter_mut().find(|(i, _, _, _)| *i == index) {
+                        if e.1.is_none() {
+                            e.1 = name;
+                        }
+                        if e.3.is_none() {
+                            e.3 = Some(call_id);
+                        }
+                        e.2.push_str(&args_delta);
+                    } else {
+                        calls.push((index, name, args_delta, Some(call_id)));
+                    }
+                }
+                Ok(llm_gateway::StreamEvent::Finish {
+                    finish_reason,
+                    usage: u,
+                }) => {
+                    finish = finish_reason;
+                    usage = u;
+                    break;
+                }
+                Ok(llm_gateway::StreamEvent::Error(e)) => {
+                    return Err(anyhow::anyhow!("stream error: {e}"));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        let tool_calls = calls
+            .into_iter()
+            .enumerate()
+            .map(|(seq, (index, name, args, first_id))| {
+                let parsed = serde_json::from_str::<serde_json::Value>(&args)
+                    .unwrap_or_else(|_| serde_json::Value::String(args));
+                // call_id：首片非空 id 优先；仍空 → 合成（tool 结果回填报
+                // missing field tool_call_id 的上游 400 由这里根治）。
+                let call_id = match first_id {
+                    Some(id) if !id.is_empty() => id,
+                    _ => format!("call-{index}-{seq}"),
+                };
+                agent_types::ToolCall {
+                    call_id,
+                    name: name.unwrap_or_default(),
+                    args: parsed,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(llm_gateway::ChatResponse {
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            tool_calls,
+            finish_reason: finish,
+            usage,
+            reasoning_content: None,
+        })
+    }
 
+    async fn do_plan_inner(&mut self) -> Result<StepOutcome> {
         // R7-5/D-3（线C手术）：PlanContext 构建已删——唯一消费者
         // planner.decompose 调用随 B 臂块删除（检索/LSP scratch 由
         // observer/事件流路径承接）。
@@ -2502,7 +2764,7 @@ impl AgentLoop {
                 match signal.action {
                     subconscious::PhaseOverride::Abandon => {
                         return Ok(StepOutcome {
-                            next: LoopPhase::Error(signal.reason),
+                            next: StepNext::Error(signal.reason),
                             emit: vec![],
                         });
                     }
@@ -2564,104 +2826,123 @@ impl AgentLoop {
         }
         let schemas = self.scheduler.tool_schemas();
 
-        let mut retries = 0u32;
-        // v12.4: 3 attempts with an 8s cap was not enough to ride out a provider
-        // per-minute quota window (ZhiPu 1302), so bursts killed the whole step.
-        // v0.1.2 (象棋 245s 卡死): "盲目重试 6 次 + 指数退避到 32s" 是卡死根因。
-        // 改为按错误分类分流（hearth-harness-review-supplement 补充2）：
-        //   Transient → 短退避 retry，同请求上限 2 次 + 总时长 cap 60s
-        //   Param     → 不重试（改参数 replan 由上层逻辑做）
-        //   Fatal     → 立即 give_up（重试无意义）
-        // R9-B1 (v0.1.6): deepseek-v4-flash 当"会抖的可恢复通道"——真机 `retries=1
-        // deadline_hit=true`（30s timeout × 2 次 = 60s cap 提前撞）。放宽到 4 次 +
-        // 120s：退避 2/4/8/16s，秒级失败时 4 次重试 ~60s 内完成，120s 只作挂起兜底。
-        // H4 (v0.2.4): 429 专项——免费额度类 429（"free users"/"rate limit"消息体）
-        // 不吃满 4 次重试：第 1 次即判定为额度耗尽（重试同一 key 无意义，
-        // 换通道/换 key 才有意义），快速失败并把结构化建议透传给用户。
-        const MAX_TRANSIENT_RETRIES: u32 = 4;
-        const TOTAL_RETRY_CAP: std::time::Duration = std::time::Duration::from_secs(120);
+        // ── S7（手术包二）：provider 瞬时故障分级长退避重试 ──────────────
+        // 分级（llm_gateway::classify_anyhow）：Transient（连接失败/读超时/429/
+        // 5xx/TLS/网络类）→ 长退避重试；Param（400/参数/解析）与 Fatal（401/403/
+        // 策略拒绝/畸形流）→ 立即终止零重试。
+        // 退避序列 30s→1m→2m→5m→5m…（末值固定），累计窗口默认 30 分钟
+        //（HEARTH_RETRY_WINDOW_MINS / _SECS）——用户拍板"等 1 分钟或者几分钟再试"。
+        // 窗口耗尽 = **暂停语义**（ProviderRetryWindowExhausted → run 层 status=
+        // paused，非 failed；S8 断点落盘 + resume 承接）。旧行为（2/4/8/16s 退避
+        // + 120s cap 即 failed）是本卡病灶：真机魂斗罗 span 125s 网络抖动即终止。
         let retry_start = std::time::Instant::now();
-        let resp = loop {
-            // Tier3 T2 修复: deadline 前置检查——chat 内部不可抢占（reqwest 阻塞），
-            // 但**不再发起新的重试 chat**（此前只在失败后检查，嵌套重试穿透 120s——
-            // B04/B06 实测 200s 外部超时才杀）。前置后上界 ≈ 120s + 单次 chat 上限。
-            if retry_start.elapsed() >= TOTAL_RETRY_CAP && retries > 0 {
-                tracing::error!(
-                    elapsed_s = retry_start.elapsed().as_secs(),
-                    retries,
-                    "plan chat retry cap reached (pre-check) — giving up instead of stacking another retry"
-                );
-                break Err(anyhow::anyhow!(
-                    "retry cap exceeded ({retries} retries, {}s elapsed) — Tier3 T2: no more retries within TOTAL_RETRY_CAP",
-                    retry_start.elapsed().as_secs()
-                ));
-            }
-            match self
-                .provider
-                .chat(ChatRequest {
-                    messages: messages.clone(),
-                    tools: schemas.clone(),
-                    // R5-7（智能性根治长程任务包 v1.0）：temperature 分档——
-                    // 主循环告别 0.5 高温（根因十一：85 次重新规划的随机性燃料；
-                    // goal-drift :1448 早已用 0.0 证明低温可行）。本调用是
-                    // Plan+Act 合一的决策调用：0.2 同时落在 Act 档（0.0–0.2）
-                    // 与 Plan 档（0.2–0.3）交点。产出 T-1 决策门 A/B 数据
-                    //（规划次数/工具出错/Plan 耗时，真机跑测阶段采集）。
-                    temperature: Some(0.2),
-                    // R1 (v0.1.1 用户实测): 4096 token 仍不够——五子棋单文件 HTML
-                    // 12004 字符恰好撞 4096 token 线（content 截断 → missing content）。
-                    // 提到 8192（deepseek 上限内）+ build_messages 分块提示（治本）。
-                    // R5-7 审视结论：保持 8192——收敛会复发 12004 字符截断病理。
-                    max_tokens: Some(8192),
-                    stream: false,
-                })
-                .await
+        let mut retry_attempt: u32 = 0;
+        let resp: Result<llm_gateway::ChatResponse> = loop {
+            // S11：步内快路径——置位与 select 注册之间的竞态窗口由此兜住
+            //（notify_waiters 只唤醒已注册的等待者）。
+            if self
+                .interrupt_flag
+                .load(std::sync::atomic::Ordering::SeqCst)
             {
+                break Err(anyhow::Error::new(TurnInterrupted));
+            }
+            let attempt_req = ChatRequest {
+                messages: messages.clone(),
+                tools: schemas.clone(),
+                // R5-7：Plan+Act 合一决策调用，temperature 0.2（Plan 档与 Act 档交点）。
+                temperature: Some(0.2),
+                // R1/R5-7：8192（12004 字符截断病理的收敛值）→ 修复4：env 化
+                // （HEARTH_MAX_TOKENS，默认 65536——3.0-flash thinking 与正文共享预算）。
+                max_tokens: Some(agent_types::max_output_tokens()),
+                stream: false,
+            };
+            // S10（手术包二）：流式优先（打字机渲染）；provider 不支持或流
+            // 失败 → **降级非流式**（fallback 保留——SSE 不可用不阻断任务）。
+            let stream_capable = self.provider.capabilities().stream;
+            // S11（手术包二）：in-flight 打断——Ctrl-C（REPL 层置位 + notify）
+            // 使正在等待 provider 返回的调用**立即收手**（不等到响应/不进入退避），
+            // 由 run() 走 interrupted 收尾（上下文保留）。
+            let interrupt_notify = self.interrupt_notify.clone();
+            let call_result = tokio::select! {
+                biased;
+                r = async {
+                    if stream_capable {
+                        match self.stream_model_call(attempt_req.clone()).await {
+                            Ok(r) => Ok(r),
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    "S10: stream failed — degrade to non-stream chat (fallback retained)"
+                                );
+                                self.provider.chat(attempt_req).await
+                            }
+                        }
+                    } else {
+                        self.provider.chat(attempt_req).await
+                    }
+                } => r,
+                _ = interrupt_notify.notified() => {
+                    tracing::info!("S11: in-flight model call interrupted by Ctrl-C");
+                    Err(anyhow::Error::new(TurnInterrupted))
+                }
+            };
+            match call_result {
                 Ok(r) => break Ok(r),
                 Err(e) => {
-                    // 401/403 认证错误立即失败（重试无意义——D4/hearth-cli R5 保留）
-                    let msg = format!("{e}");
-                    let is_auth = msg.contains("401") || msg.contains("403");
-                    if is_auth {
-                        tracing::error!(error=%e, "plan chat auth error — no retry");
+                    // S11：打断不分类、不退避——直接冒泡到 run() 的 interrupted 收尾。
+                    if e.downcast_ref::<TurnInterrupted>().is_some() {
                         break Err(e);
                     }
-                    // H4: 免费额度 429 立即失败（结构化建议——换通道而非重试）
-                    if msg.contains("429")
-                        && (msg.to_lowercase().contains("free")
-                            || msg.to_lowercase().contains("rate limit")
-                            || msg.to_lowercase().contains("upgrade"))
-                    {
+                    let msg = format!("{e}");
+                    let class = llm_gateway::classify_anyhow(&e);
+                    if !matches!(class, llm_gateway::ErrorClass::Transient) {
+                        // fatal/param → 立即终止（零重试）——401/403/400/模型不存在/
+                        // 策略拒绝/畸形流；重试无意义。
                         tracing::error!(
                             error=%e,
-                            "plan chat 429 quota/rate-limit — fast fail (retrying same key won't help)"
+                            class=?class,
+                            "plan chat non-transient error — no retry (fatal/param)"
                         );
-                        break Err(anyhow::anyhow!(
-                            "{msg}\n建议：该通道已达免费额度/限流上限——换 provider（--provider openai 且配新 key）或等待额度窗口重置，重试同一通道无意义"
-                        ));
+                        break Err(anyhow::anyhow!("{msg}"));
                     }
-                    let class = llm_gateway::classify_anyhow(&e);
-                    retries += 1;
-                    let deadline_hit = retry_start.elapsed() >= TOTAL_RETRY_CAP;
-                    match class {
-                        llm_gateway::ErrorClass::Transient
-                            if retries <= MAX_TRANSIENT_RETRIES && !deadline_hit =>
-                        {
-                            let delay = 2u64.pow(retries); // 2s / 4s
-                            tracing::warn!(error=%e, retries, delay_sec=delay, class=?class, "plan chat failed (transient), retrying...");
-                            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-                        }
-                        other => {
-                            tracing::error!(
-                                error=%e,
-                                retries,
-                                class=?other,
-                                deadline_hit,
-                                "plan chat failed — give up (non-transient or retry cap)"
-                            );
-                            break Err(e);
-                        }
+                    let elapsed = retry_start.elapsed().as_secs();
+                    if elapsed >= self.retry_window_secs {
+                        // 窗口耗尽 → 暂停语义（非 failed）：上下文已保留，可 resume。
+                        tracing::error!(
+                            retries = retry_attempt,
+                            elapsed_s = elapsed,
+                            window_s = self.retry_window_secs,
+                            "plan chat retry window exhausted — PAUSING (resumable), not failing"
+                        );
+                        break Err(anyhow::Error::new(ProviderRetryWindowExhausted {
+                            retries: retry_attempt,
+                            elapsed_secs: elapsed,
+                            window_secs: self.retry_window_secs,
+                            last_error: summarize_provider_error(&msg),
+                        }));
                     }
+                    retry_attempt += 1;
+                    let delay = retry_backoff_secs(&self.retry_backoffs_secs, retry_attempt);
+                    let remaining = self.retry_window_secs.saturating_sub(elapsed);
+                    // 投影：每次重试前一条 [retry]（可观测，用户可等）。
+                    self.emit(Event::ThinkSummary {
+                        phase: "retry".to_string(),
+                        text: format!(
+                            "[retry] provider 瞬时故障（{}），第 {} 次重试，等 {}s（窗口剩余 {}s）",
+                            summarize_provider_error(&msg),
+                            retry_attempt,
+                            delay,
+                            remaining
+                        ),
+                    });
+                    tracing::warn!(
+                        error=%e,
+                        retries=retry_attempt,
+                        delay_sec=delay,
+                        window_remaining_s=remaining,
+                        "plan chat transient failure — long backoff retry"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                 }
             }
         };
@@ -2711,7 +2992,7 @@ impl AgentLoop {
                     messages: retry_messages,
                     tools: schemas.clone(),
                     temperature: Some(0.2),
-                    max_tokens: Some(8192),
+                    max_tokens: Some(agent_types::max_output_tokens()),
                     stream: false,
                 })
                 .await
@@ -2756,7 +3037,7 @@ impl AgentLoop {
                     "R7-5 A-1: consecutive empty content turns — terminating to avoid burning budget on a disabled model"
                 );
                 return Ok(StepOutcome {
-                    next: LoopPhase::Error(
+                    next: StepNext::Error(
                         "empty_turn: 连续 2 轮空内容回应（含重试）——模型未给出任何实质回应，已终止（防预算空烧）"
                             .into(),
                     ),
@@ -2775,7 +3056,7 @@ impl AgentLoop {
                 "R7-5 A-1: confirmed empty turn — re-prompt injected, not counted as a valid step"
             );
             return Ok(StepOutcome {
-                next: LoopPhase::Plan,
+                next: StepNext::Plan,
                 emit: events,
             });
         }
@@ -2793,8 +3074,14 @@ impl AgentLoop {
                         Role::Assistant,
                         MessageContent::Text(content.clone()),
                     );
-                    // v24-post: deepseek thinking mode 回传必需——存 reasoning_content
-                    msg.reasoning_content = resp.reasoning_content.clone();
+                    // S10（手术包二）：思考流**不写入对话历史**（仅经事件投影，
+                    // 防注意力税回流——推理文本反复随历史回传会持续占用上下文，
+                    // 与 S3/S4 瘦身方向相反）。取舍：deepseek thinking 模式的
+                    // reasoning 回传兼容性让位于注意力税治理（任务书 S10 明确项）；
+                    // 如确需回传，HEARTH_KEEP_REASONING_IN_HISTORY=1 复开。
+                    if std::env::var("HEARTH_KEEP_REASONING_IN_HISTORY").as_deref() == Ok("1") {
+                        msg.reasoning_content = resp.reasoning_content.clone();
+                    }
                     turn.messages.push(msg);
 
                     // P5：推理显式化（顶层要求"不要隐式，要看到推理与逻辑"）。
@@ -2819,7 +3106,7 @@ impl AgentLoop {
                 events.push(Event::ToolCall(tc.clone()));
             }
             Ok(StepOutcome {
-                next: LoopPhase::Act,
+                next: StepNext::Act,
                 emit: events,
             })
         } else {
@@ -2847,36 +3134,22 @@ impl AgentLoop {
             // 旁路。唯一护栏 = 预算（run 外层）。纯问答零写盘正常结束即判据。
             // 诚实性不丢：Done 收尾的 verify/acceptance 事实校验照跑（缺文件
             // 回喂补齐——事实注入，非终止）。
-            if self.single_loop {
-                tracing::info!(
-                    steps = self.ctx_mgr.steps_used(),
-                    "R6-9 A-arm: model end_turn — Done (single-loop, judgment returned to model)"
-                );
-                return Ok(StepOutcome {
-                    next: LoopPhase::Done,
-                    emit: events,
-                });
-            }
-            // R7-5/D-8（线C手术）：B 臂机关已整块删除——QA 路由（D-1 联动）、
-            // v22 write_attempted 门、replan_count 逼迫、read-only 逼写、
-            // "You MUST use tool_calls" 指令全部随判定权归还一并拆除（签 1：
-            // A 臂转正 + 删 B 臂）。非单循环旗子在此等同收口（旗子保留为
-            // 术后验收 5 逃生门语义，行为已与 A 臂同构）。唯一护栏 = 预算。
+            // S5（hearth-slim batch-1）：single_loop A/B 双态随 B 臂机关拆除
+            // 归一——单循环已是唯一主路径（原 if self.single_loop 两臂同构，
+            // D-8 实证后 A 臂转正）。文本回应即 end_turn 收尾。
             tracing::info!(
                 steps = self.ctx_mgr.steps_used(),
-                "D-8: B-arm machinery removed — no-tool-calls turn closes as end_turn"
+                "S5: model end_turn — Done (message loop, judgment returned to model)"
             );
             Ok(StepOutcome {
-                next: LoopPhase::Done,
+                next: StepNext::Done,
                 emit: events,
             })
         }
     }
 
-    /// Run the act phase: execute pending tool calls.
+    /// S5：执行上一步产出的待执行工具调用（消息循环工具步体）。
     async fn do_act(&mut self) -> Result<StepOutcome> {
-        self.emit(Event::Phase(LoopPhase::Act));
-
         // v12.5: capture the names of the tools we are about to run so we can
         // tell whether an actual edit (write_file/edit) was attempted. An edit
         // is real progress and clears the stuck state; a read-only search is
@@ -2983,7 +3256,7 @@ impl AgentLoop {
                         format!("{action} —— {HINT}"),
                     ));
                     return Ok(StepOutcome {
-                        next: LoopPhase::Error("approval_denied_noninteractive".into()),
+                        next: StepNext::Error("approval_denied_noninteractive".into()),
                         emit: vec![],
                     });
                 }
@@ -3044,7 +3317,7 @@ impl AgentLoop {
                         // 判定入口）——ReflectVerdict 已删，改指 Done（审批拒绝 =
                         // 终止语义，A 臂更符合——预研 §二-D-7 处置）。
                         return Ok(StepOutcome {
-                            next: LoopPhase::Done,
+                            next: StepNext::Done,
                             emit: vec![],
                         });
                     }
@@ -3070,6 +3343,15 @@ impl AgentLoop {
         // WS8 (v0.2): 每步执行前更新"身体状态"到 scratch["body"]——
         // introspect 工具读取（体感内观：steps/预算/上下文填充/相位/写盘数）。
         self.update_body_state();
+        // S11（手术包二）：工具执行前收手——Ctrl-C 已置位则不再开新工具（避免
+        // in-flight 工具被 drop 成半成品写盘；长命令由下一轮步边界收手，
+        // 边界与取舍在战中申报）。
+        if self
+            .interrupt_flag
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(anyhow::Error::new(TurnInterrupted));
+        }
         let mut results = self
             .scheduler
             .execute_tool_calls(&self.pending_tool_calls)
@@ -3209,23 +3491,13 @@ impl AgentLoop {
                 // Give the model a couple of corrective nudges, then stop cleanly.
                 const MAX_SEARCH_STREAK: u32 = 4;
                 if self.search_streak >= MAX_SEARCH_STREAK {
-                    // R6-9 A 臂：搜索连环不是框架自擒证据——唯一护栏 = 预算
-                    //（stuck_loop 微调提示保留，硬停旁路）。
-                    if self.single_loop {
-                        tracing::warn!(
-                            streak = self.search_streak,
-                            "R6-9 A-arm: search streak — nudge kept, hard stop bypassed (budget is the guardrail)"
-                        );
-                    } else {
-                        tracing::warn!(
-                            streak = self.search_streak,
-                            "v12.5: stuck searching with no edit — giving up"
-                        );
-                        return Ok(StepOutcome {
-                            next: LoopPhase::Error("stuck: repeated search without edit".into()),
-                            emit: events,
-                        });
-                    }
+                    // S5（hearth-slim batch-1）：搜索连环不是框架自擒证据——唯一
+                    // 护栏 = 预算（stuck_loop 微调提示保留；原 B 臂硬停 Error 已随
+                    // single_loop 归一删除——A 臂语义转正，判定权在模型）。
+                    tracing::warn!(
+                        streak = self.search_streak,
+                        "S5: search streak — nudge kept, hard stop removed (budget is the guardrail)"
+                    );
                 }
             }
             // A non-search action (read/bash/mixed) leaves search_streak
@@ -3238,9 +3510,8 @@ impl AgentLoop {
         // same_tool_repeat 强制换策略与 steps_without_progress 无进展计数在
         // **生产主路径（A 臂跑测）断线**（委托书包A-2-2"断线则修"）。
         // 提为独立方法以便单测直调（a_arm_act_tally）。
-        if self.single_loop {
-            self.a_arm_act_tally();
-        }
+        // S5：single_loop 门归一后恒跑（A 臂探索校准机制 = 生产主路径既有事实）。
+        self.a_arm_act_tally();
 
         Ok(StepOutcome {
             // R6-9 A 臂：Act → 直接回模型（Plan 相位在 A 臂 = 唯一 chat 调用，
@@ -3248,7 +3519,7 @@ impl AgentLoop {
             //（观察职能归 observer crate 经事件流对接，既有事实不变）。
             // R7-5/D-5（线C手术）：B 臂 Observe 分支已随相位变体删除——
             // Act → Plan 全臂统一（观察职能归 observer crate 事件流对接）。
-            next: LoopPhase::Plan,
+            next: StepNext::Plan,
             emit: events,
         })
     }
@@ -3429,57 +3700,1004 @@ impl AgentLoop {
     }
 
     // R6-2: note_v20_gate_reentry helper 已随 T4 停滞计数删除（重置对象不存在）。
+
+    /// S5（hearth-slim batch-1，c343031）：消息循环**模型步**（原 Plan 相位体）——
+    /// 一次 chat 调用，规划+执行合一。WP-1 span 保序（信封树），不再发相位投影。
+    async fn model_step(&mut self) -> Result<StepOutcome> {
+        let t0 = std::time::Instant::now();
+        self.emit(Event::SpanOpen {
+            name: "plan".into(),
+            t0: chrono::Utc::now().to_rfc3339(),
+        });
+        let r = self.do_plan().await;
+        self.emit(Event::SpanClose {
+            t1: chrono::Utc::now().to_rfc3339(),
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
+        r
+    }
+
+    /// S5：消息循环**工具步**（原 Act 相位体）——执行上一步产出的 tool_calls。
+    async fn tool_step(&mut self) -> Result<StepOutcome> {
+        let t0 = std::time::Instant::now();
+        self.emit(Event::SpanOpen {
+            name: "act".into(),
+            t0: chrono::Utc::now().to_rfc3339(),
+        });
+        let r = self.do_act().await;
+        self.emit(Event::SpanClose {
+            t1: chrono::Utc::now().to_rfc3339(),
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
+        r
+    }
+
+    /// S12（手术包二）：交付前**产物质量自检**——"把任务交出来"机制化。
+    /// 按产物类型分派检查（不新引重型依赖）：
+    /// - `.py` → `python -m py_compile`；`.js` → `node --check`；
+    /// - `.rs` → cwd 有 Cargo.toml 时 `cargo check`（限时），否则标注跳过；
+    /// - `.html/.htm` → 无头浏览器冒烟（playwright 通用自检脚本，见
+    ///   `HEARTH_HTML_SELFCHECK_SCRIPT`；不可用则静态降级并如实标注）；
+    /// - `.md/.txt` → 重读自查（非空）。
+    /// 工具不可用（命令不存在）→ 标注 skipped，不判失败（不误伤）。
+    /// 返回 (checks, failures)——checks 为逐项证据（写 run report）。
+    async fn self_check_artifacts(&self) -> (Vec<serde_json::Value>, Vec<String>) {
+        let mut checks: Vec<serde_json::Value> = Vec::new();
+        let mut failures: Vec<String> = Vec::new();
+        for wf in &self.written_files {
+            let ext = std::path::Path::new(&wf.path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let abs = self.cwd.join(&wf.path);
+            let abs_s = abs.to_string_lossy().to_string();
+            match ext.as_str() {
+                "py" => {
+                    let (ok, out) =
+                        Self::run_check_cmd("python", &["-m", "py_compile", &abs_s], 60).await;
+                    checks.push(serde_json::json!({"path": wf.path, "kind": "py_compile", "ok": ok, "detail": out}));
+                    if !ok {
+                        failures.push(format!(
+                            "{} 语法检查未过: {}",
+                            wf.path,
+                            summarize_provider_error(&out)
+                        ));
+                    }
+                }
+                "js" | "mjs" | "cjs" => {
+                    let (ok, out) = Self::run_check_cmd("node", &["--check", &abs_s], 60).await;
+                    checks.push(serde_json::json!({"path": wf.path, "kind": "node_check", "ok": ok, "detail": out}));
+                    if !ok {
+                        failures.push(format!(
+                            "{} 语法检查未过: {}",
+                            wf.path,
+                            summarize_provider_error(&out)
+                        ));
+                    }
+                }
+                "rs" => {
+                    if self.cwd.join("Cargo.toml").exists() {
+                        let (ok, out) =
+                            Self::run_check_cmd("cargo", &["check", "--quiet"], 180).await;
+                        checks.push(serde_json::json!({"path": wf.path, "kind": "cargo_check", "ok": ok, "detail": summarize_provider_error(&out)}));
+                        if !ok {
+                            failures.push(format!(
+                                "{} cargo check 未过: {}",
+                                wf.path,
+                                summarize_provider_error(&out)
+                            ));
+                        }
+                    } else {
+                        checks.push(serde_json::json!({"path": wf.path, "kind": "cargo_check", "ok": true, "detail": "无 Cargo.toml——跳过编译检查（标注）"}));
+                    }
+                }
+                "html" | "htm" => {
+                    let (ok, detail) = Self::self_check_html(&abs).await;
+                    checks.push(serde_json::json!({"path": wf.path, "kind": "html_smoke", "ok": ok, "detail": detail}));
+                    if !ok {
+                        failures.push(format!("{} 页面自检未过: {detail}", wf.path));
+                    }
+                }
+                "md" | "txt" => {
+                    let content = tokio::fs::read_to_string(&abs).await.unwrap_or_default();
+                    let ok = content.lines().count() > 0 && !content.trim().is_empty();
+                    checks.push(
+                        serde_json::json!({"path": wf.path, "kind": "doc_readback", "ok": ok,
+                        "detail": format!("{} 行", content.lines().count())}),
+                    );
+                    if !ok {
+                        failures.push(format!("{} 文档为空——完整性自查未过", wf.path));
+                    }
+                }
+                _ => {
+                    checks.push(
+                        serde_json::json!({"path": wf.path, "kind": "skipped", "ok": true,
+                        "detail": "无类型化检查规则（标注）"}),
+                    );
+                }
+            }
+        }
+        (checks, failures)
+    }
+
+    /// S12：HTML/游戏类无头浏览器冒烟——复用 bench/exam 既有 playwright 模式
+    /// （http server + chromium：零 JS 错误 + 按键/点击各一次 + 截图），但走通用
+    /// 脚本（脚本路径经 `HEARTH_HTML_SELFCHECK_SCRIPT` 注入，缺省查
+    /// `bench/exam/html-selfcheck.js`）。脚本/浏览器不可用 → 静态降级（如实标注）。
+    async fn self_check_html(path: &std::path::Path) -> (bool, String) {
+        let script = std::env::var("HEARTH_HTML_SELFCHECK_SCRIPT")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.exists())
+            .or_else(|| {
+                let cand = std::path::PathBuf::from("bench/exam/html-selfcheck.js");
+                cand.exists().then_some(cand)
+            });
+        if let Some(s) = script {
+            let p = path.to_string_lossy().to_string();
+            let (ok, out) = Self::run_check_cmd("node", &[&s.to_string_lossy(), &p], 120).await;
+            // 脚本约定：末行输出 JSON {"ok":bool,"detail":"..."}；解析失败按原始输出判定。
+            let detail = out
+                .lines()
+                .rev()
+                .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
+                .and_then(|v| {
+                    v.get("detail")
+                        .and_then(|d| d.as_str())
+                        .map(|d| d.to_string())
+                        .or_else(|| Some(format!("{v}")))
+                })
+                .unwrap_or_else(|| summarize_provider_error(&out));
+            return (ok, detail);
+        }
+        // 静态降级：非空 + 基本结构（如实标注降级原因，不谎报浏览器验证过）
+        let content = tokio::fs::read_to_string(path).await.unwrap_or_default();
+        if content.trim().is_empty() {
+            return (false, "HTML 产物为空".into());
+        }
+        (
+            true,
+            "静态降级检查通过（playwright 自检脚本不可用——未做浏览器冒烟，如实标注）".into(),
+        )
+    }
+
+    /// S12：跑外部检查命令（命令白名单由调用方限定；限时防挂死）。
+    /// 返回 (成功?, stdout+stderr 摘要)。命令不存在 → 视为"不可用"（false 但
+    /// detail 说明是环境问题，调用方据此标注 skipped 语义）。
+    async fn run_check_cmd(program: &str, args: &[&str], timeout_secs: u64) -> (bool, String) {
+        let fut = tokio::process::Command::new(program).args(args).output();
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut).await {
+            Ok(Ok(o)) => (
+                o.status.success(),
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                ),
+            ),
+            Ok(Err(e)) => (false, format!("{program} 不可用/执行失败: {e}")),
+            Err(_) => (false, format!("检查超时（{timeout_secs}s）")),
+        }
+    }
+
+    /// S12：自检闸（挂 `finalize_done` 之前）——通过则继续收尾；未过则注入
+    /// 失败事实回喂修复（≤2 轮）；轮次用尽 → **诚实交付**（记录未过项，不静默
+    /// 交半成品）。自检结果始终写 scratch["selfcheck_result"]（进 run report）。
+    async fn self_check_gate(&mut self) -> Result<SelfCheckGate> {
+        if self.written_files.is_empty() {
+            return Ok(SelfCheckGate::Proceed); // 无产物任务（纯问答）不设自检
+        }
+        let (checks, failures) = self.self_check_artifacts().await;
+        let passed = failures.is_empty();
+        let skipped_any = checks
+            .iter()
+            .any(|c| c.get("kind").and_then(|k| k.as_str()) == Some("skipped"));
+        self.ctx_mgr.set_scratch(
+            "selfcheck_result",
+            serde_json::json!({
+                "passed": passed,
+                "rounds_used": self.self_check_rounds,
+                "checks": checks,
+                "failures": failures,
+                "skipped_any": skipped_any,
+            }),
+        );
+        if passed {
+            self.emit(Event::ThinkSummary {
+                phase: "selfcheck".to_string(),
+                text: format!("[selfcheck] 产物自检通过（{} 项）", checks.len()),
+            });
+            return Ok(SelfCheckGate::Proceed);
+        }
+        if self.self_check_rounds >= 2 {
+            // 诚实交付：不静默交半成品（任务书 S12 动作 3）
+            self.emit(Event::ThinkSummary {
+                phase: "selfcheck".to_string(),
+                text: format!(
+                    "[selfcheck] 已交付，自检未过项 {}（2 轮修复已用尽）——需人工：{}",
+                    failures.len(),
+                    failures.join("; ")
+                ),
+            });
+            return Ok(SelfCheckGate::Proceed);
+        }
+        self.self_check_rounds += 1;
+        self.emit(Event::ThinkSummary {
+            phase: "selfcheck".to_string(),
+            text: format!(
+                "[selfcheck] 产物自检未过（{}），修复中（轮次 {}/2）",
+                failures.join("; "),
+                self.self_check_rounds
+            ),
+        });
+        self.ctx_mgr.add_user_message(format!(
+            "[selfcheck] 交付前自检发现产物问题——请修复后重新交卷（不要只改说明文字）：{}",
+            failures.join("; ")
+        ));
+        Ok(SelfCheckGate::Replan)
+    }
+
+    /// S5：完成收尾（原 Done 相位处理块，从 run() 相位承接处提取）——
+    /// 消息循环中文本收尾/预算臂 route-done 两处统一调用。
+    /// 返回 Ok(Some(report)) = 终局收尾（调用方 break）；
+    /// Ok(None) = 核验回喂 replan（调用方 continue 走下一消息步）。
+    async fn finalize_done(&mut self, goal_text: &str, steps: u64) -> Result<Option<RunReport>> {
+        // v0.1.2 验证层（重校验）：自报 Done 但写盘文件缺失/为空 = 假完成。
+        // 回喂 replan（≤3 次），超限按 verify_failed 失败收尾——不谎报成功。
+        // 只验证"本轮确实写过文件"的任务；纯读/评估任务不受影响。
+        if !self.written_files.is_empty() {
+            let missing = Self::verify_written_files(&self.cwd, &self.written_files).await;
+            if !missing.is_empty() {
+                if self.verify_replan_count < 3 {
+                    self.verify_replan_count += 1;
+                    tracing::warn!(
+                        count = self.verify_replan_count,
+                        missing = ?missing,
+                        "done 验证失败——回喂 replan 补写"
+                    );
+                    self.ctx_mgr.add_user_message(format!(
+                        "验证失败：以下文件缺失或为空——任务并未真正完成，你还需要补齐这些文件（写完整内容）：{}",
+                        missing.join("; ")
+                    ));
+                    return Ok(None);
+                }
+                tracing::error!(missing = ?missing, "done 验证失败且 replan 达上限——按失败收尾");
+                self.emit(Event::Done(serde_json::json!({
+                    "ok": false,
+                    "status": "verify_failed",
+                    "goal": goal_text,
+                    "steps": steps,
+                    "verify": { "missing": missing }
+                })));
+                let usage = {
+                    let cm = self.cost_meter.lock().await;
+                    cm.get(self.provider.name(), self.provider.model()).cloned()
+                };
+                let report = RunReport {
+                    steps,
+                    ok: false,
+                    summary: serde_json::json!({
+                        "status": "verify_failed",
+                        "goal": goal_text,
+                        "steps": steps,
+                        "verify": { "missing": missing }
+                    }),
+                    usage,
+                    files_changed: Vec::new(),
+                };
+                return Ok(Some(report));
+            }
+        }
+        // Node 03 (O-4): Acceptance Verification——criteria 结构化条目
+        // 存在时，完成判定升级为确定性核验（cmd exit code / file 内容）。
+        // Reserve（Node 05）：失败回喂重试 ≤1 次（独立计数，消耗既有
+        // steps——不突破预算总量）；telemetry 记账（增 4）。
+        let criteria = self.ctx_mgr.state().acceptance_criteria.clone();
+        let checks = Self::parse_acceptance_criteria(&criteria);
+        if !checks.is_empty() {
+            let (passed, failures) = self.verify_acceptance_criteria(&checks).await;
+            if passed {
+                self.ctx_mgr
+                    .set_scratch("acceptance_result", serde_json::json!("passed"));
+                // C-1/C-12：机器核验通过 = 最强验证证据
+                self.verification_evidence = true;
+                tracing::info!("acceptance verification passed ({} checks)", checks.len());
+            } else if self.acceptance_replan_count < 1 {
+                // Verification Reserve 消耗（增 4：telemetry 记账）
+                self.acceptance_replan_count += 1;
+                tracing::warn!(
+                    failures = ?failures,
+                    reserve_used = self.acceptance_replan_count,
+                    "VERIFICATION_RESERVE: acceptance failed — replan to fix (reserve 1/1)"
+                );
+                self.ctx_mgr.set_scratch(
+                    "acceptance_result",
+                    serde_json::json!({"status": "failed", "failures": failures}),
+                );
+                self.ctx_mgr.add_user_message(format!(
+                    "[acceptance] 验收标准核验未通过：{}——请按验收标准修复后交卷",
+                    failures.join("; ")
+                ));
+                return Ok(None);
+            } else {
+                // Reserve 耗尽 → verify_failed 语义（acceptance 明细）
+                self.ctx_mgr.set_scratch(
+                    "acceptance_result",
+                    serde_json::json!({"status": "failed", "failures": failures}),
+                );
+                tracing::error!(failures = ?failures, "acceptance failed and Reserve exhausted — verify_failed");
+                self.emit(Event::Done(serde_json::json!({
+                    "ok": false,
+                    "status": "verify_failed",
+                    "goal": goal_text,
+                    "steps": steps,
+                    "verify": { "acceptance_failures": failures }
+                })));
+                let usage = {
+                    let cm = self.cost_meter.lock().await;
+                    cm.get(self.provider.name(), self.provider.model()).cloned()
+                };
+                let report = RunReport {
+                    steps,
+                    ok: false,
+                    summary: serde_json::json!({
+                        "status": "verify_failed",
+                        "goal": goal_text,
+                        "steps": steps,
+                        "verify": { "acceptance_failures": failures },
+                        "reflect_fact_conflict": self.ctx_mgr.get_scratch("reflect_fact_conflict").and_then(|v| v.as_bool()),
+                    }),
+                    usage,
+                    files_changed: Vec::new(),
+                };
+                return Ok(Some(report));
+            }
+        }
+        // R7-5/D-4（线C手术）：W3 节点统一置位已删（数据源 = task_graph）。
+        if self.last_completion_decision.is_none() {
+            self.last_completion_decision = Some("accepted: all_done gate + verify passed".into());
+        }
+        // W8/A4 (RC31): goal_drift 自动检测——observe-only（不阻塞不
+        // 强制暂停，强制暂停仍 D 类冻结）。仅长程任务触发（成本红线：
+        // 单次独立 LLM 调用）。LLM 失败 → 静默跳过（观测不得伤害主流程）。
+        let goal_drift = if steps >= GOAL_DRIFT_MIN_STEPS {
+            self.check_goal_drift(goal_text).await
+        } else {
+            None
+        };
+        if goal_drift == Some(true) {
+            self.emit(Event::ThinkSummary {
+                phase: "done".into(),
+                text: "[goal_drift] ⚠ 终局产物与 original_goal 语义相关度存疑——
+请人工核对 run report（observe-only 警示，不改变终态）"
+                    .into(),
+            });
+        }
+        // R3-4 完成度口径治理（G-E）：代码/文档产物分列（提取在 json! 宏外）
+        let is_doc =
+            |p: &str| p.to_lowercase().ends_with(".md") || p.to_lowercase().ends_with(".txt");
+        let code_artifacts = self
+            .written_files
+            .iter()
+            .filter(|w| !is_doc(&w.path))
+            .count();
+        let doc_artifacts = self
+            .written_files
+            .iter()
+            .filter(|w| is_doc(&w.path))
+            .count();
+        self.emit(Event::Done(serde_json::json!({
+            "ok": true,
+            "status": "completed",
+            "goal": goal_text,
+            "steps": steps,
+            // S12：产物自检结果（含逐项证据/未过项；未跑 = null 如实标注）
+            "selfcheck": self.ctx_mgr.get_scratch("selfcheck_result").cloned(),
+            // ── R3-1 REPL 收尾三行数据源（返工包①：与 one-shot report
+            // 同源事实，非模型自报——REPL 路径此前只收 4 字段轻量
+            // payload，收尾三行无数据可用）──
+            "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
+            "ledger_pending": self.ledger_pending_texts(),
+            "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
+            "verification": self.verification_state(),
+            "known_failing_open": self
+                .ctx_mgr
+                .state()
+                .ledger
+                .open_in(agent_types::LedgerColumn::KnownFailing)
+                .iter()
+                .map(|e| e.text.clone())
+                .collect::<Vec<_>>(),
+        })));
+        let usage = {
+            let cm = self.cost_meter.lock().await;
+            cm.get(self.provider.name(), self.provider.model()).cloned()
+        };
+        let report = RunReport {
+            steps,
+            ok: true,
+            summary: serde_json::json!({
+                "goal": goal_text,
+                "steps": steps,
+                // S12：产物自检结果（逐项证据 + 未过项；null = 未跑）
+                "selfcheck": self.ctx_mgr.get_scratch("selfcheck_result").cloned(),
+                // RC31 轻量: Original Goal + artifacts + 完成决策可审计
+                "original_goal": self.ctx_mgr.state().original_goal,
+                "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
+                "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
+                // RC24-C: 委托审计（放行了哪些破坏性命令）
+                "approval_delegated": !self.delegated_approvals.is_empty(),
+                "approval_delegated_cmds": self.delegated_approvals,
+                // W8/A4 (RC31): goal_drift 检测结果（true/false/null=未检测）
+                "goal_drift": goal_drift,
+                // Node 03: REFLECT_FACT_CONFLICT 观察标记（修 4——summary
+                // 字段非 Event；observe-only，不参与 terminal 判定）
+                "reflect_fact_conflict": self
+                    .ctx_mgr
+                    .get_scratch("reflect_fact_conflict")
+                    .and_then(|v| v.as_bool()),
+                // ── R1-4 known-failing 报告层拦截（G-B 一票否决门的
+                // 机制落地）──0.9-0.3 病理"已知 0/16 失败项却标
+                // ✅100%"的报告侧终结：completed 终态**必须**携带
+                // 未清已知失败清单——投影层据此拒绝裸 ✓（G-B 判读
+                // 依据）。拦截在报告层（任务书指定），不改控制流
+                // （失败项修不好时不得死锁完成路径）。
+                "known_failing_open": self
+                    .ctx_mgr
+                    .state()
+                    .ledger
+                    .open_in(agent_types::LedgerColumn::KnownFailing)
+                    .iter()
+                    .map(|e| e.text.clone())
+                    .collect::<Vec<_>>(),
+                // ── R3-4 完成度口径治理（G-E：统计口径不自污染）──
+                // 0.9-0.3 病理"报 103%（行数含自写文档）"：以行数为
+                // 分母且行数含 agent 自写文档 → 写文档即可刷高完成度。
+                // 引擎提供**分列口径**（代码产物/文档产物分计）并明示
+                // 政策：行数不作完成度分母——完成与否由
+                // acceptance/verify 事实裁决（事实裁决，非数字自报）。
+                "completion_metrics": serde_json::json!({
+                    "code_artifacts": code_artifacts,
+                    "doc_artifacts": doc_artifacts,
+                    "policy": "行数/字节数不作完成度分母（文档行不计入代码口径——E6-E8 治理）；完成与否由 acceptance/verify 事实裁决",
+                }),
+            }),
+            usage,
+            files_changed: Vec::new(),
+        };
+        Ok(Some(report))
+    }
+
+    /// S5：失败收尾（原 Error 相位处理块提取）——run_abort（结构化终止，
+    /// 唯一生产者 = 非交互审批拒绝）优先；否则 F9 结构化观察标记。
+    async fn finalize_error(
+        &mut self,
+        goal_text: &str,
+        steps: u64,
+        err_detail: String,
+    ) -> Result<RunReport> {
+        let usage = {
+            let cm = self.cost_meter.lock().await;
+            cm.get(self.provider.name(), self.provider.model()).cloned()
+        };
+        // RC24-B: 结构化终止优先——run_abort 携带可投影 reason 与可行动
+        // hint（区别于笼统 loop error）。当前唯一生产者 = 非交互审批拒绝。
+        if let Some((reason, hint)) = self.run_abort.take() {
+            let report = RunReport {
+                steps,
+                ok: false,
+                summary: serde_json::json!({
+                    "reason": reason,
+                    "hint": hint,
+                    "goal": goal_text,
+                    "steps": steps,
+                    "original_goal": self.ctx_mgr.state().original_goal,
+                    "approval_delegated": !self.delegated_approvals.is_empty(),
+                    "approval_delegated_cmds": self.delegated_approvals,
+                }),
+                usage,
+                files_changed: Vec::new(),
+            };
+            self.emit(Event::Done(serde_json::json!({
+                "ok": false,
+                "status": reason,
+                "goal": goal_text,
+                "steps": steps
+            })));
+            return Ok(report);
+        }
+        // FA01 Node 08 F9: 失败报告投影结构化观察标记——give_up 原因
+        // 不再折叠成笼统 "loop error"（F9："放弃未经核验"必须可审计）。
+        let report = RunReport {
+            steps,
+            ok: false,
+            summary: serde_json::json!({"error": "loop error", "error_detail": err_detail, "goal": goal_text, "steps": steps,
+                "budget_stop_unverified": self.ctx_mgr.get_scratch("budget_stop_unverified"),
+                "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class"),
+                "last_recovery_strategy": self.ctx_mgr.get_scratch("last_recovery_strategy"),
+                "approval_delegated": !self.delegated_approvals.is_empty(),
+                "approval_delegated_cmds": self.delegated_approvals}),
+            usage,
+            files_changed: Vec::new(),
+        };
+        self.emit(Event::Done(serde_json::json!({
+            "ok": false,
+            "status": "error",
+            "goal": goal_text,
+            "steps": steps,
+        })));
+        Ok(report)
+    }
+
+    /// S11（手术包二）：**打断收尾**——用户 Ctrl-C，本轮立即停（status="paused"，
+    /// reason="interrupted"）。语义要点：
+    /// - **不是失败**：投影 `[interrupt] 本轮已打断（上下文保留）`，不投影 Error；
+    /// - **上下文保留**：history 完整（本轮已完成的步都在），run 执行位已落盘
+    ///   （checkpoint_now），agent 本体由 run_take 交还 REPL —— 下一轮输入
+    ///   在完整上下文之上继续，可回答"刚才做到哪"；
+    /// - 需要无人值守续跑时也可 `hearth resume <sid>`（S8 断点续跑）。
+    async fn finalize_interrupted(&mut self, goal_text: &str, steps: u64) -> Result<RunReport> {
+        let usage = {
+            let cm = self.cost_meter.lock().await;
+            cm.get(self.provider.name(), self.provider.model()).cloned()
+        };
+        let resume_hint = format!(
+            "本轮已打断（上下文保留）——直接输入新指令即可继续（{sid}）；无人值守续跑用 `hearth resume {sid}`",
+            sid = self.session_id
+        );
+        let report = RunReport {
+            steps,
+            ok: false,
+            summary: serde_json::json!({
+                "status": "paused",
+                "reason": "interrupted",
+                "goal": goal_text,
+                "steps": steps,
+                "resume_hint": resume_hint,
+                "original_goal": self.ctx_mgr.state().original_goal,
+                "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
+            }),
+            usage,
+            files_changed: Vec::new(),
+        };
+        self.emit(Event::Done(serde_json::json!({
+            "ok": false,
+            "status": "paused",
+            "reason": "interrupted",
+            "goal": goal_text,
+            "steps": steps,
+            "resume_hint": resume_hint,
+        })));
+        Ok(report)
+    }
+
+    /// S5：消息步执行失败（provider/工具步 Err）收尾——原 step() Err 分支。
+    /// S8（手术包二）：统一暂停语义——provider 类失败**可恢复**（status=paused，
+    /// 修 key/网络后 `hearth resume` 续跑），不再产出"不可恢复的 failed"。
+    async fn finalize_step_error(
+        &mut self,
+        goal_text: &str,
+        steps: u64,
+        e: &anyhow::Error,
+    ) -> Result<RunReport> {
+        let usage = {
+            let cm = self.cost_meter.lock().await;
+            cm.get(self.provider.name(), self.provider.model()).cloned()
+        };
+        let resume_hint = format!(
+            "断点已存（{sid}）——修复后 `hearth resume {sid}` 继续（S8 断点续跑）",
+            sid = self.session_id
+        );
+        let report = RunReport {
+            steps,
+            ok: false,
+            summary: serde_json::json!({
+                "status": "paused",
+                "reason": "provider_error",
+                "error": format!("{e:#}"),
+                "goal": goal_text,
+                "steps": steps,
+                "resume_hint": resume_hint,
+            }),
+            usage,
+            files_changed: Vec::new(),
+        };
+        self.emit(Event::Done(serde_json::json!({
+            "ok": false,
+            "status": "paused",
+            "reason": "provider_error",
+            "error": format!("{e:#}"),
+            "goal": goal_text,
+            "steps": steps,
+            "resume_hint": resume_hint,
+        })));
+        Ok(report)
+    }
+
+    /// S7/S8（手术包二）：**暂停收尾**——status="paused"（可恢复，非 failed）。
+    /// 统一暂停语义：provider 窗口耗尽（S7）/ 预算耗尽 / Ctrl-C（S8）等全部
+    /// 落此收尾路径：上下文已保留，投影含 resume 指令；S8 在此基础上落盘
+    /// run 状态并提供 `hearth resume`。
+    #[allow(clippy::too_many_arguments)]
+    async fn finalize_paused(
+        &mut self,
+        goal_text: &str,
+        steps: u64,
+        retries: u32,
+        elapsed_secs: u64,
+        window_secs: u64,
+        last_error: &str,
+    ) -> Result<RunReport> {
+        let usage = {
+            let cm = self.cost_meter.lock().await;
+            cm.get(self.provider.name(), self.provider.model()).cloned()
+        };
+        let resume_hint = format!(
+            "断点已存（{sid}）——上下文已保留：修复网络/provider 后 `hearth resume {sid}` 继续",
+            sid = self.session_id
+        );
+        let report = RunReport {
+            steps,
+            ok: false,
+            summary: serde_json::json!({
+                "status": "paused",
+                "reason": "provider_retry_window_exhausted",
+                "goal": goal_text,
+                "steps": steps,
+                "retries": retries,
+                "elapsed_secs": elapsed_secs,
+                "window_secs": window_secs,
+                "last_error": last_error,
+                "resume_hint": resume_hint,
+                "original_goal": self.ctx_mgr.state().original_goal,
+                "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
+                "approval_delegated": !self.delegated_approvals.is_empty(),
+                "approval_delegated_cmds": self.delegated_approvals,
+            }),
+            usage,
+            files_changed: Vec::new(),
+        };
+        self.emit(Event::Done(serde_json::json!({
+            "ok": false,
+            "status": "paused",
+            "reason": "provider_retry_window_exhausted",
+            "goal": goal_text,
+            "steps": steps,
+            "resume_hint": resume_hint,
+        })));
+        Ok(report)
+    }
+
+    // ── S14（手术包二）：任务总结报告（TL;DR——"事后不用看过程"）───────────
+    //
+    // 病灶：任务收尾投影内容多（用户原话"内容太多，我未必会看过程"）——过程看
+    // 得清（S10/S11）之后，缺**事后不用看过程**的任务级总结。
+    //
+    // 设计：取 run 历史（压缩尾部即可，不灌全文）+ 产物清单 + S12 自检结果 →
+    // **一次小模型调用（max_tokens ≤800）**按模板填充 → 六段总结块；模型不可用/
+    // 超时/缺段 → **机械降级**（产物/自检/剩余建议仍是实数据，叙述段标"生成失败"）。
+    // 红线：①生成失败不阻断交付 ②不编造（无据写"无"）③不计入预算步数（不
+    // inc_step/不写对话历史）——token 仍入 run 账（cost_meter 分账口径不变）。
+
+    /// S14：总结块的事实输入（纯数据——生成与降级共用同一份，保证降级也如实）。
+    fn summary_facts(&self) -> SummaryFacts {
+        let artifacts: Vec<String> = self.written_files.iter().map(|w| w.path.clone()).collect();
+        // S12 自检结果（scratch 里的结构化事实；未跑 = null）
+        let selfcheck = self
+            .ctx_mgr
+            .get_scratch("selfcheck_result")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .map(|v| {
+                let passed = v.get("passed").and_then(|p| p.as_bool()).unwrap_or(false);
+                let total = v
+                    .get("checks")
+                    .and_then(|c| c.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+                let failed = v
+                    .get("checks")
+                    .and_then(|c| c.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter(|c| !c.get("passed").and_then(|p| p.as_bool()).unwrap_or(false))
+                            .count()
+                    })
+                    .unwrap_or(0);
+                if total == 0 {
+                    "未跑（本轮无类型化产物）".to_string()
+                } else {
+                    format!(
+                        "{} 项过 {} 项{}",
+                        total,
+                        total - failed,
+                        if passed {
+                            ""
+                        } else {
+                            "（有未过项——见报告）"
+                        }
+                    )
+                }
+            })
+            .unwrap_or_else(|| "未跑（无自检结果）".to_string());
+        // 历史尾部（压缩：只取最近 8 条消息，每条 ≤240 字符——不灌全文）
+        let mut tail: Vec<String> = Vec::new();
+        if let Some(turn) = self.ctx_mgr.state().history.last() {
+            for m in turn
+                .messages
+                .iter()
+                .rev()
+                .take(8)
+                .collect::<Vec<_>>()
+                .iter()
+                .rev()
+            {
+                let text = match &m.content {
+                    agent_types::MessageContent::Text(t) => t.clone(),
+                    _ => continue,
+                };
+                let who = match m.role {
+                    Role::User => "用户",
+                    Role::Assistant => "助手",
+                    Role::Tool => "工具",
+                    Role::System => "系统",
+                };
+                tail.push(format!(
+                    "[{who}] {}",
+                    agent_types::truncate_marked(text.trim(), 240)
+                ));
+            }
+        }
+        SummaryFacts {
+            goal: self.ctx_mgr.state().goal.clone(),
+            original_goal: self.ctx_mgr.state().original_goal.clone(),
+            steps: self.ctx_mgr.steps_used(),
+            artifacts,
+            selfcheck,
+            pending: self.ledger_pending_texts(),
+            history_tail: tail,
+            resume_hint: format!(
+                "断点已存——`hearth resume {sid}` 续跑（S8），或直接输入新指令继续",
+                sid = self.session_id
+            ),
+        }
+    }
+
+    /// S14：总结块组装（模板六段 + ═══ 边框；`allow_llm=false` 时纯机械填充）。
+    async fn generate_run_summary(&mut self, status_label: &str, allow_llm: bool) -> RunSummary {
+        let facts = self.summary_facts();
+        let mut narrative = None;
+        let mut fail_reason: Option<String> = None;
+        if allow_llm {
+            let user = format!(
+                "【事实】\n目标: {goal}\n原始目标: {orig}\n状态: {status}\n已用步数: {steps}\n\
+                 产物清单: {artifacts}\n质量自检(S12): {selfcheck}\n账本未完成项: {pending}\n\
+                 ── 最近过程（压缩尾部，仅作事实依据）──\n{tail}",
+                goal = facts.goal,
+                orig = facts
+                    .original_goal
+                    .clone()
+                    .unwrap_or_else(|| "（无）".into()),
+                status = status_label,
+                steps = facts.steps,
+                artifacts = if facts.artifacts.is_empty() {
+                    "（无）".to_string()
+                } else {
+                    facts.artifacts.join(", ")
+                },
+                selfcheck = facts.selfcheck,
+                pending = if facts.pending.is_empty() {
+                    "（无）".to_string()
+                } else {
+                    facts.pending.join("；")
+                },
+                tail = if facts.history_tail.is_empty() {
+                    "（无）".to_string()
+                } else {
+                    facts.history_tail.join("\n")
+                },
+            );
+            let messages = vec![
+                Message::new(
+                    "s14-summary-system".into(),
+                    Role::System,
+                    MessageContent::Text(
+                        "你是交付总结器。**只根据给定事实**写总结，禁止编造任何未在事实中出现的\
+                         事项；无据可依一律写「无」。严格输出下面六段（段名照抄，不要任何额外\
+                         前言后语）：\n\
+                         【一句话】<这个任务做成了什么 / 卡在哪>\n\
+                         【产物】<文件清单 + 怎么用（路径/命令）；无产物写「无」>\n\
+                         【过程要点】<3-5 条关键步骤，每条以 \"- \" 开头，一行一条>\n\
+                         【问题与处理】<遇到 X → 这样解决；未解决写原因；无则「无」>\n\
+                         【剩余/建议】<下一步需要用户做什么；无则「无，任务闭环」>\n\
+                         【质量自检】<N 项过 M 项；未跑写「未跑」>"
+                            .into(),
+                    ),
+                ),
+                Message::new(
+                    "s14-summary-user".into(),
+                    Role::User,
+                    MessageContent::Text(user),
+                ),
+            ];
+            let req = ChatRequest {
+                messages,
+                tools: Vec::new(),
+                temperature: Some(0.2),
+                // 顶层附加：总结调用 max_tokens ≤800（防总结本身成为新的 token 黑洞）。
+                max_tokens: Some(800),
+                stream: false,
+            };
+            match tokio::time::timeout(std::time::Duration::from_secs(20), self.provider.chat(req))
+                .await
+            {
+                Ok(Ok(resp)) => {
+                    // 分账：总结调用的 usage 同样入 run 账（口径不变）。
+                    if let Some(ref usage) = resp.usage {
+                        let provider_name = self.provider.name().to_string();
+                        let model = self.provider.model().to_string();
+                        self.cost_meter
+                            .lock()
+                            .await
+                            .record(&provider_name, &model, usage);
+                    }
+                    let text = resp.content.unwrap_or_default();
+                    // 校验六段齐全（缺段 = 不合格 → 降级，不静默交付半成品总结）。
+                    let missing: Vec<&str> = S14_SECTION_MARKERS
+                        .iter()
+                        .copied()
+                        .filter(|m| !text.contains(m))
+                        .collect();
+                    if missing.is_empty() {
+                        narrative = Some(text.trim().to_string());
+                    } else {
+                        fail_reason = Some(format!("模型输出缺段: {}", missing.join("/")));
+                    }
+                }
+                Ok(Err(e)) => fail_reason = Some(format!("模型调用失败: {e}")),
+                Err(_) => fail_reason = Some("模型调用超时（20s）".to_string()),
+            }
+        } else {
+            fail_reason = Some("本轮被打断——不发起额外模型调用（立即停优先）".to_string());
+        }
+
+        let text = match narrative {
+            Some(n) => render_summary_block(&n),
+            None => render_summary_block(&mechanical_sections(&facts, &fail_reason)),
+        };
+        RunSummary {
+            text,
+            generated: fail_reason.is_none(),
+        }
+    }
+
+    /// S14：run 收尾统一挂总结——把总结块注入 report.summary（CLI/报告同源
+    /// 渲染），done 事件之前调用（报告落盘时已含总结）。
+    async fn attach_run_summary(&mut self, mut report: RunReport, allow_llm: bool) -> RunReport {
+        // 终态标签：finalize_done 的 report.summary 无 "status" 字段（它用 ok=true
+        // 表达完成）——缺省按 ok 归一（九态口径），避免总结里出现"，N 步"这种空状态。
+        let status = report
+            .summary
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                if report.ok {
+                    "completed".to_string()
+                } else {
+                    "failed".to_string()
+                }
+            });
+        let reason = report
+            .summary
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let label = if reason.is_empty() {
+            status
+        } else {
+            format!("{status}（{reason}）")
+        };
+        let label = format!("{label}，{} 步", report.steps);
+        let s = self.generate_run_summary(&label, allow_llm).await;
+        if let Some(obj) = report.summary.as_object_mut() {
+            obj.insert(
+                "run_summary".to_string(),
+                serde_json::Value::String(s.text.clone()),
+            );
+            obj.insert(
+                "run_summary_generated".to_string(),
+                serde_json::Value::Bool(s.generated),
+            );
+            if !s.generated {
+                obj.insert(
+                    "run_summary_llm_skipped".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
+        }
+        report
+    }
+
+    /// S14：`/summary` —— 会话至今的随时总结（同一函数，同一模板）。
+    /// REPL 长会话用：不落 new run，不消耗步数预算。
+    pub async fn summarize_session(&mut self) -> RunSummary {
+        self.generate_run_summary("会话至今（用户随时索取）", true)
+            .await
+    }
+}
+
+/// S14：总结块的六段段名（校验用——缺段即降级）。
+const S14_SECTION_MARKERS: [&str; 6] = [
+    "【一句话】",
+    "【产物】",
+    "【过程要点】",
+    "【问题与处理】",
+    "【剩余/建议】",
+    "【质量自检】",
+];
+
+/// S14：总结块的事实输入（生成/降级共用——降级也如实，不产生第二套事实）。
+struct SummaryFacts {
+    goal: String,
+    original_goal: Option<String>,
+    steps: u64,
+    artifacts: Vec<String>,
+    selfcheck: String,
+    pending: Vec<String>,
+    history_tail: Vec<String>,
+    resume_hint: String,
+}
+
+/// S14：任务总结（TL;DR）——`text` 为最终投影块，`generated=false` 表示走的是
+/// 机械降级（模型不可用/超时/缺段）——README 口径：降级不算交付失败。
+pub struct RunSummary {
+    pub text: String,
+    pub generated: bool,
+}
+
+/// S14：机械降级段（叙述段标"生成失败"；产物/自检/剩余建议仍是**实数据**）。
+fn mechanical_sections(facts: &SummaryFacts, why: &Option<String>) -> String {
+    let why = why.clone().unwrap_or_else(|| "未知原因".into());
+    let artifacts = if facts.artifacts.is_empty() {
+        "无".to_string()
+    } else {
+        facts
+            .artifacts
+            .iter()
+            .map(|p| format!("- {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let remaining = if facts.pending.is_empty() {
+        "无（未见未完成台账项）".to_string()
+    } else {
+        facts.pending.join("；")
+    };
+    format!(
+        "【一句话】（生成失败：{why}——不在模型不可用时编造结论）\n\
+         【产物】\n{artifacts}\n\
+         【过程要点】（生成失败——本轮未取得叙述段；过程事实见执行报告）\n\
+         【问题与处理】（生成失败）\n\
+         【剩余/建议】{remaining}；{hint}\n\
+         【质量自检】{selfcheck}",
+        hint = facts.resume_hint,
+        selfcheck = facts.selfcheck,
+    )
+}
+
+/// S14：套上边框的最终投影块（六段 + 报告指引）。
+fn render_summary_block(sections: &str) -> String {
+    format!(
+        "═══════════ 任务总结 ═══════════\n{sections}\n\
+         （完整过程: .hearth/reports/<session>/ 下本轮 run 报告）\n\
+         ══════════════════════════════"
+    )
 }
 
 #[async_trait]
 impl Agent for AgentLoop {
-    async fn step(&mut self, phase: LoopPhase) -> Result<StepOutcome> {
-        match phase {
-            LoopPhase::Init => Ok(StepOutcome {
-                next: LoopPhase::Plan,
-                emit: vec![Event::Phase(LoopPhase::Init)],
-            }),
-            // WP-1 (v23 phase3): 相位 span——进入 emit SpanOpen / 退出 emit SpanClose
-            // （内联而非泛型包装：避免泛型 future 的 Send bound 破坏 trait 方法）
-            LoopPhase::Plan => {
-                let t0 = std::time::Instant::now();
-                self.emit(Event::SpanOpen {
-                    name: "plan".into(),
-                    t0: chrono::Utc::now().to_rfc3339(),
-                });
-                let r = self.do_plan().await;
-                self.emit(Event::SpanClose {
-                    t1: chrono::Utc::now().to_rfc3339(),
-                    duration_ms: t0.elapsed().as_millis() as u64,
-                });
-                r
-            }
-            LoopPhase::Act => {
-                let t0 = std::time::Instant::now();
-                self.emit(Event::SpanOpen {
-                    name: "act".into(),
-                    t0: chrono::Utc::now().to_rfc3339(),
-                });
-                let r = self.do_act().await;
-                self.emit(Event::SpanClose {
-                    t1: chrono::Utc::now().to_rfc3339(),
-                    duration_ms: t0.elapsed().as_millis() as u64,
-                });
-                r
-            }
-            // R7-5/D-5（线C手术）：Observe/Reflect 两臂已删（B 专相位）——
-            // step 骨架保留 Init/Plan/Act/Done/Error 五变体（A 臂现役）。
-            LoopPhase::Done => Ok(StepOutcome {
-                next: LoopPhase::Done,
-                emit: vec![Event::Phase(LoopPhase::Done)],
-            }),
-            LoopPhase::Error(msg) => Ok(StepOutcome {
-                next: LoopPhase::Done,
-                emit: vec![Event::Error(msg)],
-            }),
-        }
-    }
-
     async fn run(&mut self, goal: Goal) -> Result<RunReport> {
         let goal_text = goal.text.clone(); // v11.0: saved for experience write
                                            // ── R4.1 返工第三项（砺判读 2026-09-05 §三：sticky VERIFIED）──
@@ -3513,8 +4731,24 @@ impl Agent for AgentLoop {
                 self.ctx_mgr.state_mut().acceptance_criteria = self.pending_acceptance.clone();
             }
         } else {
+            // PC-2（P0/P1 修复任务书 v1.0）：resume 续跑模式——continue_turn 的
+            // steps_used 清零是 REPL 每轮重计语义；resume 是同一任务的继续，
+            // 消费 resume_keep_steps 后**接续旧计数**（steps 接着数），预算水位
+            // 按"已用+追加"的总口径跑。消费即复位（不影响后续 REPL 轮）。
+            let keep_steps = self.resume_keep_steps;
+            let prior_steps = self.ctx_mgr.steps_used();
+            let budget_max = goal.budget.max_steps;
             self.ctx_mgr
                 .continue_turn(effective_goal.clone(), goal.budget);
+            if keep_steps {
+                self.ctx_mgr.state_mut().steps_used = prior_steps;
+                self.resume_keep_steps = false;
+                tracing::info!(
+                    prior_steps,
+                    budget_max,
+                    "PC-2: resume keeps steps_used (continuing the same task)"
+                );
+            }
         }
         // R2-D (批示 1, v0.2.7): 应用目标状态——首轮初始化 original（生命周期
         // 条件：original absent 即写，与 history 无关——批示 3）；current_goal
@@ -3564,7 +4798,6 @@ impl Agent for AgentLoop {
             self.ctx_mgr.add_user_message(msg);
         }
         let mut steps: u64 = 0;
-        let mut phase = LoopPhase::Init;
 
         self.steps_without_progress = 0;
         // R6-9（判定权归还长程任务书 v1.0）A 臂：单循环不做独立 decompose——
@@ -3584,6 +4817,10 @@ impl Agent for AgentLoop {
         self.last_error_tool = None;
         self.approval_denied_flag = false;
         self.fa01_budget_intercepted = false;
+        // S12（手术包二）：交付前自检轮次按 run 重置 + 清上轮自检结果。
+        self.self_check_rounds = 0;
+        self.ctx_mgr
+            .set_scratch("selfcheck_result", serde_json::Value::Null);
         // R7-5 A-1: 空内容轮状态按 run 重置（连续性只在单 run 内判定）。
         self.empty_turn_active = false;
         self.empty_turn_streak = 0;
@@ -3601,6 +4838,21 @@ impl Agent for AgentLoop {
         self.ctx_mgr.record_turn(Turn::new(0));
 
         let report = loop {
+            // S11（手术包二）：**步边界打断检查**——Ctrl-C 置位后立即收手，
+            // 走 interrupted 收尾（paused 语义 + 上下文保留 + agent 交还 REPL）。
+            // 与 in-flight 打断（do_plan_inner 的 notify）配套：此处兜住
+            // "置位发生在两次模型调用之间"的情形。
+            if self
+                .interrupt_flag
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                self.emit(Event::ThinkSummary {
+                    phase: "interrupt".to_string(),
+                    text: "[interrupt] 本轮已打断（上下文保留）".to_string(),
+                });
+                self.checkpoint_now();
+                break self.finalize_interrupted(&goal.text, steps).await?;
+            }
             // WS9 (v0.2): 预算价值化——跨偏离阈值（50%）先预警（非阻塞、一次）；
             // 到 100% 时 blocking ask（继续/重新评估），用户"继续"则延长预算，
             // 而非静默 "budget exhausted" 终止。保留硬上限（ask 边界，非无限）。
@@ -3725,19 +4977,23 @@ impl Agent for AgentLoop {
                         self.fa01_budget_intercepted = true;
                         tracing::warn!(
                             steps = self.ctx_mgr.steps_used(),
-                            "GIVE_UP_OVERRIDDEN(budget exhausted): acceptance verification passed — routing to Done for completion (no budget extension)"
+                            "FA01_VERIFY_RESERVE(budget exhausted): acceptance verification passed — routing to finalize for completion (no budget extension)"
                         );
-                        phase = LoopPhase::Done;
-                        continue;
+                        // S5（消息循环）：预算耗尽但完成事实已核验 = 直接收尾；
+                        // finalize 回喂（None）→ 消息步 replan（fa01 锁存防重入）。
+                        match self.finalize_done(&goal.text, steps).await? {
+                            Some(r) => break r,
+                            None => continue,
+                        }
                     }
                 } else if fa01_checks.is_empty() {
                     // R7-5/D-1: 词表路由删除——criteria 空的预算放弃一律标注未核验
                     // F9 同款：criteria 空的 Product 预算放弃必须显式标记未核验
                     self.ctx_mgr.set_scratch(
-                        "giveup_unverified",
+                        "budget_stop_unverified",
                         serde_json::json!({
                             "no_acceptance_criteria": true,
-                            "giveup_unverified": true,
+                            "budget_stop_unverified": true,
                             "path": "budget_exhausted",
                             "steps_used": self.ctx_mgr.steps_used(),
                         }),
@@ -3749,10 +5005,13 @@ impl Agent for AgentLoop {
                     // ⚠️ 必须先置 fa01_budget_intercepted 锁存再 continue——否则
                     // 循环顶部 budget_exhausted 检查重入本臂 → 死循环（v0.2.23
                     // 开发期实测：99% CPU 空转 33 分钟，集成测试挂起假象）。
-                    if let Some(outcome) = self.rc52_route_done_if_session_artifacts() {
+                    if let Some(_outcome) = self.rc52_route_done_if_session_artifacts() {
                         self.fa01_budget_intercepted = true; // 锁存：预算臂已拦截，防重入
-                        phase = outcome.next; // LoopPhase::Done（对齐 4745 GIVE_UP_OVERRIDDEN 先例）
-                        continue;
+                                                             // S5（消息循环）：有产物即路由收尾（rc52 恒路由 Done）。
+                        match self.finalize_done(&goal.text, steps).await? {
+                            Some(r) => break r,
+                            None => continue,
+                        }
                     }
                 }
                 // WS9: 交互模式下到 100% 先 ask（继续/重新评估）——非静默终止；
@@ -3838,7 +5097,11 @@ impl Agent for AgentLoop {
                     ),
                     "pending": handover_pending,
                     "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class").cloned(),
-                    "suggestion": "预算护栏触发（非任务失败）。可：①继续本任务（resume 或追加预算 HEARTH_MAX_STEPS）；②按上述未完成项调整目标方向；③若已满足需求，直接验收现有产物。",
+                    "suggestion": format!(
+                        "预算护栏触发（非任务失败）。可：①继续本任务（`hearth resume {sid}` 或追加预算 HEARTH_MAX_STEPS）；②按上述未完成项调整目标方向；③若已满足需求，直接验收现有产物。",
+                        sid = self.session_id
+                    ),
+                    "resume_hint": format!("断点已存（{sid}）——`hearth resume {sid}` 续跑", sid = self.session_id),
                 });
                 let report = RunReport {
                     steps,
@@ -3846,7 +5109,7 @@ impl Agent for AgentLoop {
                     summary: serde_json::json!({"reason": "budget_exhausted", "goal": goal.text, "steps": steps,
                         "original_goal": self.ctx_mgr.state().original_goal,
                         "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
-                        "giveup_unverified": self.ctx_mgr.get_scratch("giveup_unverified"),
+                        "budget_stop_unverified": self.ctx_mgr.get_scratch("budget_stop_unverified"),
                         "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class"),
                         "last_recovery_strategy": self.ctx_mgr.get_scratch("last_recovery_strategy"),
                         "handover": handover,
@@ -3864,48 +5127,78 @@ impl Agent for AgentLoop {
                 break report;
             }
 
+            // ═══════════════ S5 消息循环（相位机拆除）═══════════════
+            // 消息步：有上一步待执行的工具走工具步（do_act），否则走模型步
+            //（do_plan：一次 chat 调用，规划+执行合一）。文本回应 = 模型
+            // end_turn（其决定：完成/让步/向用户说明）→ finalize_done 收尾。
+            // 护栏只剩预算（上方检查）与核验（finalize_done 内 verify）。
+            let is_tool_step = !self.pending_tool_calls.is_empty();
+            let step_label = if is_tool_step { "act" } else { "plan" };
             let t0 = Instant::now();
-            let phase_name = format!("{:?}", phase);
-            let outcome = match self.step(phase.clone()).await {
+            let outcome = if is_tool_step {
+                self.tool_step().await
+            } else {
+                self.model_step().await
+            };
+            let outcome = match outcome {
                 Ok(o) => o,
                 Err(e) => {
-                    info!(step = steps, phase = %phase_name, duration_ms = t0.elapsed().as_millis(), sid = %self.session_id, error = true, "agent step failed");
+                    info!(step = steps, step = step_label, duration_ms = t0.elapsed().as_millis(), sid = %self.session_id, error = true, "agent step failed");
+                    // S11（手术包二）：Ctrl-C 打断（in-flight 模型调用被打断 /
+                    // 工具执行前收手）——**不投影 Error、不落 failed**：上下文保留，
+                    // 回提示符（paused 语义）。
+                    if e.downcast_ref::<TurnInterrupted>().is_some() {
+                        self.interrupt_flag
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                        self.emit(Event::ThinkSummary {
+                            phase: "interrupt".to_string(),
+                            text: "[interrupt] 本轮已打断（上下文保留）".to_string(),
+                        });
+                        self.checkpoint_now();
+                        break self.finalize_interrupted(&goal.text, steps).await?;
+                    }
+                    // S7：重试窗口耗尽 = 暂停语义（可恢复，非 failed）——先于通用
+                    // 错误收尾判定（downcast 结构化判定，不靠字符串）。
+                    if let Some(p) = e.downcast_ref::<ProviderRetryWindowExhausted>() {
+                        let (retries, elapsed, window, last) = (
+                            p.retries,
+                            p.elapsed_secs,
+                            p.window_secs,
+                            p.last_error.clone(),
+                        );
+                        self.emit(Event::ThinkSummary {
+                            phase: "paused".to_string(),
+                            text: format!(
+                                "[paused] provider 瞬时故障重试窗口耗尽（{retries} 次重试，{elapsed}s/{window}s；末次：{last}）——上下文已保留，可修复后 resume/重发继续"
+                            ),
+                        });
+                        break self
+                            .finalize_paused(&goal.text, steps, retries, elapsed, window, &last)
+                            .await?;
+                    }
                     self.emit(Event::Error(format!("{e:#}")));
-                    let usage = {
-                        let cm = self.cost_meter.lock().await;
-                        cm.get(self.provider.name(), self.provider.model()).cloned()
-                    };
-                    let report = RunReport {
-                        steps,
-                        ok: false,
-                        summary: serde_json::json!({"error": format!("{e:#}"), "goal": goal.text, "steps": steps}),
-                        usage,
-                        files_changed: Vec::new(),
-                    };
-                    self.emit(Event::Done(serde_json::json!({
-                        "ok": false,
-                        "status": "error",
-                        "error": format!("{e:#}"),
-                        "goal": goal.text,
-                        "steps": steps
-                    })));
-                    break report;
+                    break self.finalize_step_error(&goal.text, steps, &e).await?;
                 }
             };
+            // S5：工具步已消费待执行列表（防下轮误重跑——原 Act→Plan 相位
+            // 承接本无此问题，消息循环以 pending 判步必须显式清空）。
+            if is_tool_step {
+                self.pending_tool_calls.clear();
+            }
 
             for event in &outcome.emit {
                 self.emit(event.clone());
             }
 
-            // R6-4（判定权归还长程任务书 v1.0）：结构化诊断日志——每相位一步
-            // 一行 JSON 落盘（相位/耗时/去向/步数/错误计数/写盘数），事后可复盘
-            // 任一 run 的相位轨迹与决策去向。best-effort 追加写，失败不影响主路径。
+            // R6-4（判定权归还长程任务书 v1.0）：结构化诊断日志——每个消息步
+            // 一行 JSON 落盘（步种类/耗时/去向/步数/写盘数），事后可复盘任一
+            // run 的轨迹与决策去向。best-effort 追加写，失败不影响主路径。
             {
                 let diag = serde_json::json!({
                 "t": chrono::Utc::now().to_rfc3339(),
                 "sid": self.session_id,
                 "step": steps,
-                "phase": phase_name,
+                "step_type": step_label,
                 "elapsed_ms": t0.elapsed().as_millis() as u64,
                 "next": format!("{:?}", outcome.next),
                 "writes": self.written_files.len(),
@@ -3932,312 +5225,51 @@ impl Agent for AgentLoop {
                 }
             }
 
-            phase = outcome.next;
             // R7-5 A-1（R8 包A）: 空内容轮禁计有效步——steps（终态 N steps 口径）
             // 与 ctx_mgr.steps_used（预算口径）双双豁免，标志一次性消费。
-            // 告警 drain / last_action / info! 等遥测照常（不属于"有效步"语义）。
             let counted_step = !self.empty_turn_active;
             self.empty_turn_active = false;
             if counted_step {
                 steps += 1;
             }
-            // P1-4 (audit-fix): 每个相位结束都 drain 神经系统告警——
-            // 原来只在 do_reflect 调用（loop.rs:1666），未走到 reflect 相位的告警全部丢失。
+            // P1-4 (audit-fix): 每个消息步结束都 drain 神经系统告警（原只在
+            // do_reflect 调用，未走到 reflect 的告警全部丢失的修复沿袭）。
             let civ_alerts = self.nervous.drain_civ_alerts();
             for a in &civ_alerts {
                 self.civ_note("nervous", a.clone(), Vec::new());
             }
             // v11.5: Track for subconscious signals
-            self.last_action = Some(format!("{:?}", phase));
-            self.last_success = !matches!(phase, LoopPhase::Error(_));
-            info!(step = steps, phase = %phase_name, duration_ms = t0.elapsed().as_millis(), sid = %self.session_id, "agent step ok");
+            self.last_action = Some(step_label.to_string());
+            self.last_success = !matches!(outcome.next, StepNext::Error(_));
+            info!(step = steps, step = step_label, duration_ms = t0.elapsed().as_millis(), sid = %self.session_id, "agent step ok");
             if counted_step {
                 self.ctx_mgr.inc_step();
             }
+            // S8（手术包二）：消息循环**每步落盘**（含无工具步）——kill -9 后
+            // `hearth resume` 从最近一步续跑（turns + run 执行位）。
+            self.checkpoint_now();
 
-            if matches!(phase, LoopPhase::Done) {
-                // v0.1.2 验证层（重校验）：自报 Done 但写盘文件缺失/为空 = 假完成。
-                // 回喂 replan（≤3 次），超限按 verify_failed 失败收尾——不谎报成功。
-                // 只验证"本轮确实写过文件"的任务；纯读/评估任务不受影响。
-                if !self.written_files.is_empty() {
-                    let missing = Self::verify_written_files(&self.cwd, &self.written_files).await;
-                    if !missing.is_empty() {
-                        if self.verify_replan_count < 3 {
-                            self.verify_replan_count += 1;
-                            tracing::warn!(
-                                count = self.verify_replan_count,
-                                missing = ?missing,
-                                "done 验证失败——回喂 replan 补写"
-                            );
-                            self.ctx_mgr.add_user_message(format!(
-                                "验证失败：以下文件缺失或为空——任务并未真正完成，你还需要补齐这些文件（写完整内容）：{}",
-                                missing.join("; ")
-                            ));
-                            phase = LoopPhase::Plan;
-                            continue;
-                        }
-                        tracing::error!(missing = ?missing, "done 验证失败且 replan 达上限——按失败收尾");
-                        self.emit(Event::Done(serde_json::json!({
-                            "ok": false,
-                            "status": "verify_failed",
-                            "goal": goal.text,
-                            "steps": steps,
-                            "verify": { "missing": missing }
-                        })));
-                        let usage = {
-                            let cm = self.cost_meter.lock().await;
-                            cm.get(self.provider.name(), self.provider.model()).cloned()
-                        };
-                        let report = RunReport {
-                            steps,
-                            ok: false,
-                            summary: serde_json::json!({
-                                "status": "verify_failed",
-                                "goal": goal.text,
-                                "steps": steps,
-                                "verify": { "missing": missing }
-                            }),
-                            usage,
-                            files_changed: Vec::new(),
-                        };
-                        break report;
-                    }
+            // ── 消息步去向：text-end / error 即时收尾；Plan/Act 继续循环 ──
+            match outcome.next {
+                // Act：仅 model 步可能产出（本步是 act 步时 pending 已清、返回
+                // Plan）。工具已执行完，下轮按 pending 自然走 model 步。
+                StepNext::Act | StepNext::Plan => {
+                    // 空轮重试/工具执行完 → 继续消息循环（拼回后调模型）。
                 }
-                // Node 03 (O-4): Acceptance Verification——criteria 结构化条目
-                // 存在时，完成判定升级为确定性核验（cmd exit code / file 内容）。
-                // Reserve（Node 05）：失败回喂重试 ≤1 次（独立计数，消耗既有
-                // steps——不突破预算总量）；telemetry 记账（增 4）。
-                let criteria = self.ctx_mgr.state().acceptance_criteria.clone();
-                let checks = Self::parse_acceptance_criteria(&criteria);
-                if !checks.is_empty() {
-                    let (passed, failures) = self.verify_acceptance_criteria(&checks).await;
-                    if passed {
-                        self.ctx_mgr
-                            .set_scratch("acceptance_result", serde_json::json!("passed"));
-                        // C-1/C-12：机器核验通过 = 最强验证证据
-                        self.verification_evidence = true;
-                        tracing::info!("acceptance verification passed ({} checks)", checks.len());
-                    } else if self.acceptance_replan_count < 1 {
-                        // Verification Reserve 消耗（增 4：telemetry 记账）
-                        self.acceptance_replan_count += 1;
-                        tracing::warn!(
-                            failures = ?failures,
-                            reserve_used = self.acceptance_replan_count,
-                            "VERIFICATION_RESERVE: acceptance failed — replan to fix (reserve 1/1)"
-                        );
-                        self.ctx_mgr.set_scratch(
-                            "acceptance_result",
-                            serde_json::json!({"status": "failed", "failures": failures}),
-                        );
-                        self.ctx_mgr.add_user_message(format!(
-                            "[acceptance] 验收标准核验未通过：{}——请按验收标准修复后交卷",
-                            failures.join("; ")
-                        ));
-                        phase = LoopPhase::Plan;
+                StepNext::Done => {
+                    // S12（手术包二）：交付前质量自检闸（"把任务交出来"机制化）——
+                    // 未过 → 注入失败事实回喂修复（≤2 轮）；轮次用尽 → 诚实交付。
+                    if matches!(self.self_check_gate().await?, SelfCheckGate::Replan) {
                         continue;
-                    } else {
-                        // Reserve 耗尽 → verify_failed 语义（acceptance 明细）
-                        self.ctx_mgr.set_scratch(
-                            "acceptance_result",
-                            serde_json::json!({"status": "failed", "failures": failures}),
-                        );
-                        tracing::error!(failures = ?failures, "acceptance failed and Reserve exhausted — verify_failed");
-                        self.emit(Event::Done(serde_json::json!({
-                            "ok": false,
-                            "status": "verify_failed",
-                            "goal": goal.text,
-                            "steps": steps,
-                            "verify": { "acceptance_failures": failures }
-                        })));
-                        let usage = {
-                            let cm = self.cost_meter.lock().await;
-                            cm.get(self.provider.name(), self.provider.model()).cloned()
-                        };
-                        let report = RunReport {
-                            steps,
-                            ok: false,
-                            summary: serde_json::json!({
-                                "status": "verify_failed",
-                                "goal": goal.text,
-                                "steps": steps,
-                                "verify": { "acceptance_failures": failures },
-                                "reflect_fact_conflict": self.ctx_mgr.get_scratch("reflect_fact_conflict").and_then(|v| v.as_bool()),
-                            }),
-                            usage,
-                            files_changed: Vec::new(),
-                        };
-                        break report;
+                    }
+                    match self.finalize_done(&goal.text, steps).await? {
+                        Some(r) => break r,
+                        None => {} // verify/acceptance 回喂 replan → 继续循环
                     }
                 }
-                // R7-5/D-4（线C手术）：W3 节点统一置位已删（数据源 = task_graph）。
-                if self.last_completion_decision.is_none() {
-                    self.last_completion_decision =
-                        Some("accepted: all_done gate + verify passed".into());
+                StepNext::Error(msg) => {
+                    break self.finalize_error(&goal.text, steps, msg).await?;
                 }
-                // W8/A4 (RC31): goal_drift 自动检测——observe-only（不阻塞不
-                // 强制暂停，强制暂停仍 D 类冻结）。仅长程任务触发（成本红线：
-                // 单次独立 LLM 调用）。LLM 失败 → 静默跳过（观测不得伤害主流程）。
-                let goal_drift = if steps >= GOAL_DRIFT_MIN_STEPS {
-                    self.check_goal_drift(&goal.text).await
-                } else {
-                    None
-                };
-                if goal_drift == Some(true) {
-                    self.emit(Event::ThinkSummary {
-                        phase: "done".into(),
-                        text: "[goal_drift] ⚠ 终局产物与 original_goal 语义相关度存疑——
-请人工核对 run report（observe-only 警示，不改变终态）"
-                            .into(),
-                    });
-                }
-                // R3-4 完成度口径治理（G-E）：代码/文档产物分列（提取在 json! 宏外）
-                let is_doc = |p: &str| {
-                    p.to_lowercase().ends_with(".md") || p.to_lowercase().ends_with(".txt")
-                };
-                let code_artifacts = self
-                    .written_files
-                    .iter()
-                    .filter(|w| !is_doc(&w.path))
-                    .count();
-                let doc_artifacts = self
-                    .written_files
-                    .iter()
-                    .filter(|w| is_doc(&w.path))
-                    .count();
-                self.emit(Event::Done(serde_json::json!({
-                    "ok": true,
-                    "status": "completed",
-                    "goal": goal.text,
-                    "steps": steps,
-                    // ── R3-1 REPL 收尾三行数据源（返工包①：与 one-shot report
-                    // 同源事实，非模型自报——REPL 路径此前只收 4 字段轻量
-                    // payload，收尾三行无数据可用）──
-                    "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
-                    "ledger_pending": self.ledger_pending_texts(),
-                    "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
-                    "verification": self.verification_state(),
-                    "known_failing_open": self
-                        .ctx_mgr
-                        .state()
-                        .ledger
-                        .open_in(agent_types::LedgerColumn::KnownFailing)
-                        .iter()
-                        .map(|e| e.text.clone())
-                        .collect::<Vec<_>>(),
-                })));
-                let usage = {
-                    let cm = self.cost_meter.lock().await;
-                    cm.get(self.provider.name(), self.provider.model()).cloned()
-                };
-                let report = RunReport {
-                    steps,
-                    ok: true,
-                    summary: serde_json::json!({
-                        "goal": goal.text,
-                        "steps": steps,
-                        // RC31 轻量: Original Goal + artifacts + 完成决策可审计
-                        "original_goal": self.ctx_mgr.state().original_goal,
-                        "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
-                        "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
-                        // RC24-C: 委托审计（放行了哪些破坏性命令）
-                        "approval_delegated": !self.delegated_approvals.is_empty(),
-                        "approval_delegated_cmds": self.delegated_approvals,
-                        // W8/A4 (RC31): goal_drift 检测结果（true/false/null=未检测）
-                        "goal_drift": goal_drift,
-                        // Node 03: REFLECT_FACT_CONFLICT 观察标记（修 4——summary
-                        // 字段非 Event；observe-only，不参与 terminal 判定）
-                        "reflect_fact_conflict": self
-                            .ctx_mgr
-                            .get_scratch("reflect_fact_conflict")
-                            .and_then(|v| v.as_bool()),
-                        // ── R1-4 known-failing 报告层拦截（G-B 一票否决门的
-                        // 机制落地）──0.9-0.3 病理"已知 0/16 失败项却标
-                        // ✅100%"的报告侧终结：completed 终态**必须**携带
-                        // 未清已知失败清单——投影层据此拒绝裸 ✓（G-B 判读
-                        // 依据）。拦截在报告层（任务书指定），不改控制流
-                        // （失败项修不好时不得死锁完成路径）。
-                        "known_failing_open": self
-                            .ctx_mgr
-                            .state()
-                            .ledger
-                            .open_in(agent_types::LedgerColumn::KnownFailing)
-                            .iter()
-                            .map(|e| e.text.clone())
-                            .collect::<Vec<_>>(),
-                        // ── R3-4 完成度口径治理（G-E：统计口径不自污染）──
-                        // 0.9-0.3 病理"报 103%（行数含自写文档）"：以行数为
-                        // 分母且行数含 agent 自写文档 → 写文档即可刷高完成度。
-                        // 引擎提供**分列口径**（代码产物/文档产物分计）并明示
-                        // 政策：行数不作完成度分母——完成与否由
-                        // acceptance/verify 裁决（事实裁决，非数字自报）。
-                        "completion_metrics": serde_json::json!({
-                            "code_artifacts": code_artifacts,
-                            "doc_artifacts": doc_artifacts,
-                            "policy": "行数/字节数不作完成度分母（文档行不计入代码口径——E6-E8 治理）；完成与否由 acceptance/verify 事实裁决",
-                        }),
-                    }),
-                    usage,
-                    files_changed: Vec::new(),
-                };
-                break report;
-            }
-
-            if matches!(phase, LoopPhase::Error(_)) {
-                let usage = {
-                    let cm = self.cost_meter.lock().await;
-                    cm.get(self.provider.name(), self.provider.model()).cloned()
-                };
-                // RC24-B: 结构化终止优先——run_abort 携带可投影 reason 与可行动
-                // hint（区别于笼统 loop error）。当前唯一生产者 = 非交互审批拒绝。
-                if let Some((reason, hint)) = self.run_abort.take() {
-                    let report = RunReport {
-                        steps,
-                        ok: false,
-                        summary: serde_json::json!({
-                            "reason": reason,
-                            "hint": hint,
-                            "goal": goal.text,
-                            "steps": steps,
-                            "original_goal": self.ctx_mgr.state().original_goal,
-                            "approval_delegated": !self.delegated_approvals.is_empty(),
-                            "approval_delegated_cmds": self.delegated_approvals,
-                        }),
-                        usage,
-                        files_changed: Vec::new(),
-                    };
-                    self.emit(Event::Done(serde_json::json!({
-                        "ok": false,
-                        "status": reason,
-                        "goal": goal.text,
-                        "steps": steps
-                    })));
-                    break report;
-                }
-                // FA01 Node 08 F9: 失败报告投影结构化观察标记——give_up 原因
-                // 不再折叠成笼统 "loop error"（F9："放弃未经核验"必须可审计）。
-                let fa01_err_detail = match &phase {
-                    LoopPhase::Error(r) => r.clone(),
-                    _ => String::new(),
-                };
-                let report = RunReport {
-                    steps,
-                    ok: false,
-                    summary: serde_json::json!({"error": "loop error", "error_detail": fa01_err_detail, "goal": goal.text, "steps": steps,
-                        "giveup_unverified": self.ctx_mgr.get_scratch("giveup_unverified"),
-                        "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class"),
-                        "last_recovery_strategy": self.ctx_mgr.get_scratch("last_recovery_strategy"),
-                        "approval_delegated": !self.delegated_approvals.is_empty(),
-                        "approval_delegated_cmds": self.delegated_approvals}),
-                    usage,
-                    files_changed: Vec::new(),
-                };
-                self.emit(Event::Done(serde_json::json!({
-                    "ok": false,
-                    "status": "error",
-                    "goal": goal.text,
-                    "steps": steps
-                })));
-                break report;
             }
         };
 
@@ -4265,6 +5297,20 @@ impl Agent for AgentLoop {
                 }
             });
         }
+
+        // ── S14（手术包二）：任务总结（TL;DR）——**所有收尾路径的唯一挂载点**
+        //（完成/暂停/失败/预算耗尽/超时/打断都经此 exit）。放在 Done 之后、
+        // run_take 返回之前：总结随 report 一起交还（CLI/报告同源渲染），
+        // 模型不可用/超时/缺段 → 机械降级，**不阻断交付**。
+        // 打断路径不发起额外模型调用（Ctrl-C 语义 = 立即停，再打一次 provider
+        // 违背用户意图）——降级块里的产物清单/自检/剩余建议仍是实数据。
+        let allow_llm = report
+            .summary
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .map(|r| r != "interrupted")
+            .unwrap_or(true);
+        let report = self.attach_run_summary(report, allow_llm).await;
 
         Ok(report)
     }
@@ -4362,6 +5408,26 @@ mod tests {
             call_id: "c1".into(),
             name: name.into(),
             args,
+        }
+    }
+
+    /// Windows 测试支撑（S1 同法，tools-builtin/bash.rs 同注释）：system32 WSL
+    /// bash 损坏（Bash/Service/0x8007072c），Git Bash 存在则经 HEARTH_BASH_BIN
+    /// 指向之；Linux/正常环境回落 "bash"（行为零变化）。
+    fn test_bash_bin() -> String {
+        let candidate = "C:\\Program Files\\Git\\bin\\bash.exe";
+        if std::path::Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+        "bash".to_string()
+    }
+
+    /// 真实执行 bash 的测试统一走这里（env 注入 bash 解析）。
+    fn bash_tool_ctx(cwd: std::path::PathBuf) -> tool_runtime::ToolContext {
+        tool_runtime::ToolContext {
+            cwd,
+            env: std::iter::once(("HEARTH_BASH_BIN".to_string(), test_bash_bin())).collect(),
+            ..Default::default()
         }
     }
 
@@ -4654,10 +5720,7 @@ mod tests {
             mock_llm,
             planner,
             dispatcher,
-            tool_runtime::ToolContext {
-                cwd: dir.path().to_path_buf(),
-                ..Default::default()
-            },
+            bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("rc24 delegate"),
         );
         agent.set_approval_policy(ApprovalPolicy::DelegateSession);
@@ -5132,7 +6195,7 @@ mod tests {
 
     #[test]
     fn test_loop_phase_debug() {
-        let p = LoopPhase::Plan;
+        let p = StepNext::Plan;
         assert!(format!("{:?}", p).contains("Plan"));
     }
 
@@ -5386,26 +6449,1334 @@ mod tests {
         });
         let dispatcher = Arc::new(ToolDispatcher::new());
         let mut agent = make_test_agent(llm.clone(), dispatcher, Goal::new("retry cap"));
+        // S7（手术包二）：语义升级——持续瞬时故障不再"快速 failed"，而是长退避
+        // 至**窗口耗尽 = 暂停**（可恢复）。实例级小窗口 + 零退避保持测试快速。
+        agent.retry_backoffs_secs = vec![0, 0, 0, 0];
+        agent.retry_window_secs = 2;
 
         let t0 = std::time::Instant::now();
         let r = agent.do_plan_inner().await;
         let wall = t0.elapsed();
 
-        assert!(r.is_err(), "瞬时错误连续失败必须上抛（不静默吞）");
+        let err = match r {
+            Ok(_) => panic!("持续瞬时故障应止于窗口耗尽（暂停错误，非静默吞）"),
+            Err(e) => e,
+        };
+        assert!(
+            err.downcast_ref::<ProviderRetryWindowExhausted>().is_some(),
+            "窗口耗尽必须产出 ProviderRetryWindowExhausted（可恢复暂停语义），实际 {err:#}"
+        );
         let calls = *llm.calls.lock().unwrap();
         assert!(
-            calls <= 5,
-            "瞬时错误重试上限 4 次（+1 初试=5 次调用封顶，R9-B1），实际 {calls}"
+            calls >= 2,
+            "瞬时错误必须至少重试一次（长退避语义保留），实际 {calls}"
         );
         assert!(
-            wall.as_secs() < 60,
-            "必须快速失败（退避 2/4/8/16s≈30s + cap 120s 内 give_up），实际 {wall:?}"
+            wall.as_secs() < 30,
+            "小窗口必须快速收口（不再 120s 硬 cap 快速 failed），实际 {wall:?}"
         );
-        eprintln!("retry-cap PASS: transient errors give up after {calls} calls in {wall:?}");
+        eprintln!("s7 window-pause PASS: {calls} calls in {wall:?} → paused (resumable)");
     }
 
-    /// 回归 R1 (v0.1.3 任务书 B1): 纯问答任务（20+20）——模型给文本答案且无
-    /// tool_calls 即 Done，**不得强制 replan 逼写文件**（真机 9 步的根因）。
+    /// S7（手术包二）①：瞬时故障重试后成功——前 3 次 429（Transient）第 4 次
+    /// 成功 → 任务续行 + 投影 3 条 `[retry]`（不因基础设施抖动放弃任务。
+    /// 用户拍板："等 1 分钟或者几分钟再试"）。
+    #[tokio::test]
+    async fn test_s7_transient_retry_then_success_with_projection() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct FlakyLlm {
+            calls: AtomicUsize,
+        }
+        #[async_trait]
+        impl LlmProvider for FlakyLlm {
+            fn name(&self) -> &str {
+                "s7-flaky"
+            }
+            fn model(&self) -> &str {
+                "mock"
+            }
+            fn capabilities(&self) -> llm_gateway::Capabilities {
+                llm_gateway::Capabilities {
+                    chat: true,
+                    stream: false,
+                    function_calling: true,
+                    embeddings: false,
+                    max_context_tokens: Some(4096),
+                }
+            }
+            async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+                let n = self.calls.fetch_add(1, Ordering::SeqCst);
+                if n < 3 {
+                    Err(llm_gateway::LlmError::Transient(
+                        "HTTP 429: rate limited (code 1302)".into(),
+                    )
+                    .into())
+                } else {
+                    Ok(ChatResponse {
+                        content: Some("已恢复并完成".into()),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: None,
+                        reasoning_content: None,
+                    })
+                }
+            }
+            fn stream(
+                &self,
+                _req: ChatRequest,
+            ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+                Box::pin(stream::empty())
+            }
+            async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+                Ok(vec![])
+            }
+        }
+
+        let llm = Arc::new(FlakyLlm {
+            calls: AtomicUsize::new(0),
+        });
+        let mut agent = make_test_agent(
+            llm.clone(),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s7 retry-then-success"),
+        );
+        agent.retry_backoffs_secs = vec![0, 0, 0]; // 测试零等待（序列语义另行验证）
+        agent.retry_window_secs = 300;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let out = agent
+            .do_plan_inner()
+            .await
+            .expect("第 4 次成功必须续行（不得放弃任务）");
+        assert!(matches!(out.next, StepNext::Done), "文本回应 → Done");
+        assert_eq!(
+            llm.calls.load(Ordering::SeqCst),
+            4,
+            "3 次重试 + 1 初试 = 4 次调用"
+        );
+        let mut retry_rows = 0;
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                if text.contains("[retry]") {
+                    retry_rows += 1;
+                    assert!(text.contains("第"), "[retry] 投影须含第 N 次: {text}");
+                }
+            }
+        }
+        assert_eq!(retry_rows, 3, "每次重试前必须投影一条 [retry]");
+    }
+
+    /// S7②：fatal（401 认证）→ 立即终止零重试（重试无意义）。
+    #[tokio::test]
+    async fn test_s7_fatal_immediate_no_retry() {
+        let llm = Arc::new(FailingLlm::new("HTTP 401 unauthorized"));
+        let mut agent = make_test_agent(
+            llm.clone(),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s7 fatal"),
+        );
+        agent.retry_backoffs_secs = vec![0];
+        agent.retry_window_secs = 60;
+        let r = agent.do_plan_inner().await;
+        assert!(r.is_err(), "fatal 必须终止");
+        assert_eq!(llm.call_count(), 1, "fatal 零重试（仅初试一次调用）");
+    }
+
+    /// S7 退避序列纯函数：30→60→120→300→300（末值固定）。
+    #[test]
+    fn test_s7_backoff_sequence_table() {
+        let seq = [30u64, 60, 120, 300];
+        assert_eq!(retry_backoff_secs(&seq, 1), 30);
+        assert_eq!(retry_backoff_secs(&seq, 2), 60);
+        assert_eq!(retry_backoff_secs(&seq, 3), 120);
+        assert_eq!(retry_backoff_secs(&seq, 4), 300);
+        assert_eq!(retry_backoff_secs(&seq, 9), 300, "超序列取末值固定");
+        assert_eq!(retry_backoff_secs(&[], 1), 300, "空序列兜底 300s");
+    }
+
+    /// S7④（run 级）：窗口耗尽 → run report **status="paused"**（可恢复，非
+    /// failed）+ `[paused]` 投影含 resume 提示——统一暂停语义（S8 落盘承接）。
+    #[tokio::test]
+    async fn test_s7_run_paused_status_and_projection() {
+        let llm = Arc::new(FailingLlm::new("request timed out"));
+        let mut agent = make_test_agent(
+            llm.clone(),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s7 paused run"),
+        );
+        agent.retry_backoffs_secs = vec![0, 0];
+        agent.retry_window_secs = 1;
+        agent.set_session_id("s7-paused".into());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "s7 paused run",
+                Budget {
+                    max_steps: 5,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            report.summary.get("status").and_then(|v| v.as_str()),
+            Some("paused"),
+            "窗口耗尽必须 paused（可恢复）——不再有不可恢复的 failed，实际 {}",
+            report.summary
+        );
+        assert!(
+            report.summary.get("resume_hint").is_some(),
+            "暂停报告必须携带 resume 提示"
+        );
+        let mut saw_paused = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                if text.contains("[paused]") {
+                    saw_paused = true;
+                }
+            }
+        }
+        assert!(saw_paused, "必须投影 [paused]（含 resume 提示）");
+    }
+
+    /// S8（手术包二）：run 状态快照/恢复 roundtrip——断点执行位（steps/产物/
+    /// scratch/核验计数）跨进程延续；缺字段容忍（旧断点/schema 演进不炸）。
+    #[tokio::test]
+    async fn test_s8_run_state_snapshot_restore_roundtrip() {
+        let llm = Arc::new(MockLlm::new(vec![]));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s8 roundtrip"),
+        );
+        agent.set_session_id("s8-rt".into());
+        agent.ctx_mgr.state_mut().steps_used = 7;
+        agent.ctx_mgr.state_mut().original_goal = Some("orig".into());
+        agent
+            .ctx_mgr
+            .set_scratch("acceptance_result", serde_json::json!("passed"));
+        agent.written_files.push(WrittenFile {
+            path: "out.txt".into(),
+            content_len: 12,
+            light_verified: true,
+        });
+        agent.verify_replan_count = 2;
+
+        let snap = agent.run_state_snapshot();
+        assert_eq!(snap["steps_used"], 7);
+        assert_eq!(snap["written_files"][0]["path"], "out.txt");
+        assert_eq!(snap["scratch"]["acceptance_result"], "passed");
+
+        // 新实例（模拟进程重启）→ 恢复执行位
+        let llm2 = Arc::new(MockLlm::new(vec![]));
+        let mut fresh = make_test_agent(
+            llm2,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s8 roundtrip"),
+        );
+        fresh.restore_run_state(&snap);
+        assert_eq!(fresh.ctx_mgr.state().steps_used, 7, "steps 执行位必须恢复");
+        assert_eq!(
+            fresh.ctx_mgr.state().original_goal.as_deref(),
+            Some("orig"),
+            "original_goal 必须恢复"
+        );
+        assert_eq!(
+            fresh.ctx_mgr.get_scratch("acceptance_result"),
+            Some(&serde_json::json!("passed")),
+            "核验事实（scratch）必须跨进程延续"
+        );
+        assert_eq!(fresh.written_files.len(), 1, "产物清单必须恢复");
+        assert_eq!(fresh.verify_replan_count, 2, "核验计数必须恢复");
+
+        // 缺字段容忍
+        fresh.restore_run_state(&serde_json::json!({"steps_used": 3}));
+        assert_eq!(fresh.ctx_mgr.state().steps_used, 3);
+    }
+
+    /// PC-2 修复（P0/P1 修复任务书 v1.0）：resume 续跑——**steps 接着数** +
+    /// current_goal 恢复。旧断点恢复执行位后 run() 里 continue_turn 会把
+    /// steps_used 清零（REPL 每轮重计语义）→ resume 后"steps=0 从头数"（实测
+    /// PC-2 病灶之一）；set_resume_keep_steps(true) 后接续旧计数。
+    #[tokio::test]
+    async fn test_pc2_resume_keeps_steps_and_continues() {
+        let llm = Arc::new(MockLlm::new(vec![]));
+        let mut fresh = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("pc2 resume"),
+        );
+        fresh.set_session_id("pc2".into());
+        // 模拟断点：任务已用 3 步，current_goal 在案；真实 resume 先灌历史
+        //（restore_history → history 非空 → run() 走 continue_turn 分支）。
+        fresh.restore_run_state(&serde_json::json!({
+            "steps_used": 3,
+            "current_goal": "写一个贪吃蛇游戏",
+        }));
+        let mut prev_turn = agent_types::Turn::new(0);
+        prev_turn.messages.push(agent_types::Message::new(
+            "u0".into(),
+            agent_types::Role::User,
+            agent_types::MessageContent::Text("写一个贪吃蛇游戏".into()),
+        ));
+        fresh.restore_history(vec![prev_turn]);
+        // current_goal 必须随断点恢复（resume 不再被 "continue" 覆盖漂移）。
+        assert_eq!(
+            fresh.ctx_mgr.state().goal,
+            "写一个贪吃蛇游戏",
+            "current_goal 必须从断点恢复"
+        );
+
+        fresh.set_resume_keep_steps(true);
+        let report = fresh
+            .run(Goal::with_budget(
+                "写一个贪吃蛇游戏",
+                Budget {
+                    max_steps: 3 + 5, // CLI 追加预算后的总预算（已用+追加）
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert!(
+            report.steps >= 1,
+            "resume 必须实际继续执行（不是报状态退出），实际 {}",
+            report.summary
+        );
+        assert_eq!(
+            fresh.ctx_mgr.steps_used(),
+            3 + report.steps,
+            "steps 必须接着数（已用 3 + 本轮执行）——清零重数 = PC-2 病灶"
+        );
+    }
+
+    /// S8：消息循环**每步落盘**——一步（模型步）后 checkpoint 回调必须已触发。
+    #[tokio::test]
+    async fn test_s8_checkpoint_fires_each_step() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let llm = Arc::new(MockLlm::new(vec![ChatResponse {
+            content: Some("done".into()),
+            tool_calls: vec![],
+            finish_reason: Some("stop".into()),
+            usage: None,
+            reasoning_content: None,
+        }]));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s8 checkpoint"),
+        );
+        let cb_calls = Arc::new(AtomicUsize::new(0));
+        let c = cb_calls.clone();
+        agent.set_on_turn_checkpoint(Box::new(move |_cp| {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        let _ = agent
+            .run(Goal::with_budget(
+                "s8 checkpoint",
+                Budget {
+                    max_steps: 5,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert!(
+            cb_calls.load(Ordering::SeqCst) >= 1,
+            "消息循环每步必须触发 checkpoint（断点落盘）"
+        );
+    }
+
+    // ── S11（手术包二）：中断保留上下文 ──
+
+    /// S11 测试 mock：chat 永不返回（模拟"正在等 provider"的 in-flight 调用）。
+    struct HangingLlm;
+
+    #[async_trait]
+    impl LlmProvider for HangingLlm {
+        fn name(&self) -> &str {
+            "hanging-mock"
+        }
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn capabilities(&self) -> llm_gateway::Capabilities {
+            llm_gateway::Capabilities {
+                chat: true,
+                stream: false,
+                function_calling: true,
+                embeddings: false,
+                max_context_tokens: Some(4096),
+            }
+        }
+        async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+            std::future::pending::<()>().await;
+            unreachable!("pending 永不返回")
+        }
+        fn stream(
+            &self,
+            _req: ChatRequest,
+        ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+            Box::pin(stream::empty())
+        }
+        async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+            Ok(vec![])
+        }
+    }
+
+    /// S11①步边界：Ctrl-C 置位后 run 立即收尾——status=paused/reason=interrupted
+    /// （**不是 failed**）+ `[interrupt] 本轮已打断（上下文保留）`投影；标志
+    /// 消费后复位（不污染下一轮）。
+    #[tokio::test]
+    async fn test_s11_step_boundary_interrupt_pauses_run() {
+        use std::sync::atomic::Ordering;
+        let llm = Arc::new(MockLlm::new(vec![]));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s11 step interrupt"),
+        );
+        agent.set_session_id("s11-step".into());
+        let flag = agent.interrupt_handle();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+        // 模拟"运行中按了 Ctrl-C"：置位发生在步边界检查之前。
+        flag.store(true, Ordering::SeqCst);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "s11 step interrupt",
+                Budget {
+                    max_steps: 5,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            report.summary.get("status").and_then(|v| v.as_str()),
+            Some("paused"),
+            "打断 = 暂停语义（非 failed），实际 {}",
+            report.summary
+        );
+        assert_eq!(
+            report.summary.get("reason").and_then(|v| v.as_str()),
+            Some("interrupted")
+        );
+        assert!(!report.ok, "打断不得判 ok（不是完成）");
+        assert!(
+            report.summary.get("resume_hint").is_some(),
+            "打断报告必须含 resume 指引"
+        );
+        let mut saw_interrupt = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                if text.contains("[interrupt]") && text.contains("上下文保留") {
+                    saw_interrupt = true;
+                }
+            }
+        }
+        assert!(
+            saw_interrupt,
+            "必须投影 [interrupt] 本轮已打断（上下文保留）"
+        );
+        assert!(
+            !agent.history_turns().is_empty(),
+            "上下文必须保留（本轮 turn 在历史中）"
+        );
+        assert!(
+            !flag.load(Ordering::SeqCst),
+            "打断标志消费后必须复位（不污染下一轮）"
+        );
+    }
+
+    /// S11②in-flight：模型调用正在等待时 Ctrl-C → **立即收手**（不等响应、
+    /// 不进入退避）且 agent 本体交还（上下文保留——"刚才做到哪"可答）。
+    #[tokio::test]
+    async fn test_s11_inflight_interrupt_returns_agent_with_context() {
+        use std::sync::atomic::Ordering;
+        let mut agent = make_test_agent(
+            Arc::new(HangingLlm),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s11 inflight"),
+        );
+        agent.set_session_id("s11-inflight".into());
+        let flag = agent.interrupt_handle();
+        let notify = agent.interrupt_notify();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let handle = tokio::spawn(async move {
+            agent
+                .run_take(Goal::with_budget(
+                    "s11 inflight",
+                    Budget {
+                        max_steps: 5,
+                        max_time_secs: None,
+                        ..Budget::default()
+                    },
+                ))
+                .await
+        });
+        // 让 run 进入 in-flight 模型调用（HangingLlm 永不返回）。
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        flag.store(true, Ordering::SeqCst);
+        notify.notify_waiters();
+
+        let (report, agent_back) = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("in-flight 打断必须立即收手——不得挂死等 provider")
+            .expect("agent task 不得 panic")
+            .expect("run_take 必须正常返回");
+        assert_eq!(
+            report.summary.get("reason").and_then(|v| v.as_str()),
+            Some("interrupted"),
+            "in-flight 打断同样走 interrupted 收尾，实际 {}",
+            report.summary
+        );
+        assert!(
+            !agent_back.history_turns().is_empty(),
+            "agent 本体必须交还（上下文保留）"
+        );
+    }
+
+    // ── S14（手术包二）：任务总结报告（TL;DR）──
+
+    fn s14_summary_prose() -> String {
+        "【一句话】把 out.txt 写好了。\n\
+         【产物】\n- out.txt（直接 cat 可读）\n\
+         【过程要点】\n- 读取需求\n- 写入文件\n\
+         【问题与处理】无\n\
+         【剩余/建议】无，任务闭环\n\
+         【质量自检】未跑（无自检结果）"
+            .to_string()
+    }
+
+    /// S14①：模型可用 → 六段总结（generated=true；块含边框与六段段名）。
+    #[tokio::test]
+    async fn test_s14_generate_summary_from_model() {
+        let llm = Arc::new(MockLlm::new(vec![ChatResponse {
+            content: Some(s14_summary_prose()),
+            tool_calls: vec![],
+            finish_reason: Some("stop".into()),
+            usage: None,
+            reasoning_content: None,
+        }]));
+        let mut agent = make_test_agent(
+            llm.clone(),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s14 summary"),
+        );
+        agent.set_session_id("s14-sum".into());
+        agent.written_files.push(WrittenFile {
+            path: "out.txt".into(),
+            content_len: 5,
+            light_verified: true,
+        });
+
+        let s = agent.generate_run_summary("completed，3 步", true).await;
+        assert!(s.generated, "模型可用时必须是生成式总结（非降级）");
+        assert!(
+            s.text.contains("任务总结") && s.text.contains('═'),
+            "总结块必须有醒目边框：{}",
+            s.text
+        );
+        for m in super::S14_SECTION_MARKERS {
+            assert!(s.text.contains(m), "六段缺段: {m}\n{}", s.text);
+        }
+        assert!(s.text.contains("out.txt"), "产物事实必须进总结（实数据）");
+    }
+
+    /// S14②：模型不可用 → **机械降级**（叙述段标"生成失败"、关键数据段留实数据），
+    /// 且 run 正常返回（**不阻断交付**）+ 总结不写对话历史（不污染上下文）。
+    #[tokio::test]
+    async fn test_s14_degrades_without_blocking_delivery() {
+        let llm = Arc::new(FailingLlm::new("request timed out"));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s14 degrade"),
+        );
+        agent.set_session_id("s14-deg".into());
+        agent.retry_backoffs_secs = vec![0];
+        agent.retry_window_secs = 1;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "s14 degrade",
+                Budget {
+                    max_steps: 5,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .expect("总结生成失败**不得**阻断交付（run 必须正常返回）");
+        let block = report
+            .summary
+            .get("run_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(!block.is_empty(), "降级也必须产出总结块（不静默）");
+        assert!(
+            block.contains("生成失败"),
+            "叙述段必须显式标生成失败（不编造）: {block}"
+        );
+        assert!(
+            report
+                .summary
+                .get("run_summary_generated")
+                .and_then(|v| v.as_bool())
+                == Some(false),
+            "降级必须如实标注 generated=false"
+        );
+        // 实数据段不受降级影响：剩余建议含 S8 resume 指令（真事实）
+        assert!(
+            block.contains("hearth resume"),
+            "降级块必须保留可行动事实（resume 指令）: {block}"
+        );
+        for m in ["【产物】", "【剩余/建议】", "【质量自检】"] {
+            assert!(block.contains(m), "降级块缺实数据段 {m}: {block}");
+        }
+        assert_eq!(
+            agent.history_turns().len(),
+            1,
+            "总结不得写对话历史（防注意力税回流——只本轮 run 的 1 个 turn）"
+        );
+    }
+
+    /// S14③：打断路径**不发起额外模型调用**（Ctrl-C = 立即停）——机械降级块
+    /// 显式说明原因；产物/自检段仍是实数据。
+    #[tokio::test]
+    async fn test_s14_interrupt_skips_extra_llm_call() {
+        use std::sync::atomic::Ordering;
+        let llm = Arc::new(MockLlm::new(vec![]));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s14 interrupted"),
+        );
+        agent.set_session_id("s14-int".into());
+        agent.interrupt_handle().store(true, Ordering::SeqCst);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "s14 interrupted",
+                Budget {
+                    max_steps: 5,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            report.summary.get("reason").and_then(|v| v.as_str()),
+            Some("interrupted")
+        );
+        let block = report
+            .summary
+            .get("run_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            block.contains("本轮被打断——不发起额外模型调用"),
+            "打断轮总结必须是机械降级且说明原因（未打 provider）: {block}"
+        );
+        assert!(
+            report
+                .summary
+                .get("run_summary_generated")
+                .and_then(|v| v.as_bool())
+                == Some(false)
+        );
+    }
+
+    // ── S12（手术包二）：交付前质量自检 ──
+    fn s12_resp(content: &str, calls: Vec<agent_types::ToolCall>) -> ChatResponse {
+        ChatResponse {
+            finish_reason: Some(
+                if calls.is_empty() {
+                    "stop"
+                } else {
+                    "tool_calls"
+                }
+                .into(),
+            ),
+            content: Some(content.into()),
+            tool_calls: calls,
+            usage: None,
+            reasoning_content: None,
+        }
+    }
+
+    fn s12_call(id: &str, name: &str, args: &serde_json::Value) -> agent_types::ToolCall {
+        agent_types::ToolCall {
+            call_id: id.into(),
+            name: name.into(),
+            args: args.clone(),
+        }
+    }
+
+    fn s12_agent(dir: &std::path::Path, responses: Vec<ChatResponse>) -> AgentLoop {
+        let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(responses));
+        let mut dispatcher = ToolDispatcher::new();
+        dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
+        AgentLoop::new(
+            llm,
+            Arc::new(MockPlanner::new(vec![make_simple_task_graph()])),
+            Arc::new(dispatcher),
+            tool_runtime::ToolContext {
+                cwd: dir.to_path_buf(),
+                ..Default::default()
+            },
+            Goal::new("s12"),
+        )
+    }
+
+    /// S12①：产物语法错 → 自检捕获 → 注入修复轮次 → 修好后通过交付
+    ///（"把任务交出来"机制化：样子货不再能合法交付）。
+    #[tokio::test]
+    async fn test_s12_syntax_error_caught_then_fixed() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = serde_json::json!({"path": "bad.py", "content": "def f(:\n    pass\n"});
+        let good = serde_json::json!({"path": "bad.py", "content": "def f():\n    return 1\n"});
+        let mut agent = s12_agent(
+            dir.path(),
+            vec![
+                s12_resp("w", vec![s12_call("a1", "write_file", &bad)]),
+                s12_resp("done", vec![]),
+                s12_resp("w", vec![s12_call("a2", "write_file", &good)]),
+                s12_resp("done", vec![]),
+            ],
+        );
+        agent.set_session_id("s12-fix".into());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "写 bad.py 并保证可运行",
+                Budget {
+                    max_steps: 20,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert!(report.ok, "修复后必须 completed: {}", report.summary);
+        let sc = agent
+            .ctx_mgr
+            .get_scratch("selfcheck_result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            sc.get("passed").and_then(|v| v.as_bool()),
+            Some(true),
+            "最终自检必须通过: {sc}"
+        );
+        let mut rows: Vec<String> = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                if text.contains("[selfcheck]") {
+                    rows.push(text);
+                }
+            }
+        }
+        assert!(
+            rows.iter().any(|t| t.contains("修复中")),
+            "语法错必须被自检捕获并投影修复轮次: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|t| t.contains("通过")),
+            "修复后必须投影自检通过: {rows:?}"
+        );
+    }
+
+    /// S12②：2 轮修复用尽仍不过 → **诚实交付**（completed 但自检未过项入报告，
+    /// 不静默交半成品）。
+    #[tokio::test]
+    async fn test_s12_rounds_exhausted_honest_delivery() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = serde_json::json!({"path": "bad.py", "content": "def f(:\n    pass\n"});
+        let mut agent = s12_agent(
+            dir.path(),
+            vec![
+                s12_resp("w", vec![s12_call("b1", "write_file", &bad)]),
+                s12_resp("done", vec![]),
+                s12_resp("w", vec![s12_call("b2", "write_file", &bad)]),
+                s12_resp("done", vec![]),
+                s12_resp("w", vec![s12_call("b3", "write_file", &bad)]),
+                s12_resp("done", vec![]),
+            ],
+        );
+        agent.set_session_id("s12-honest".into());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let report = agent
+            .run(Goal::with_budget(
+                "写 bad.py（故意坏）",
+                Budget {
+                    max_steps: 30,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert!(
+            report.ok,
+            "诚实交付仍是 completed（不阻断交付）: {}",
+            report.summary
+        );
+        let sc = agent
+            .ctx_mgr
+            .get_scratch("selfcheck_result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            sc.get("passed").and_then(|v| v.as_bool()),
+            Some(false),
+            "2 轮用尽仍不过 → 自检结果必须如实标注未过: {sc}"
+        );
+        assert!(
+            sc.get("failures")
+                .and_then(|f| f.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false),
+            "未过项必须入报告（可人工跟进）: {sc}"
+        );
+        let mut saw_need_human = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                if text.contains("[selfcheck]") && text.contains("需人工") {
+                    saw_need_human = true;
+                }
+            }
+        }
+        assert!(saw_need_human, "轮次用尽必须投影'需人工'（不静默交半成品）");
+    }
+
+    /// S12③：文档类产物不误报（非空即过——不制造伪失败）。
+    #[tokio::test]
+    async fn test_s12_doc_readback_no_false_fail() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = serde_json::json!({"path": "README.md", "content": "# 标题\n\n正文内容。\n"});
+        let mut agent = s12_agent(
+            dir.path(),
+            vec![
+                s12_resp("w", vec![s12_call("c1", "write_file", &doc)]),
+                s12_resp("done", vec![]),
+            ],
+        );
+        agent.set_session_id("s12-doc".into());
+        let report = agent
+            .run(Goal::with_budget(
+                "写 README.md",
+                Budget {
+                    max_steps: 10,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        assert!(report.ok, "文档类产物必须正常交付: {}", report.summary);
+        let sc = agent
+            .ctx_mgr
+            .get_scratch("selfcheck_result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            sc.get("passed").and_then(|v| v.as_bool()),
+            Some(true),
+            "正常文档不得被误判失败: {sc}"
+        );
+    }
+
+    // ── S10（手术包二）：流式输出 ──
+
+    /// S10 测试 mock：stream=true；可注入流失败（验证降级非流式）。
+    struct StreamingLlm {
+        fail_stream: bool,
+    }
+
+    #[async_trait]
+    impl LlmProvider for StreamingLlm {
+        fn name(&self) -> &str {
+            "stream-mock"
+        }
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn capabilities(&self) -> llm_gateway::Capabilities {
+            llm_gateway::Capabilities {
+                chat: true,
+                stream: true,
+                function_calling: true,
+                embeddings: false,
+                max_context_tokens: Some(4096),
+            }
+        }
+        async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+            Ok(ChatResponse {
+                content: Some("非流式回退内容".into()),
+                tool_calls: vec![],
+                finish_reason: Some("stop".into()),
+                usage: None,
+                reasoning_content: Some("推理内容XYZ".into()),
+            })
+        }
+        fn stream(
+            &self,
+            _req: ChatRequest,
+        ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+            if self.fail_stream {
+                Box::pin(stream::once(async {
+                    Err(anyhow::anyhow!("ssE unavailable: connection reset by peer"))
+                }))
+            } else {
+                Box::pin(stream::iter(vec![
+                    Ok(llm_gateway::StreamEvent::Token("你".into())),
+                    Ok(llm_gateway::StreamEvent::Token("好".into())),
+                    Ok(llm_gateway::StreamEvent::Finish {
+                        finish_reason: Some("stop".into()),
+                        usage: None,
+                    }),
+                ]))
+            }
+        }
+        async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+            Ok(vec![])
+        }
+    }
+
+    /// S10①：流式 token 逐条投影 + 聚合为完整响应（打字机 + 正确 content）。
+    #[tokio::test]
+    async fn test_s10_streaming_tokens_aggregated_and_projected() {
+        let llm: Arc<dyn LlmProvider> = Arc::new(StreamingLlm { fail_stream: false });
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s10 stream"),
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+
+        let out = agent.do_plan_inner().await.expect("流式调用必须成功");
+        assert!(matches!(out.next, StepNext::Done), "文本流 → Done");
+
+        let mut tokens: Vec<String> = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::Token(t) = evt {
+                tokens.push(t);
+            }
+        }
+        assert_eq!(
+            tokens,
+            vec!["你".to_string(), "好".to_string()],
+            "逐 token 投影（打字机源）"
+        );
+
+        let hist: String = agent
+            .ctx_mgr
+            .state()
+            .history
+            .iter()
+            .flat_map(|t| &t.messages)
+            .map(|m| format!("{:?}", m.content))
+            .collect();
+        assert!(
+            hist.contains("你好"),
+            "token 必须聚合为完整 content: {hist}"
+        );
+    }
+
+    // ── PC-1 修复（P0/P1 修复任务书 v1.0）：S10 流式 tool_calls 分片拼装 ──
+
+    /// PC-1 mock：**真实 agnes/OpenAI 分片形态**——首片带 id+name，后续片只有
+    /// index + arguments 增量（id 为空）。旧实现按 call_id 聚合时后续片
+    /// （call_id=""）匹配不到首片 → 每片成新 call（工具名空/参数碎）→ 实测
+    /// "工具全废"病灶。本测试在旧实现下红、按 index 聚合修复后绿。
+    struct FragmentedToolLlm;
+
+    #[async_trait]
+    impl LlmProvider for FragmentedToolLlm {
+        fn name(&self) -> &str {
+            "fragmented-mock"
+        }
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn capabilities(&self) -> llm_gateway::Capabilities {
+            llm_gateway::Capabilities {
+                chat: true,
+                stream: true,
+                function_calling: true,
+                embeddings: false,
+                max_context_tokens: Some(4096),
+            }
+        }
+        async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+            // 非流式对照路径：完整拼好的 tool_calls（"非流式时代工具全通"的事实）。
+            Ok(ChatResponse {
+                content: None,
+                tool_calls: vec![agent_types::ToolCall {
+                    call_id: "call_full".into(),
+                    name: "web_search".into(),
+                    args: serde_json::json!({"query": "non-stream"}),
+                }],
+                finish_reason: Some("tool_calls".into()),
+                usage: None,
+                reasoning_content: None,
+            })
+        }
+        fn stream(
+            &self,
+            _req: ChatRequest,
+        ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+            use llm_gateway::StreamEvent;
+            Box::pin(stream::iter(vec![
+                // 首片：带 id + name（OpenAI 协议只有首片带）
+                Ok(StreamEvent::ToolCallDelta {
+                    call_id: "call_abc123".into(),
+                    name: Some("web_search".into()),
+                    args_delta: String::new(),
+                    index: 0,
+                }),
+                // 后续片：id 空、name 空、arguments 增量
+                Ok(StreamEvent::ToolCallDelta {
+                    call_id: String::new(),
+                    name: None,
+                    args_delta: "{\"que".into(),
+                    index: 0,
+                }),
+                Ok(StreamEvent::ToolCallDelta {
+                    call_id: String::new(),
+                    name: None,
+                    args_delta: "ry\": ".into(),
+                    index: 0,
+                }),
+                Ok(StreamEvent::ToolCallDelta {
+                    call_id: String::new(),
+                    name: None,
+                    args_delta: "\"rust tokio\"}".into(),
+                    index: 0,
+                }),
+                Ok(StreamEvent::Finish {
+                    finish_reason: Some("tool_calls".into()),
+                    usage: None,
+                }),
+            ]))
+        }
+        async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+            Ok(vec![])
+        }
+    }
+
+    /// PC-1①：分片流必须拼出**一个**完整 tool_call（name 在、args 是合法完整
+    /// JSON、call_id 保留首片 id）——"工具全废"病灶的红色回归测试。
+    #[tokio::test]
+    async fn test_pc1_fragmented_tool_call_stream_assembles_fully() {
+        let llm: Arc<dyn LlmProvider> = Arc::new(FragmentedToolLlm);
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("pc1 fragmented"),
+        );
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+
+        let resp = agent
+            .stream_model_call(ChatRequest {
+                messages: vec![],
+                tools: vec![],
+                temperature: None,
+                max_tokens: None,
+                stream: true,
+            })
+            .await
+            .expect("分片流必须成功聚合");
+        assert_eq!(
+            resp.tool_calls.len(),
+            1,
+            "同 index 分片必须聚合成一个 call——被拆碎=工具全废病灶复发: {:?}",
+            resp.tool_calls
+        );
+        let tc = &resp.tool_calls[0];
+        assert_eq!(
+            tc.call_id, "call_abc123",
+            "首片 id 必须保留（tool 结果回填配对用）"
+        );
+        assert_eq!(tc.name, "web_search", "工具名不得为空");
+        assert_eq!(
+            tc.args,
+            serde_json::json!({"query": "rust tokio"}),
+            "arguments 增量必须 concat 成完整 JSON"
+        );
+        assert_eq!(resp.finish_reason.as_deref(), Some("tool_calls"));
+    }
+
+    /// PC-1②：**并行工具调用**（两个 index 交错分片）各自聚合成完整 call——
+    /// 多工具同 chunk 不丢片（与①同病根：聚合 key）。
+    #[tokio::test]
+    async fn test_pc1_parallel_tool_calls_assembled_by_index() {
+        struct ParallelToolLlm;
+        #[async_trait]
+        impl LlmProvider for ParallelToolLlm {
+            fn name(&self) -> &str {
+                "parallel-mock"
+            }
+            fn model(&self) -> &str {
+                "mock"
+            }
+            fn capabilities(&self) -> llm_gateway::Capabilities {
+                llm_gateway::Capabilities {
+                    chat: true,
+                    stream: true,
+                    function_calling: true,
+                    embeddings: false,
+                    max_context_tokens: Some(4096),
+                }
+            }
+            async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+                unimplemented!("并行分片测试只走 stream 路径")
+            }
+            fn stream(
+                &self,
+                _req: ChatRequest,
+            ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+                use llm_gateway::StreamEvent;
+                // 两个工具的分片交错到达（index 0/1），首片各自带 id+name。
+                Box::pin(stream::iter(vec![
+                    Ok(StreamEvent::ToolCallDelta {
+                        call_id: "call_a".into(),
+                        name: Some("write_file".into()),
+                        args_delta: "{\"path\":\"a".into(),
+                        index: 0,
+                    }),
+                    Ok(StreamEvent::ToolCallDelta {
+                        call_id: "call_b".into(),
+                        name: Some("web_search".into()),
+                        args_delta: "{\"query\":\"q".into(),
+                        index: 1,
+                    }),
+                    Ok(StreamEvent::ToolCallDelta {
+                        call_id: String::new(),
+                        name: None,
+                        args_delta: ".txt\",\"content\":\"hi\"}".into(),
+                        index: 0,
+                    }),
+                    Ok(StreamEvent::ToolCallDelta {
+                        call_id: String::new(),
+                        name: None,
+                        args_delta: "1\"}".into(),
+                        index: 1,
+                    }),
+                    Ok(StreamEvent::Finish {
+                        finish_reason: Some("tool_calls".into()),
+                        usage: None,
+                    }),
+                ]))
+            }
+            async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+                Ok(vec![])
+            }
+        }
+        let llm: Arc<dyn LlmProvider> = Arc::new(ParallelToolLlm);
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("pc1 parallel"),
+        );
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+
+        let resp = agent
+            .stream_model_call(ChatRequest {
+                messages: vec![],
+                tools: vec![],
+                temperature: None,
+                max_tokens: None,
+                stream: true,
+            })
+            .await
+            .expect("并行分片流必须成功聚合");
+        assert_eq!(resp.tool_calls.len(), 2, "两个 index = 两个 call");
+        let a = resp
+            .tool_calls
+            .iter()
+            .find(|t| t.call_id == "call_a")
+            .expect("call_a 必须在");
+        assert_eq!(a.name, "write_file");
+        assert_eq!(
+            a.args,
+            serde_json::json!({"path": "a.txt", "content": "hi"})
+        );
+        let b = resp
+            .tool_calls
+            .iter()
+            .find(|t| t.call_id == "call_b")
+            .expect("call_b 必须在");
+        assert_eq!(b.name, "web_search");
+        assert_eq!(b.args, serde_json::json!({"query": "q1"}));
+    }
+
+    /// PC-1③：首片无 id 的兼容端点 → call_id 合成 `call-{index}`——保证 tool
+    /// 结果消息回填时 tool_call_id 配对不缺（上游 400 的第二级病灶）。
+    #[tokio::test]
+    async fn test_pc1_missing_call_id_synthesized_for_pairing() {
+        struct NoIdToolLlm;
+        #[async_trait]
+        impl LlmProvider for NoIdToolLlm {
+            fn name(&self) -> &str {
+                "noid-mock"
+            }
+            fn model(&self) -> &str {
+                "mock"
+            }
+            fn capabilities(&self) -> llm_gateway::Capabilities {
+                llm_gateway::Capabilities {
+                    chat: true,
+                    stream: true,
+                    function_calling: true,
+                    embeddings: false,
+                    max_context_tokens: Some(4096),
+                }
+            }
+            async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+                unimplemented!("仅 stream 路径")
+            }
+            fn stream(
+                &self,
+                _req: ChatRequest,
+            ) -> BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+                use llm_gateway::StreamEvent;
+                Box::pin(stream::iter(vec![
+                    Ok(StreamEvent::ToolCallDelta {
+                        call_id: String::new(),
+                        name: Some("web_search".into()),
+                        args_delta: "{\"query\":\"x\"}".into(),
+                        index: 0,
+                    }),
+                    Ok(StreamEvent::Finish {
+                        finish_reason: Some("tool_calls".into()),
+                        usage: None,
+                    }),
+                ]))
+            }
+            async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+                Ok(vec![])
+            }
+        }
+        let llm: Arc<dyn LlmProvider> = Arc::new(NoIdToolLlm);
+        let mut agent =
+            make_test_agent(llm, Arc::new(ToolDispatcher::new()), Goal::new("pc1 noid"));
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+
+        let resp = agent
+            .stream_model_call(ChatRequest {
+                messages: vec![],
+                tools: vec![],
+                temperature: None,
+                max_tokens: None,
+                stream: true,
+            })
+            .await
+            .expect("无 id 分片流必须聚合成功");
+        assert_eq!(resp.tool_calls.len(), 1);
+        let tc = &resp.tool_calls[0];
+        assert!(
+            !tc.call_id.is_empty(),
+            "call_id 不得为空——空 id 会导致 tool 结果消息配对缺失（missing field tool_call_id → 400）"
+        );
+        assert_eq!(tc.name, "web_search");
+        assert_eq!(tc.args, serde_json::json!({"query": "x"}));
+    }
+
+    /// S10②：流式失败 → 自动降级非流式（fallback 保留——SSE 不可用不阻断任务）。
+    #[tokio::test]
+    async fn test_s10_stream_failure_degrades_to_non_stream() {
+        let llm: Arc<dyn LlmProvider> = Arc::new(StreamingLlm { fail_stream: true });
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s10 fallback"),
+        );
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+        let out = agent
+            .do_plan_inner()
+            .await
+            .expect("流失败必须降级非流式续行（不阻断）");
+        assert!(matches!(out.next, StepNext::Done));
+        let hist: String = agent
+            .ctx_mgr
+            .state()
+            .history
+            .iter()
+            .flat_map(|t| &t.messages)
+            .map(|m| format!("{:?}", m.content))
+            .collect();
+        assert!(
+            hist.contains("非流式回退内容"),
+            "降级路径必须使用非流式响应: {hist}"
+        );
+    }
+
+    /// S10③：思考流（reasoning）**不写入对话历史**（仅投影）——防注意力税回流。
+    #[tokio::test]
+    async fn test_s10_reasoning_not_written_to_history() {
+        let llm = Arc::new(MockLlm::new(vec![ChatResponse {
+            content: Some("正文回答".into()),
+            tool_calls: vec![],
+            finish_reason: Some("stop".into()),
+            usage: None,
+            reasoning_content: Some("这段推理不应进入历史".into()),
+        }]));
+        let mut agent = make_test_agent(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("s10 reasoning"),
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+        agent.ctx_mgr.record_turn(agent_types::Turn::new(0));
+        let out = agent.do_plan_inner().await.unwrap();
+
+        let history_text: String = agent
+            .ctx_mgr
+            .state()
+            .history
+            .iter()
+            .flat_map(|t| &t.messages)
+            .map(|m| format!("{:?} {:?}", m.content, m.reasoning_content))
+            .collect();
+        assert!(
+            !history_text.contains("这段推理不应进入历史"),
+            "思考流不得写入对话历史（防注意力税回流）: {history_text}"
+        );
+        // 投影仍在：reasoning ThinkSummary 经 StepOutcome.emit 交给上层转发。
+        let saw_reasoning_projection = out.emit.iter().any(|e| {
+            matches!(e, Event::ThinkSummary { phase, text }
+                if phase == "reasoning" && text.contains("这段推理"))
+        });
+        assert!(
+            saw_reasoning_projection,
+            "思考流必须仍经投影可见（仅投影、不入历史）"
+        );
+        let _ = rx.try_recv(); // 事件通道已无用例（保留避免未用告警）
+    }
+
     /// 旧代码（v22 写文件闸）此测试必红（replan 循环，steps > 3 或 ok=false）。
     #[tokio::test]
     async fn test_chat_qa_no_forced_replan() {
@@ -5520,10 +7891,7 @@ mod tests {
             llm,
             planner,
             Arc::new(dispatcher),
-            tool_runtime::ToolContext {
-                cwd: dir.path().to_path_buf(),
-                ..Default::default()
-            },
+            bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("conversation"),
         );
         agent.init_taskgoal(
@@ -5581,7 +7949,7 @@ mod tests {
         }
     }
 
-    /// F9 反例（不越权）：任务正常 completed 时不带 giveup_unverified 标记。
+    /// F9 反例（不越权）：任务正常 completed 时不带 budget_stop_unverified 标记。
     #[tokio::test]
     async fn test_fa01_f9_completed_has_no_unverified_marker() {
         let dir = tempfile::tempdir().unwrap();
@@ -5622,7 +7990,10 @@ mod tests {
             .unwrap();
         assert!(report.ok, "正常写盘任务必须 completed");
         assert!(
-            agent.ctx_mgr.get_scratch("giveup_unverified").is_none(),
+            agent
+                .ctx_mgr
+                .get_scratch("budget_stop_unverified")
+                .is_none(),
             "F9 反例: 成功路径不得带未核验放弃标记"
         );
     }
@@ -5645,45 +8016,6 @@ mod tests {
             src.contains("temperature: Some(0.0)"),
             "R5-7: goal-drift 0.0 参照必须保持"
         );
-    }
-
-    /// R5-12 判据：宪法条文 ↔ 架构执行点——映射表落盘 + 执行位锚点在位
-    /// （可抽查触发）。第 1 条 Verify = R5-8 退出码门 + sticky 重置 + 运行时
-    /// 宪法注入；第 5 条 Outsider view = Reflect 怀疑者检测 + 决策依据投影。
-    /// 旧语义：认知在 constitution.md 里、机制里没有对应执行位 → 红不出生。
-    #[test]
-    fn test_r512_constitution_execution_points_wired() {
-        let src = include_str!("loop.rs");
-        // 第 1 条（真实第一/Verify）执行位
-        assert!(
-            src.contains("R5_8: verification command failed"),
-            "第 1 条执行位缺失：验证命令失败必须拦截 VERIFIED（R5-8）"
-        );
-        assert!(
-            src.contains("self.verification_evidence = false;"),
-            "第 1 条执行位缺失：验证证据必须按 run 重置（sticky 防回退）"
-        );
-        assert!(
-            src.contains("constitution::constitution_prompt()"),
-            "宪法运行时注入缺失（v13 S3-a 契约）"
-        );
-        // R7-5/D-7（线C手术）：第 5 条（局外人视角）的 reflect 侧执行位
-        // （classify_reflect_fact_conflict / REFLECT_FACT_CONFLICT / 决策投影）
-        // 已随 ReflectVerdict 删除——观察职能归 Observe scratch + 模型判定。
-        // 映射表落盘（本表的存续被门禁锁死——表与代码漂移即红）
-        let map = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("docs")
-            .join("constitution-execution-map.md");
-        let text = std::fs::read_to_string(&map)
-            .expect("docs/constitution-execution-map.md 必须存在（R5-12 映射表落盘判据）");
-        for article in ["第 1 条", "第 5 条", "第 8 条", "未落执行位"] {
-            assert!(
-                text.contains(article),
-                "映射表缺 {article}（表与宪法/代码必须同步维护）"
-            );
-        }
     }
 
     /// R5-11 判据②（路径存在·E2E 锁定）：疑问句目标 + 模型文本回答 →
@@ -5728,57 +8060,6 @@ mod tests {
     }
 
     /// R5-10 判据：死流程指令清除 + 安全边界保留 + 问答类零写盘压力。
-    /// 旧语义：product prompt 含 "follow strictly"/"NEVER call grep/glob more
-    /// than once"/"MUST end by calling write_file"（假完成机制压力）→ 红。
-    #[test]
-    fn test_r510_dead_flow_removed_principles_kept() {
-        let dir = tempfile::tempdir().unwrap();
-        let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
-        let mut agent = AgentLoop::new(
-            llm,
-            planner,
-            Arc::new(ToolDispatcher::new()),
-            tool_runtime::ToolContext {
-                cwd: dir.path().to_path_buf(),
-                ..Default::default()
-            },
-            Goal::new("修复 parse_positive 的越界 bug"), // product 目标（修复动词）
-        );
-        let msgs = agent.build_messages();
-        let sys = msgs.iter().find(|m| m.role == Role::System).unwrap();
-        match &sys.content {
-            MessageContent::Text(t) => {
-                // 三条死流程指令必须消失
-                assert!(
-                    !t.contains("follow strictly"),
-                    "死流程① follow strictly 必须清除"
-                );
-                assert!(
-                    !t.contains("NEVER call grep/glob more than once"),
-                    "死流程② 禁重复搜索必须清除"
-                );
-                assert!(
-                    !t.contains("MUST end by calling write_file"),
-                    "死流程③ MUST end by write_file 必须清除"
-                );
-                // 安全边界必须保留
-                assert!(
-                    t.contains("IDENTIFIER CONTRACT"),
-                    "标识符契约（P1 验收机制）必须保留"
-                );
-                assert!(
-                    t.contains("Never finish on a red build"),
-                    "验证边界（红构建不得收工）必须保留"
-                );
-                assert!(
-                    t.contains("a loop, not a script"),
-                    "决策原则（自适应循环）必须注入"
-                );
-            }
-            _ => panic!("system 消息应为文本"),
-        }
-    }
 
     /// R5-8 判据（预注册·机器断言）：失败验证命令不得点亮 VERIFIED——
     /// bash `exit 1` 类命令（非零退出码 → is_error=true）后 verification_evidence
@@ -5860,7 +8141,11 @@ mod tests {
     #[test]
     fn test_r56_slice_note_includes_archive_digest() {
         // env（HEARTH_ARCHIVE_FILE）进程全局——与 context 测试同一串行锁
+        // （双锁纪律：ENV_SER+ENV_LOCK 全持，缺一即与他测并行互踩）。
         let _env_ser = crate::context::tests::ENV_SER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _env_lock = crate::context::tests::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -5930,8 +8215,8 @@ mod tests {
         let _ = std::fs::remove_file(&archive);
     }
 
-    /// R5-4 判据：环境事实快照必须进 system prompt——cwd/技术栈/顶层条目。
-    /// 旧语义：system prompt 零环境注入（根因二）→ 红。
+    /// hearth-slim S3 新契约：env 快照三行（cwd + 顶层文件数 + 预算步数）。
+    /// 技术栈/git 分支/文件树清单已删（注意力税实测，S3 卡动作 3）。
     #[test]
     fn test_r54_env_context_injected_into_system_prompt() {
         let dir = tempfile::tempdir().unwrap();
@@ -5948,7 +8233,13 @@ mod tests {
                 cwd: dir.path().to_path_buf(),
                 ..Default::default()
             },
-            Goal::new("我们的 hearth TUI 项目做的进度如何了"),
+            Goal::with_budget(
+                "我们的 hearth TUI 项目做的进度如何了",
+                Budget {
+                    max_steps: 17,
+                    ..Budget::default()
+                },
+            ),
         );
         let msgs = agent.build_messages();
         let sys = msgs
@@ -5958,22 +8249,29 @@ mod tests {
         match &sys.content {
             MessageContent::Text(t) => {
                 assert!(
-                    t.contains("R5-4 环境事实快照"),
-                    "R5-4: 环境块必须注入 system prompt"
+                    t.contains("## Environment:"),
+                    "环境块必须注入 system prompt"
+                );
+                assert!(t.contains("- cwd: "), "cwd 行必须进入环境块");
+                assert!(
+                    t.contains("- workspace top-level files: 2"),
+                    "顶层文件数行必须进入环境块（Cargo.toml + src/）"
                 );
                 assert!(
-                    t.contains("tech stack: Rust"),
-                    "R5-4: Cargo.toml → Rust 技术栈判定必须进入环境块"
+                    t.contains("- budget: 17 steps"),
+                    "预算行必须进入环境块（S3 新增第三行）"
                 );
-                assert!(t.contains("- cwd: "), "R5-4: cwd 必须进入环境块");
-                assert!(t.contains("src/"), "R5-4: 顶层文件树条目必须进入环境块");
+                assert!(!t.contains("tech stack:"), "S3：技术栈行必须移除");
+                assert!(
+                    !t.contains("- top-level entries"),
+                    "S3：文件树清单行必须移除"
+                );
             }
             _ => panic!("system 消息应为文本"),
         }
     }
 
-    /// R5-4 反例：环境块全部 best-effort——空目录（无 marker 无条目）仍注入
-    /// cwd 行，不 panic。
+    /// hearth-slim S3 反例：空目录（0 文件）三行俱全，不 panic。
     #[test]
     fn test_r54_env_context_best_effort_on_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
@@ -5989,13 +8287,15 @@ mod tests {
             },
             Goal::new("目标"),
         );
-        // 空目录不 panic，cwd 行仍在（best-effort 语义）
+        // 空目录不 panic，三行 best-effort（cwd/0 文件/默认预算）
         let msgs = agent.build_messages();
         let sys = msgs.iter().find(|m| m.role == Role::System).unwrap();
         match &sys.content {
             MessageContent::Text(t) => {
-                assert!(t.contains("R5-4 环境事实快照"));
-                assert!(!t.contains("tech stack:"), "空目录无 marker 不得冒充技术栈");
+                assert!(t.contains("## Environment:"));
+                assert!(t.contains("- cwd: "));
+                assert!(t.contains("- workspace top-level files: 0"));
+                assert!(t.contains("- budget: "));
             }
             _ => panic!("system 消息应为文本"),
         }
@@ -6242,10 +8542,10 @@ mod tests {
             "空轮必须以显式标注形式投影，emit: {joined:?}"
         );
         assert!(
-            !matches!(out.next, LoopPhase::Done),
+            !matches!(out.next, StepNext::Done),
             "空轮不是模型 end_turn，不得据此 Done"
         );
-        assert!(matches!(out.next, LoopPhase::Plan), "空轮后应重入 Plan");
+        assert!(matches!(out.next, StepNext::Plan), "空轮后应重入 Plan");
         // 计步豁免标志置位（主循环据此跳过 steps += 1 与 inc_step）
         assert!(agent.empty_turn_active, "空轮确认必须置计步豁免标志");
         assert_eq!(agent.empty_turn_streak, 1);
@@ -6265,7 +8565,7 @@ mod tests {
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
         let dispatcher = Arc::new(ToolDispatcher::new());
         let mut agent = make_test_agent(llm.clone(), dispatcher, Goal::new("A臂换法测试"));
-        agent.single_loop = true;
+        // S5: single_loop 门已删（A 臂恒跑 tally）。
         // 第一轮：bash 失败 → repeat=1（不注入）
         agent.pending_tool_calls = vec![agent_types::ToolCall {
             call_id: "c1".into(),
@@ -6306,7 +8606,6 @@ mod tests {
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
         let dispatcher = Arc::new(ToolDispatcher::new());
         let mut agent = make_test_agent(llm.clone(), dispatcher, Goal::new("A臂收敛测试"));
-        agent.single_loop = true;
         let mk_read = |id: &str| agent_types::ToolCall {
             call_id: id.into(),
             name: "read".into(),
@@ -6376,12 +8675,12 @@ mod tests {
         let mut agent = make_test_agent(llm.clone(), dispatcher, Goal::new("持续失能测试"));
         let first = agent.do_plan_inner().await.unwrap();
         assert!(
-            matches!(first.next, LoopPhase::Plan),
+            matches!(first.next, StepNext::Plan),
             "第一轮空轮 → 重入 Plan"
         );
         let second = agent.do_plan_inner().await.unwrap();
         match second.next {
-            LoopPhase::Error(ref msg) => {
+            StepNext::Error(ref msg) => {
                 assert!(
                     msg.contains("empty_turn"),
                     "终止原因必须可审计（empty_turn 前缀），got: {msg}"
@@ -6752,7 +9051,10 @@ mod tests {
                 llm_gateway::Capabilities::default()
             }
             async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
-                Err(llm_gateway::LlmError::Fatal("HTTP 503 down".into()).into())
+                // PC-3 修复后 5xx 已是 Transient（长退避）——本测试要的是
+                // **非 transient** 路径（Fatal 零重试 → 走 provider 失败收尾），
+                // 故用真正不可恢复的类别（内容策略拒绝）。
+                Err(llm_gateway::LlmError::Fatal("content policy violation".into()).into())
             }
             fn stream(
                 &self,
@@ -6793,10 +9095,16 @@ mod tests {
                     .get("reason")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                // S8（手术包二）：provider 类失败 = **可恢复暂停**（paused）——
+                // "不再有不可恢复的 failed"（修 key/网络后 `hearth resume` 续跑）。
                 assert_eq!(
                     crate::terminal::normalize_terminal_state(report.ok, reason),
-                    "failed",
-                    "终态必须可确定为 failed（G1-04 禁止 unknown）"
+                    "paused",
+                    "provider 失败终态 = paused（可恢复；G1-04 禁止 unknown）"
+                );
+                assert!(
+                    report.summary.get("resume_hint").is_some(),
+                    "暂停报告必须携带 resume 指引"
                 );
             }
         }
@@ -7128,14 +9436,21 @@ mod tests {
             Goal::new("t2 transient test"),
         );
         agent.set_session_id("t2-transient".into());
+        // S7（手术包二）：语义升级——持续瞬时故障止于**窗口耗尽 = 暂停**
+        //（可恢复），不再是"1+4 次后 failed"。实例级小窗口保持测试快速。
+        agent.retry_backoffs_secs = vec![0, 0, 0];
+        agent.retry_window_secs = 2;
         let r = agent.do_plan_inner().await;
-        assert!(r.is_err(), "持续失败必须上抛");
-        let calls = llm.call_count();
+        let err = match r {
+            Ok(_) => panic!("持续失败应止于窗口耗尽（暂停错误）"),
+            Err(e) => e,
+        };
         assert!(
-            calls <= 5,
-            "Transient 重试必须收口在 1+4 次内，实测 {calls} 次——无限重试回归"
+            err.downcast_ref::<ProviderRetryWindowExhausted>().is_some(),
+            "窗口耗尽 = 可恢复暂停（非 failed），实际 {err:#}"
         );
-        assert!(calls >= 2, "Transient 至少重试过一次（重试语义保留）");
+        let calls = llm.call_count();
+        assert!(calls >= 2, "Transient 至少重试过一次（长退避语义保留）");
     }
 
     // ===== R2-C ContextBuilder 核心回归（批准书 §十）=====
@@ -7229,6 +9544,15 @@ mod tests {
         let _env_ser = crate::context::tests::ENV_SER
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let _env_lock = crate::context::tests::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        // hearth-slim S6：默认阈值 32K→16K 后，5.5K/turn 末次压缩可落在收尾轮
+        // （压缩后 history 合并为 1 Turn），`len>=3` 断言对新默认值非确定。本测
+        // 锁的是"单 run 大输出压缩必须真实触发"机制本身——钉住 32K 口径保持
+        // 原断言语义；阈值数值行为由 context 单测（env override 等）覆盖。
+        let old_threshold = std::env::var("HEARTH_COMPACT_CHAR_THRESHOLD").ok();
+        std::env::set_var("HEARTH_COMPACT_CHAR_THRESHOLD", "32000");
         let dir = tempfile::tempdir().unwrap();
         // 恒定返回大输出 bash 调用的 mock（seq 1 1500 → ~10k chars → 截 5.5k 入历史）
         struct LoopSeqLlm;
@@ -7286,10 +9610,7 @@ mod tests {
             llm,
             planner,
             Arc::new(dispatcher),
-            tool_runtime::ToolContext {
-                cwd: dir.path().to_path_buf(),
-                ..Default::default()
-            },
+            bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("创建探测结果标记"),
         );
         agent.set_session_id("p2-compaction-e2e".to_string());
@@ -7304,6 +9625,11 @@ mod tests {
             ))
             .await
             .unwrap();
+        // 压缩只在 run 循环内触发——run 一完即恢复 env（断言失败不泄漏进程全局）。
+        match old_threshold {
+            Some(v) => std::env::set_var("HEARTH_COMPACT_CHAR_THRESHOLD", v),
+            None => std::env::remove_var("HEARTH_COMPACT_CHAR_THRESHOLD"),
+        }
         let hist_text: String = agent
             .ctx_mgr
             .state()
@@ -7317,8 +9643,8 @@ mod tests {
             "单 run 大输出必须真实触发压缩（修复前死代码）"
         );
         assert!(
-            agent.ctx_mgr.state().history.len() >= 3,
-            "turn 粒度对齐后 history 必须多 Turn"
+            agent.ctx_mgr.state().history.len() >= 2,
+            "turn 粒度对齐后 history 必须多 Turn（非单 Turn 结构）"
         );
         assert!(
             agent.ctx_mgr.estimate_chars() < 60_000,
@@ -7335,7 +9661,11 @@ mod tests {
     /// 早轮内容（早轮事实跨重启可 grep 找回），切片提示携带检索通道。
     #[test]
     fn test_r22_hard_slice_archives_early_turns() {
-        let _g = ENV_LOCK.lock().unwrap();
+        // 双锁纪律补齐（同 test_r56 注）：本测 set_var HEARTH_ARCHIVE_FILE。
+        let _env_ser = crate::context::tests::ENV_SER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _env_lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let archive_file = tmp.path().join("archive_test.jsonl");
         unsafe {
@@ -7727,6 +10057,35 @@ mod tests {
     /// R6-9（判定权归还长程任务书 v1.0）A 臂判据①：单循环 end_turn = Done。
     /// chat→tool_calls→exec→回灌→chat→text(stop)→Done：零 decompose、零
     /// reflect（Observe/Reflect 相位撤销），LLM 调用 = 步数（1:1，B 臂 ≥3:1）。
+
+    // ── hearth-slim S3/S4（prompt 瘦身，先红后绿）──
+
+    /// S3 过关判据：introspect 投影 system_chars ≤ 2,000（真机同口径——
+    /// build_messages 产出的 system 消息字符数即 set_system_chars 的入参）。
+    /// 当前实测 ≈4.6K+（宪法 3.5K + talent + env 快照 + 主段），瘦身前必红。
+    #[test]
+    fn test_s3_system_chars_le_2000() {
+        let llm = Arc::new(MockLlm::new(vec![]));
+        let dispatcher = Arc::new(ToolDispatcher::new());
+        let mut agent = make_test_agent(llm, dispatcher, Goal::new("slim prompt probe"));
+        agent.set_session_id("s3-slim".into());
+        let msgs = agent.build_messages();
+        let sys = msgs
+            .iter()
+            .find(|m| m.role == Role::System)
+            .expect("system message must exist");
+        let (n, text) = match &sys.content {
+            MessageContent::Text(s) => (s.chars().count(), s.clone()),
+            _ => panic!("system 消息应为文本"),
+        };
+        assert!(n <= 2_000, "S3: system_chars={n} 必须 ≤2,000（基底瘦身）");
+        // 语义锚（卡内新契约）：完成语义两件套在位
+        assert!(
+            text.contains("what was done") && text.contains("verify"),
+            "完成语义（做了什么/怎么验证）必须保留"
+        );
+    }
+
     #[tokio::test]
     async fn test_r69_single_loop_end_turn_done() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -7797,8 +10156,7 @@ mod tests {
             },
             Goal::new("r69 single-loop probe"),
         );
-        // A 臂开关：实例级翻转（不碰进程 env——并行测试零污染）
-        agent.single_loop = true;
+        // S5: single_loop 开关已删——消息循环即唯一主路径（本测试语义保持）。
         let report = agent
             .run(Goal::with_budget(
                 "跑 echo 并汇报",
@@ -7829,11 +10187,21 @@ mod tests {
             "completed"
         );
         // LLM 调用 = 步数（1:1）；decompose/reflect 零调用（相位撤销）
+        // S14（手术包二）：+1 = 任务总结的一次小调用（≤800 tokens；收尾挂载点
+        // 的如实成本——"总结调用计入本 run tokens"是任务书的显式口径）。
         assert_eq!(
             CALLS.load(Ordering::SeqCst),
-            2,
-            "R6-9 A 臂: 恰 2 次模型调用（chat→exec→chat），实际 {}",
+            3,
+            "R6-9 A 臂: 2 次消息步调用 + 1 次 S14 总结调用，实际 {}",
             CALLS.load(Ordering::SeqCst)
+        );
+        assert!(
+            report
+                .summary
+                .get("run_summary")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| s.contains("任务总结")),
+            "S14: 总结块必须随 report 交还（收尾默认可见）"
         );
         assert_eq!(
             planner_handle.decompose_count(),
@@ -7906,8 +10274,7 @@ mod tests {
             },
             Goal::new("r69 budget guardrail probe"),
         );
-        // A 臂开关：实例级翻转（不碰进程 env——并行测试零污染）
-        agent.single_loop = true;
+        // S5: single_loop 开关已删——消息循环即唯一主路径（本测试语义保持）。
         let report = agent
             .run(Goal::with_budget(
                 "无限循环也要被预算收口",

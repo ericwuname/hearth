@@ -57,6 +57,14 @@ pub fn normalize_terminal_state(ok: bool, reason: &str) -> &'static str {
         // + 建议——不是失败（任务没做完 ≠ 做失败；护栏触发 ≠ 判定失败）。
         // 终态 paused（九态封闭集既有态），报告携带 handover（做到哪了+建议）。
         "budget_exhausted" => "paused",
+        // S8（手术包二）：统一暂停语义——provider 类失败（key 失效/网络/窗口
+        // 耗尽）**可恢复**：修 key/网络后 `hearth resume` 续跑，不再归 failed。
+        // 任务判定类失败（verify_failed 等）仍走下方 failed 兜底。
+        "provider_error" => "paused",
+        "provider_retry_window_exhausted" => "paused",
+        // S11（手术包二）：Ctrl-C 打断 = 上下文保留（可继续/可 resume），
+        // 同属 paused 语义——不是失败，也不是取消（取消 = cancelled 终态）。
+        "interrupted" => "paused",
         _ => "failed",
     }
 }
@@ -117,6 +125,8 @@ mod tests {
             normalize_terminal_state(false, "budget_exhausted"),
             "paused"
         );
+        // S11（手术包二）：Ctrl-C 打断 = 上下文保留（paused，非 failed/cancelled）
+        assert_eq!(normalize_terminal_state(false, "interrupted"), "paused");
         // 验证失败/未知 → failed
         assert_eq!(normalize_terminal_state(false, "verify_failed"), "failed");
         assert_eq!(normalize_terminal_state(false, "who knows"), "failed");

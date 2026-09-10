@@ -9,6 +9,85 @@ pub struct BashTool {
     sandbox: Arc<dyn Sandbox>,
 }
 
+/// S15（手术包二）：bash 会话 cwd 持久化——多步构建/长任务不再每次重敲路径。
+/// 进程级单例（hearth = 单进程跑一个会话）；`HEARTH_BASH_NO_PERSIST=1` 关闭
+/// （测试隔离用）。首次调用以 ToolContext.cwd 为起点，之后跟随命令内 cd。
+static SESSION_CWD: std::sync::OnceLock<std::sync::Mutex<Option<std::path::PathBuf>>> =
+    std::sync::OnceLock::new();
+
+/// 会话 cwd 标记（钉死格式——与 [net] 审计同风格，LLM 可见）。
+pub const CWD_MARKER: &str = "__HEARTH_CWD__=";
+
+fn session_cwd_slot() -> &'static std::sync::Mutex<Option<std::path::PathBuf>> {
+    SESSION_CWD.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// S15: 持久化开关（默认开；HEARTH_BASH_NO_PERSIST=1 关闭——测试/隔离场景）。
+pub fn persist_enabled() -> bool {
+    !matches!(std::env::var("HEARTH_BASH_NO_PERSIST"), Ok(v) if v == "1")
+}
+
+/// S15: 记录会话 cwd（执行后回写；测试可直接调用做隔离）。
+pub fn set_session_cwd(p: std::path::PathBuf) {
+    if let Ok(mut g) = session_cwd_slot().lock() {
+        *g = Some(p);
+    }
+}
+
+/// S15: 读取会话 cwd（无则 None）。
+pub fn get_session_cwd() -> Option<std::path::PathBuf> {
+    session_cwd_slot().lock().ok().and_then(|g| g.clone())
+}
+
+/// S15: 命令包装——先 cd 会话 cwd（若有），执行用户命令，尾部打印新 cwd 标记，
+/// 保持用户命令退出码。用户命令的多行/&&/||语义由 `{ ...; }` 保留。
+pub fn wrap_with_cwd(cmd: &str, base: &std::path::Path, already: Option<&std::path::Path>) -> String {
+    let start = already.unwrap_or(base);
+    let start_disp = start.display();
+    // cd 失败不阻断（路径消失时退回原 cwd 执行，标记仍会回写真实 PWD）。
+    format!(
+        "cd '{start_disp}' 2>/dev/null || true\n{{ {cmd}\n}}\n__hearth_rc=$?\nprintf '\\n{s}{{%s}}\\n' \"$PWD\"\nexit $__hearth_rc",
+        s = CWD_MARKER
+    )
+}
+
+/// S15: 从输出中剥离 cwd 标记并返回（新 cwd, 干净输出）。
+/// 标记形如 `__HEARTH_CWD__={/path}`（花括号防路径含空格歧义）。
+/// **只采纳最后一个标记行**（包装注入必然在输出末尾；命令回显的早期标记行保留，
+/// 防模型 echo 伪造 cwd 改变会话状态）。
+pub fn extract_cwd_marker(formatted: &str) -> (Option<std::path::PathBuf>, String) {
+    let lines: Vec<&str> = formatted.lines().collect();
+    // 从尾部找第一个含标记且可解析出非空路径的行——即"最后一个有效标记行"。
+    let mut hit: Option<usize> = None;
+    let mut new_cwd: Option<std::path::PathBuf> = None;
+    for (i, line) in lines.iter().enumerate().rev() {
+        if let Some(pos) = line.find(CWD_MARKER) {
+            let raw = line[pos + CWD_MARKER.len()..].trim();
+            let raw = raw
+                .strip_prefix('{')
+                .and_then(|r| r.strip_suffix('}'))
+                .unwrap_or(raw);
+            if !raw.is_empty() {
+                hit = Some(i);
+                new_cwd = Some(std::path::PathBuf::from(raw));
+                break;
+            }
+        }
+    }
+    match hit {
+        Some(i) => {
+            let kept: Vec<&str> = lines
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, l)| *l)
+                .collect();
+            (new_cwd, kept.join("\n"))
+        }
+        None => (None, formatted.to_string()),
+    }
+}
+
 impl BashTool {
     pub fn new() -> Self {
         Self {
@@ -67,16 +146,16 @@ pub fn check_egress(
         .collect();
 
     let hosts = extract_hosts(cmd);
+    // hearth-slim S2（用户拍板 2026-09-09"全部默认允许"，顶层落字备案）：
+    // 语义反转——白名单空/未设 = 默认放开；显式 allowlist 仍收紧（fail-closed
+    // 只在收紧模式内）。风险（提示注入/恶意命令）已知悉接受，审计投影为
+    // 唯一缓解层（见 execute 尾部 [net] 行，格式钉死见测试注释）。
     if allow.is_empty() {
-        return Err(format!(
-            "出网被拒：egress_allowlist 为空（空=全拒）。目标 {:?} 未获放行。\
-             请在 config.toml 的 egress_allowlist 中补入需要的域名。",
-            hosts
-        ));
+        return Ok(());
     }
     if hosts.is_empty() {
         return Err(format!(
-            "出网被拒：命令含网络调用但无法识别目标主机（fail-closed）。\
+            "出网被拒：命令含网络调用但无法识别目标主机（收紧模式 fail-closed）。\
              请使用完整 URL（如 https://example.com/...）以便按白名单校验。当前白名单 {} 条。",
             allow.len()
         ));
@@ -169,6 +248,80 @@ fn extract_hosts(cmd: &str) -> Vec<String> {
     out
 }
 
+/// hearth-slim S1: 超时解析纯函数（可单测）——
+/// 优先级：任务剩余期（effective，deadline 收口）> args.timeout_secs >
+/// env HEARTH_TOOL_TIMEOUT_SECS（config 注入或进程级）> 默认 120；
+/// 上限 600 不变。默认从 180 收到 120（C-fix-status 挂死 5.5h 直接动因：
+/// 无 deadline 时长默认暴露面过大）。
+fn resolve_timeout_secs(
+    args: &serde_json::Value,
+    effective: Option<Duration>,
+    env: &std::collections::HashMap<String, String>,
+) -> u64 {
+    let cap = |s: u64| s.min(600);
+    if let Some(d) = effective {
+        return cap(d.as_secs());
+    }
+    if let Some(v) = args.get("timeout_secs").and_then(|x| x.as_u64()) {
+        return cap(v);
+    }
+    let from_env = env
+        .get("HEARTH_TOOL_TIMEOUT_SECS")
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .or_else(|| {
+            std::env::var("HEARTH_TOOL_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+        });
+    cap(from_env.unwrap_or(120))
+}
+
+/// hearth-slim S1: 输出截断（工具层，sandbox crate 零触碰）——
+/// stdout/stderr 任一超 64KB → 保头 2/3 + 尾 1/3，中间显式标记（防
+/// 45 万 tokens 式输出膨胀复发；`[truncated]` 标记供模型/测试识别）。
+const S1_MAX_OUTPUT_BYTES: usize = 64 * 1024;
+
+fn truncate_output(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let head = max * 2 / 3;
+    let tail = max / 3;
+    let mut h = head;
+    while h > 0 && !s.is_char_boundary(h) {
+        h -= 1;
+    }
+    let mut tl = s.len() - tail;
+    while tl < s.len() && !s.is_char_boundary(tl) {
+        tl += 1;
+    }
+    let dropped = s.len() - h - (s.len() - tl);
+    format!(
+        "{}\n[truncated] …输出超 64KB，中间 {} bytes 已截断（hearth-slim S1 防膨胀）…\n{}",
+        &s[..h],
+        dropped,
+        &s[tl..]
+    )
+}
+
+/// hearth-slim S2: 出网审计投影的数据源——与 check_egress 同一意图判定
+/// （URL 或已知网络命令），返回提取到的主机清单。非网络命令 → None。
+/// 审计行格式（顶层附加要求：落刀前钉死）：
+///   `[net] egress audit: <host1> <host2> …`；目标不可解析时
+///   `[net] egress audit: target unresolved`。单行、尾部追加、不阻断不解析。
+pub fn net_audit_hosts(cmd: &str) -> Option<Vec<String>> {
+    const NET_CMDS: [&str; 9] = [
+        "curl ", "wget ", "nc ", "ncat ", "ssh ", "scp ", "rsync ", "ftp ", "sftp ",
+    ];
+    let lower = cmd.to_ascii_lowercase();
+    let has_url = lower.contains("http://") || lower.contains("https://");
+    let has_net_cmd = NET_CMDS.iter().any(|c| lower.contains(c));
+    if !has_url && !has_net_cmd {
+        return None;
+    }
+    Some(extract_hosts(cmd))
+}
+
 fn dangerous_command(cmd: &str) -> Option<&'static str> {
     let c = cmd.trim();
     // 根目录删除：rm -rf / 后跟 空格/引号/结尾（限定路径的 rm -rf 不拦）
@@ -232,7 +385,7 @@ impl Tool for BashTool {
                  以及修改代码后验证（关键：验证命令非零退出 = 失败，不得声称完成）。\n\
                  何时不用: 读单个文件（read 更省且带行号）；找文件/内容（glob/grep）；写文件（write_file）。\n\
                  示例: bash(\"cargo test 2>&1 | tail -30\")；bash(\"python game.py < /dev/null | head -20\")。\n\
-                 边界: 每命令默认 timeout 180s（max 600）；出网仅限白名单域名；高危命令（rm -rf 等）被护栏拦截；\n\
+                 边界: 每命令默认 timeout 120s（max 600；env HEARTH_TOOL_TIMEOUT_SECS 可配）；出网默认放开（网络活动带 [net] 审计投影；HEARTH_EGRESS_ALLOWLIST 可收紧）；高危命令（rm -rf 等）被护栏拦截；\n\
                  stdout+stderr 截断后仅保留首尾段——长输出用 tail/head/grep 收敛。\n\
                  错误解读: 返回含 \"exit code: N\"（N≠0 = 命令失败，读 stdout/stderr 定位原因）；\n\
                  \"command blocked\"=触犯安全护栏，换安全写法；\"egress denied\"=域名不在白名单。"
@@ -246,7 +399,7 @@ impl Tool for BashTool {
                     },
                     "timeout_secs": {
                         "type": "integer",
-                        "description": "Optional timeout in seconds (default 180, max 600)"
+                        "description": "Optional timeout in seconds (default 120, max 600)"
                     }
                 },
                 "required": ["cmd"]
@@ -292,15 +445,7 @@ impl Tool for BashTool {
         // = min(declared, remaining)）——bash 优先消费本值，sandbox.spawn 按真实
         // 剩余时间终止（对照旧实证：sleep 300 + task deadline 15s 穿透 360s）。
         // 无 deadline（None）→ 旧 args 语义（180 默认/600 cap）分毫不变。
-        let timeout_secs = ctx
-            .effective_timeout
-            .map(|d| d.as_secs())
-            .unwrap_or_else(|| {
-                args.get("timeout_secs")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(180)
-                    .min(600)
-            });
+        let timeout_secs = resolve_timeout_secs(&args, ctx.effective_timeout, &ctx.env);
 
         let mut env: Vec<(&str, String)> = ctx
             .env
@@ -332,33 +477,120 @@ impl Tool for BashTool {
         }
         let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        let output = self
+        // S1: elapsed 计时（结构化 timeout 载荷用）。
+        let t0 = std::time::Instant::now();
+        // S1: 沙箱双后端超时行为统一收口——NoopSandbox（非 Linux 开发态）超时
+        // 返回 Err("command timed out after …")，LinuxSandbox 返回
+        // Ok(SandboxOutput{timed_out:true})。两条路径都归一到本层的结构化
+        // JSON（sandbox crate 零触碰）。
+        let s1_timeout_payload = |elapsed: u64, limit: u64, stdout: &str, stderr: &str| {
+            let partial = format!(
+                "stdout:\n{}\nstderr:\n{}",
+                truncate_output(stdout, S1_MAX_OUTPUT_BYTES),
+                truncate_output(stderr, S1_MAX_OUTPUT_BYTES / 4),
+            );
+            serde_json::json!({
+                "status": "timeout",
+                "elapsed_secs": elapsed,
+                "timeout_limit_secs": limit,
+                "partial_output": partial,
+            })
+            .to_string()
+        };
+        // S1 支撑（问题卡预防：Windows 开发机 system32 WSL bash 损坏且
+        // CreateProcess 搜索序 system32 恒优先于 PATH——PATH 前置无效）：
+        // bash 可执行文件路径 env 可配，默认 "bash" 行为零变化（Linux 真机
+        // 不受影响；测试经 HEARTH_BASH_BIN 指向 Git Bash）。
+        let bash_bin = ctx
+            .env
+            .get("HEARTH_BASH_BIN")
+            .cloned()
+            .unwrap_or_else(|| "bash".to_string());
+        // S15: 会话 cwd 持久化——包装命令（cd 会话 cwd → 执行 → 尾部回写标记）。
+        let wrapped = if persist_enabled() {
+            wrap_with_cwd(cmd, &ctx.cwd, get_session_cwd().as_deref())
+        } else {
+            cmd.to_string()
+        };
+        let output = match self
             .sandbox
             .spawn(
-                "bash",
-                &["-c", cmd],
+                &bash_bin,
+                &["-c", &wrapped],
                 &ctx.cwd,
                 &env_refs,
                 Duration::from_secs(timeout_secs),
             )
-            .await?;
+            .await
+        {
+            Ok(o) => o,
+            Err(e) if e.to_string().contains("timed out") => {
+                let elapsed = t0.elapsed().as_secs();
+                let formatted = s1_timeout_payload(elapsed, timeout_secs, "", "");
+                return Err(anyhow::Error::new(tool_runtime::BashExitError {
+                    exit_code: -1,
+                    timed_out: true,
+                    formatted,
+                }));
+            }
+            Err(e) => return Err(e),
+        };
+        let elapsed = t0.elapsed().as_secs();
 
         // W4/RC20: 非零退出码/超时 → Err（结构化 error）——scheduler 据此置
-        // ToolResult.is_error=true，CLI/渲染层消费结构化字段，不再猜字符串
-        // （中文错误输出正确投影失败；正常输出含 error 词不再误画红 ✗）。
+        // ToolResult.is_error=true，CLI/渲染层消费结构化字段，不再猜字符串。
         let timed_out = output.timed_out;
         let exit_code = output.exit_code;
-        let formatted = format_output(output);
-        if timed_out || exit_code != 0 {
+        if timed_out {
+            // hearth-slim S1: 超时结构化 JSON——{"status":"timeout","elapsed":X,
+            // "partial_output":...}（截断后首尾保留）。C-fix-status 挂死 5.5h 的
+            // 直接治理：无 deadline 长命令默认 120s 回收，env 可配。
+            let formatted =
+                s1_timeout_payload(elapsed, timeout_secs, &output.stdout, &output.stderr);
+            return Err(anyhow::Error::new(tool_runtime::BashExitError {
+                exit_code,
+                timed_out: true,
+                formatted,
+            }));
+        }
+        // S15: 剥离 cwd 标记 → 回写会话 cwd。**输出零污染**：标记行对 LLM 不可见，
+        // 不追加任何投影行（避免破坏输出相等断言/下游解析；cwd 可见性由模型 `pwd` 自查）。
+        let base_formatted = format_output(output);
+        let (new_cwd, formatted) = if persist_enabled() {
+            extract_cwd_marker(&base_formatted)
+        } else {
+            (None, base_formatted)
+        };
+        if let Some(p) = &new_cwd {
+            set_session_cwd(p.clone());
+        }
+        // S1: 64KB 工具层截断（sandbox 零触碰——在本层收口防膨胀）。
+        let formatted = truncate_output(&formatted, S1_MAX_OUTPUT_BYTES);
+        // S2 审计投影：网络命令 → 结果尾部追加 [net] 行（钉死格式，不阻断）。
+        let formatted = append_net_audit(cmd, formatted);
+        if exit_code != 0 {
             // P2-LR Node 02（RC46 接线）：类型化退出状态（非文本）——scheduler
             // downcast 投影 error_kind（exit >0 / signal / tool timeout 可区分）。
             return Err(anyhow::Error::new(tool_runtime::BashExitError {
                 exit_code,
-                timed_out,
+                timed_out: false,
                 formatted,
             }));
         }
         Ok(formatted)
+    }
+}
+
+/// S2: 审计投影行——格式钉死（见 net_audit_hosts 注释），Ok/Err 两路都带。
+fn append_net_audit(cmd: &str, formatted: String) -> String {
+    match net_audit_hosts(cmd) {
+        None => formatted,
+        Some(hosts) if hosts.is_empty() => {
+            format!("{formatted}\n[net] egress audit: target unresolved")
+        }
+        Some(hosts) => {
+            format!("{formatted}\n[net] egress audit: {}", hosts.join(" "))
+        }
     }
 }
 
@@ -498,14 +730,8 @@ mod tests {
         assert!(e.contains("evil.test"), "须点名被拒域名: {e}");
     }
 
-    /// 空白名单 = 全拒（与 web_fetch T10 口径一致）。
-    #[test]
-    fn test_egress_empty_allowlist_denies_all() {
-        let env = env_with_allowlist("");
-        assert!(check_egress("curl https://example.com/", &env).is_err());
-        let env2 = std::collections::HashMap::new();
-        assert!(check_egress("curl https://example.com/", &env2).is_err());
-    }
+    // （旧测试 test_egress_empty_allowlist_denies_all 已随 S2 语义反转删除——
+    // 空白名单=默认放开 由 test_s2_default_open_empty_allowlist 接管。）
 
     /// 网络命令但识别不出目标主机 → fail-closed 拒绝。
     #[test]
@@ -593,9 +819,10 @@ mod tests {
             .await;
         // W4/RC20: 超时同样走结构化 Err
         assert!(result.is_err(), "超时必须 Err（结构化 error）");
+        let msg = format!("{}", result.unwrap_err());
         assert!(
-            format!("{}", result.unwrap_err()).contains("timed out"),
-            "超时消息必须保留"
+            msg.contains("\"status\":\"timeout\""),
+            "S1 结构化超时格式: {msg}"
         );
     }
 
@@ -694,6 +921,145 @@ mod tests {
         }
     }
 
+    // ── hearth-slim S1（工具超时，先红后绿）──
+
+    /// S1 支撑：测试用 bash 解析——Windows 开发机 system32 WSL bash 损坏
+    /// （Bash/Service/0x8007072c），Git Bash 可用则指向之；Linux 真机不受影响。
+    fn test_bash_bin() -> String {
+        let candidate = "C:\\Program Files\\Git\\bin\\bash.exe";
+        if std::path::Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+        "bash".to_string()
+    }
+
+    /// S1: 超时解析纯函数——effective(deadline) > args > env > 默认 120，cap 600。
+    #[test]
+    fn test_s1_resolve_timeout_priority() {
+        use std::collections::HashMap;
+        use std::time::Duration;
+        let empty: HashMap<String, String> = HashMap::new();
+        let args = serde_json::json!({});
+        // 默认 120
+        assert_eq!(resolve_timeout_secs(&args, None, &empty), 120);
+        // env 覆盖默认
+        let mut env5: HashMap<String, String> = HashMap::new();
+        env5.insert("HEARTH_TOOL_TIMEOUT_SECS".into(), "5".into());
+        assert_eq!(resolve_timeout_secs(&args, None, &env5), 5);
+        // args 覆盖 env
+        let args300 = serde_json::json!({"timeout_secs": 300});
+        assert_eq!(resolve_timeout_secs(&args300, None, &env5), 300);
+        // effective（任务剩余期）最高，且 cap 600
+        assert_eq!(
+            resolve_timeout_secs(&args300, Some(Duration::from_secs(30)), &env5),
+            30
+        );
+        let args_big = serde_json::json!({"timeout_secs": 9999});
+        assert_eq!(resolve_timeout_secs(&args_big, None, &empty), 600);
+    }
+
+    /// S1: 超时返回结构化 JSON（status/elapsed/partial_output）——env 2s 回收 sleep 10。
+    #[tokio::test]
+    async fn test_s1_timeout_structured_json() {
+        let tool = BashTool::new();
+        let mut ctx = ToolContext::default();
+        ctx.env
+            .insert("HEARTH_TOOL_TIMEOUT_SECS".to_string(), "2".to_string());
+        ctx.env
+            .insert("HEARTH_BASH_BIN".to_string(), test_bash_bin());
+        let t0 = std::time::Instant::now();
+        let result = tool
+            .execute(serde_json::json!({"cmd": "sleep 10"}), &ctx)
+            .await;
+        let elapsed = t0.elapsed().as_secs();
+        assert!(result.is_err(), "超时必须 Err");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("\"status\":\"timeout\""),
+            "须含 status=timeout: {msg}"
+        );
+        assert!(msg.contains("elapsed"), "须含 elapsed: {msg}");
+        assert!(msg.contains("partial_output"), "须含 partial_output: {msg}");
+        assert!(
+            elapsed <= 8,
+            "env 2s 必须在 ~2s 回收（实测 {elapsed}s）——5.5h 挂死复发即红"
+        );
+    }
+
+    /// S1: stdout >64KB 截断并标记（防 45 万 tokens 式膨胀复发）。
+    #[tokio::test]
+    async fn test_s1_stdout_truncated_64kb() {
+        let tool = BashTool::new();
+        let mut ctx = ToolContext::default();
+        ctx.env
+            .insert("HEARTH_BASH_BIN".to_string(), test_bash_bin());
+        let result = tool
+            .execute(serde_json::json!({"cmd": "seq 1 40000"}), &ctx)
+            .await
+            .unwrap();
+        assert!(result.contains("[truncated]"), "超 64KB 输出必须带截断标记");
+        assert!(
+            result.len() < 200 * 1024,
+            "截断后输出不得再是巨量: {} bytes",
+            result.len()
+        );
+        // 首尾保留（头部 1 与尾部 40000 都在）
+        assert!(result.contains("1"), "头部内容保留");
+        assert!(result.contains("40000"), "尾部内容保留");
+    }
+
+    // ── hearth-slim S2（出网默认放开，先红后绿）──
+    // 审计投影格式（顶层附加要求：落刀前钉死，防逐卡漂移）：
+    //   触发特征 = 命令含 URL 或已知网络命令（check_egress 同一判定）；
+    //   追加行样式 = `[net] egress audit: <host1> <host2> …`（单行、追加在
+    //   结果尾部、不阻断不解析）；目标不可解析时 = `[net] egress audit: target
+    //   unresolved`。风险披露：提示注入/恶意命令风险已知悉接受（用户拍板
+    //   2026-09-09），审计投影为唯一缓解层。
+
+    /// S2: 默认放开——白名单空/未设 = 全放（语义反转，先红：旧实现全拒）。
+    #[test]
+    fn test_s2_default_open_empty_allowlist() {
+        let env = env_with_allowlist("");
+        assert!(
+            check_egress("curl https://example.com/", &env).is_ok(),
+            "S2 语义反转：空白名单 = 默认放开"
+        );
+        let env2 = std::collections::HashMap::new();
+        assert!(
+            check_egress("curl https://example.com/", &env2).is_ok(),
+            "未设 allowlist = 默认放开"
+        );
+    }
+
+    /// S2: 显式 allowlist 仍然收紧（保留 HEARTH_EGRESS_ALLOWLIST 收紧能力）。
+    #[test]
+    fn test_s2_allowlist_still_tightens() {
+        let env = env_with_allowlist("example.com");
+        let e = check_egress("curl https://evil.test/", &env).unwrap_err();
+        assert!(e.contains("evil.test"), "收紧模式仍按白名单拒绝: {e}");
+    }
+
+    /// S2: 审计投影——网络命令执行成功后结果尾部带 [net] 行（含主机清单）。
+    #[tokio::test]
+    async fn test_s2_audit_projection_appended() {
+        let tool = BashTool::new();
+        let mut ctx = ToolContext::default();
+        ctx.env
+            .insert("HEARTH_BASH_BIN".to_string(), test_bash_bin());
+        let result = tool
+            .execute(
+                serde_json::json!({"cmd": "echo curl-probe && curl -s -m 10 https://example.com -o /dev/null; echo done"}),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(
+            result.contains("[net] egress audit: example.com"),
+            "结果尾部必须带 [net] 审计行（钉死格式）: {result}"
+        );
+        assert!(result.contains("done"), "原输出保留: {result}");
+    }
+
     #[test]
     fn test_description() {
         let tool = BashTool::new();
@@ -729,4 +1095,64 @@ error[E0433]: failed to resolve: use of undeclared crate or module `foo`
     // 正常输出（无编译错误）不追加
     assert!(extract_lints("test result: ok. 10 passed").is_empty());
     assert!(extract_lints("hello world\n").is_empty());
+}
+
+// ── S15（手术包二）：会话 cwd 持久化——纯函数单测（无 env/无进程态，无竞态） ──
+#[cfg(test)]
+mod s15_tests {
+    use super::*;
+
+    #[test]
+    fn test_wrap_with_cwd_uses_session_over_base() {
+        let base = std::path::Path::new("/base");
+        let sess = std::path::Path::new("/deep/dir");
+        // 无会话 cwd → 用 base
+        let w1 = wrap_with_cwd("ls", base, None);
+        assert!(w1.contains("cd '/base'"), "无会话 cwd 用 base：{w1}");
+        assert!(w1.contains("ls"), "用户命令保留");
+        assert!(w1.contains("exit $__hearth_rc"), "退出码保持");
+        assert!(w1.contains(CWD_MARKER), "尾部回写标记在位");
+        // 有会话 cwd → 会话优先（base 是首次起点，会话是当前）
+        let w2 = wrap_with_cwd("pwd", base, Some(sess));
+        assert!(w2.contains("cd '/deep/dir'"), "会话 cwd 优先：{w2}");
+    }
+
+    #[test]
+    fn test_extract_cwd_marker_strips_and_parses() {
+        // 正常：末行标记 → 解析 + 剥离（LLM 不见标记行）
+        let out = "hello\n__HEARTH_CWD__={/home/u/proj}\n";
+        let (cwd, clean) = extract_cwd_marker(out);
+        assert_eq!(cwd, Some(std::path::PathBuf::from("/home/u/proj")));
+        assert!(!clean.contains(CWD_MARKER), "标记必须剥离：{clean}");
+        assert!(clean.contains("hello"), "正文保留");
+        // 取最后一处（命令自身回显的早期标记行**保留**，防伪造；仅尾部真实标记剥离）
+        let out2 = "echo __HEARTH_CWD__={/early}\n__HEARTH_CWD__={/late}";
+        let (cwd2, clean2) = extract_cwd_marker(out2);
+        assert_eq!(cwd2, Some(std::path::PathBuf::from("/late")), "取最后标记");
+        assert!(clean2.contains("{/early}"), "早出现的回显保留（非尾部标记）");
+        assert!(!clean2.contains("/late}"), "尾部标记已剥离：{clean2}");
+        // 无标记 → (None, 原样)
+        let (cwd3, clean3) = extract_cwd_marker("plain output");
+        assert!(cwd3.is_none());
+        assert_eq!(clean3, "plain output");
+    }
+
+    #[test]
+    fn test_extract_cwd_marker_rejects_empty() {
+        let (cwd, clean) = extract_cwd_marker("x\n__HEARTH_CWD__={}\n");
+        assert!(cwd.is_none(), "空路径不采纳");
+        assert!(clean.contains("x"));
+    }
+
+    #[test]
+    fn test_session_cwd_roundtrip_and_toggle() {
+        // 直读写回（测试隔离：本测试只碰自己的值，不依赖 env）
+        let p = std::path::PathBuf::from("/tmp/s15-roundtrip");
+        set_session_cwd(p.clone());
+        assert_eq!(get_session_cwd(), Some(p));
+        // 开关确定性（不设 env 时默认开）
+        if std::env::var("HEARTH_BASH_NO_PERSIST").is_err() {
+            assert!(persist_enabled(), "默认开启持久化");
+        }
+    }
 }

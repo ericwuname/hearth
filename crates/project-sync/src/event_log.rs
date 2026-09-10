@@ -64,13 +64,19 @@ impl EventLog {
 
     /// 获取排他锁（带超时 + 指数退避；竞争写返回 LockContention 语义——由调用方决定事件）。
     /// fs2 try_lock_exclusive: Ok(()) = 获得锁；Err(WouldBlock) = 被占（竞争）。
+    /// Windows 移植：同进程/跨进程锁竞争 fs2 可能直接返回 os error 33
+    ///（ERROR_LOCK_VIOLATION，未归一会 WouldBlock——实测 event_log 锁竞争
+    /// 负例报 33 而非 WouldBlock）——同作竞争退避处理。
     fn lock_exclusive(&self, f: &File) -> Result<()> {
         let mut waited = 0u64;
         let mut backoff = 50u64;
         loop {
             match f.try_lock_exclusive() {
                 Ok(()) => return Ok(()),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.raw_os_error() == Some(33) =>
+                {
                     waited += backoff;
                     if waited >= self.lock_timeout_ms {
                         return Err(PwcError::Other(format!(
@@ -414,8 +420,11 @@ mod tests {
     #[test]
     fn test_lock_timeout() {
         let (_d, log) = tmp_log("lock");
+        // Windows 移植：fs2 LockFileEx 需要可读/写句柄——append-only（无读权限）
+        // 句柄锁立即 ACCESS_DENIED(5)。补 read(true)（Linux flock 不受影响）。
         let f = OpenOptions::new()
             .create(true)
+            .read(true)
             .append(true)
             .open(log.path())
             .unwrap();

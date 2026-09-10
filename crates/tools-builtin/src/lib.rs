@@ -5,6 +5,7 @@ pub mod glob;
 pub mod grep;
 pub mod patch;
 pub mod read;
+pub mod search;
 pub mod status;
 pub mod todo;
 pub mod web;
@@ -15,6 +16,7 @@ pub use glob::GlobTool;
 pub use grep::GrepTool;
 pub use patch::PatchTool;
 pub use read::ReadTool;
+pub use search::WebSearchTool;
 pub use status::IntrospectTool;
 pub use todo::TodoWriteTool;
 pub use web::WebTool;
@@ -121,10 +123,18 @@ mod tests {
     /// R5-9 判据（智能性根治长程任务包 v1.0）：每工具描述必须含五要素——
     /// 何时用/何时不用/示例/边界/错误解读。旧语义：read 5 个词、glob/grep
     /// 一句话（根因四：工具契约贫瘠=弱模型表现的直接杠杆）→ 红。
+    /// S13（手术包二·顶层附加）：审计面从 6 个工具**扩到全部工具**——此前
+    /// introspect / web_fetch 只有一句话（覆盖缺口），且 R5-9 断言集合本身漏了
+    /// 三个工具（缺口会复发）。工具存在 ≠ 模型会用：新工具进注册表就必须过这道门。
     #[test]
     fn test_r59_tool_descriptions_have_five_elements() {
-        use super::{BashTool, EditTool, GlobTool, GrepTool, PatchTool, ReadTool};
+        use super::{
+            BashTool, EditTool, GlobTool, GrepTool, IntrospectTool, PatchTool, ReadTool,
+            TodoWriteTool, WebSearchTool, WebTool,
+        };
         const FIVE: [&str; 5] = ["何时用", "何时不用", "示例", "边界", "错误解读"];
+        // 与生产装配（codex-cli build_dispatcher）一致的**全量**清单——
+        // 新增工具若漏进本清单，下面的数量断言会红（审计面不许缩水）。
         let tools: Vec<Box<dyn tool_runtime::Tool>> = vec![
             Box::new(ReadTool::new()),
             Box::new(BashTool::new()),
@@ -132,7 +142,12 @@ mod tests {
             Box::new(PatchTool::new()),
             Box::new(GlobTool::new()),
             Box::new(GrepTool::new()),
+            Box::new(TodoWriteTool::new()),
+            Box::new(IntrospectTool::new()),
+            Box::new(WebTool::new()),
+            Box::new(WebSearchTool::new()),
         ];
+        assert_eq!(tools.len(), 10, "审计面 = 全部内置工具（10 个）");
         for t in tools {
             let d = t.description();
             for marker in FIVE {

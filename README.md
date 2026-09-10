@@ -93,6 +93,9 @@ hearth config get api-key                # 读取
 | 变量 | 作用 |
 |---|---|
 | `HEARTH_SECCOMP_MODE=errno` | 调试：白名单外返回 EPERM（拒绝但**不杀**），便于看被拦的 syscall |
+| （默认）出网 | **默认放开**（hearth-slim S2，用户拍板 2026-09-09）：bash 网络活动在结果尾部带 `[net] egress audit: <host>` 审计投影（不阻断）；风险已知悉接受，投影为唯一缓解层 |
+| `HEARTH_EGRESS_ALLOWLIST=<域名,域名>` | 收紧出网：设置后 bash 仅放行白名单域名（fail-closed）；不设/空 = 全放 |
+| `HEARTH_TOOL_TIMEOUT_SECS=<秒>` | bash 工具超时（hearth-slim S1，默认 120s，上限 600s；超时返回结构化 `{"status":"timeout","elapsed_secs":…,"partial_output":…}`） |
 | `HEARTH_CGROUP_BASE=<子树>` | 指向可写的 cgroup delegation 子树（VM 非特权环境需要） |
 | `HEARTH_ALLOW_NO_CGROUP=1` | 显式接受"无资源限制"（安全边界 landlock/seccomp 仍生效） |
 

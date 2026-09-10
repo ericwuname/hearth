@@ -68,7 +68,20 @@ impl Tool for WebTool {
     fn description(&self) -> ToolDescription {
         ToolDescription {
             name: "web_fetch".into(),
-            description: "从指定 URL 获取网页正文（受控联网：仅限 HEARTH_EGRESS_ALLOWLIST 白名单域名）。返回 source(URL) + 正文——内容默认未验证断言，影响结果正确性时须再核验。用于查官方文档/primary source。".into(),
+            description: "Fetch the body of a given URL and return its text \
+(controlled networking: the host must be in HEARTH_EGRESS_ALLOWLIST — an empty \
+allowlist denies everything).\n\
+何时用: 已知目标 URL 时取正文核验（官方文档 / primary source）；\
+对 web_search 命中的链接做二次核对后再引用事实。\n\
+何时不用: 不知道该读哪个页面（先 web_search 找链接）；读本项目内的文件（用 read）；\
+只需要搜索摘要而非全文（web_search 更快）。\n\
+示例: web_fetch(url=\"https://doc.rust-lang.org/std/process/struct.Command.html\")。\n\
+边界: 仅 http/https；域名须命中 HEARTH_EGRESS_ALLOWLIST（空白名单 = 全部拒绝，\
+与 bash/web_search 的默认放开口径不同——本工具是 fail-closed）；正文截断至 8000 字符；超时 15s。\n\
+错误解读: \"出网被拒\"=域名不在白名单（提示用户配置 HEARTH_EGRESS_ALLOWLIST）；\
+\"HTTP 404/403\"=链接失效或无权限（回 web_search 换源）；\
+\"fetch 失败（网络/超时）\"=网络不可达（重试或换源，不要谎称内容不存在）。"
+                .into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {

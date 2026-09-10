@@ -282,7 +282,19 @@ mod tests {
     async fn test_bash_exit_code_structured_projection() {
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::BashTool::new()));
-        let sched = Scheduler::new(Arc::new(dispatcher), tool_runtime::ToolContext::default());
+        // Windows 测试支撑（S1 同法）：system32 WSL bash 损坏，Git Bash 存在则
+        // 指向之；Linux/正常环境回落 "bash"（行为零变化）。
+        let bash_bin = "C:\\Program Files\\Git\\bin\\bash.exe";
+        let bash_bin = if std::path::Path::new(bash_bin).exists() {
+            bash_bin.to_string()
+        } else {
+            "bash".to_string()
+        };
+        let ctx = tool_runtime::ToolContext {
+            env: std::iter::once(("HEARTH_BASH_BIN".to_string(), bash_bin)).collect(),
+            ..Default::default()
+        };
+        let sched = Scheduler::new(Arc::new(dispatcher), ctx);
         let calls = vec![agent_types::ToolCall {
             call_id: "c1".into(),
             name: "bash".into(),

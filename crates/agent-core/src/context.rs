@@ -170,7 +170,10 @@ impl ContextManager {
     // 旧轮次折叠为一条摘要消息（保留每轮 goal + 工具清单 + 写盘文件，不丢架构决策）。
 
     /// 触发阈值：历史消息字符粗估超过此值即压缩（≈32k chars ≈ 8k tokens）。
-    pub const COMPACT_CHAR_THRESHOLD: usize = 32_000;
+    // hearth-slim S6：阈值按 2K 基底比例重调（旧 32K 对应 ≈4.7K 基底，≈7×；
+    // 基底瘦身后同比例 → 16K ≈ 8×2K）。真机 45 万 tokens 累计膨胀即旧阈值
+    // 对瘦基底失效的实证；corpus 复测（单条累计 max<80K）由跑测窗验证。
+    pub const COMPACT_CHAR_THRESHOLD: usize = 16_000;
 
     /// 保留最近 N 轮完整（细节留给当前工作区）。
     pub const COMPACT_KEEP_TURNS: usize = 2;
@@ -270,8 +273,15 @@ impl ContextManager {
     /// 的历史细节，用户追问只能得到"无法读取"）。归档只 best-effort：
     /// 落盘失败不阻塞压缩（内存上下文管理优先），错误只记 tracing。
     pub fn maybe_compact(&mut self) -> bool {
-        if self.effective_estimate() < self.compact_char_threshold() {
-            return false;
+        self.maybe_compact_stats().is_some()
+    }
+
+    /// hearth-slim S6：带统计的压缩触发——Some((压缩前 chars, 压缩后 chars))
+    /// 供 loop 层投影 `[compact] 上下文已压缩 N→M chars`（可观测）。
+    pub fn maybe_compact_stats(&mut self) -> Option<(usize, usize)> {
+        let before = self.effective_estimate();
+        if before < self.compact_char_threshold() {
+            return None;
         }
         let keep_from = self
             .state
@@ -279,7 +289,7 @@ impl ContextManager {
             .len()
             .saturating_sub(Self::COMPACT_KEEP_TURNS);
         if keep_from == 0 {
-            return false; // 轮数太少，无折叠意义
+            return None; // 轮数太少，无折叠意义
         }
         let old: Vec<Turn> = self.state.history.drain(..keep_from).collect();
         // H3: 先归档原文（best-effort），再折叠摘要
@@ -354,7 +364,8 @@ impl ContextManager {
             est_chars = self.estimate_chars(),
             "context compacted (WS4)"
         );
-        true
+        let after = self.effective_estimate();
+        Some((before, after))
     }
 }
 
@@ -579,7 +590,8 @@ pub(crate) mod tests {
     use super::*;
 
     /// env 覆盖类测试串行锁（HEARTH_ARCHIVE_FILE 进程全局，防并行互踩）。
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// pub(crate)：loop 测试（test_single_run_compaction_e2e）双锁纪律共用。
+    pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_context_creation() {
@@ -982,6 +994,13 @@ pub(crate) mod tests {
         // var_os 本就返回 OsString（clippy useless_conversion 教训）
         let old_home = std::env::var_os("HOME");
         std::env::set_var("HOME", &dir);
+        // 防御：本测读回的是 HOME 分支文件——若上游某测断言后未恢复 env 而泄漏
+        // HEARTH_ARCHIVE_FILE（archive_path 优先读它），归档即写错路径、本测
+        // 读回 NotFound（全量跑偶发 flake 实证）。开头快照清除，结尾恢复。
+        let old_archive = std::env::var_os("HEARTH_ARCHIVE_FILE");
+        if old_archive.is_some() {
+            std::env::remove_var("HEARTH_ARCHIVE_FILE");
+        }
 
         // 会话 A 与会话 B 各自压缩
         let mut ctx_a = ContextManager::new("goal A".into(), Budget::default());
@@ -1051,6 +1070,10 @@ pub(crate) mod tests {
             Some(h) => std::env::set_var("HOME", h),
             None => std::env::remove_var("HOME"),
         }
+        match old_archive {
+            Some(v) => std::env::set_var("HEARTH_ARCHIVE_FILE", v),
+            None => std::env::remove_var("HEARTH_ARCHIVE_FILE"),
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1059,7 +1082,10 @@ pub(crate) mod tests {
     /// 修复后按字符截取，语义为"60 字符"。
     #[test]
     fn test_compact_long_chinese_goal_no_panic() {
+        // 压缩路径读 HEARTH_ARCHIVE_FILE（进程全局）——须与 set_var 类测试互斥，
+        // 否则并行下归档写进他测路径（全量跑 flake 实证：archive 断言偶发红）。
         let _env_ser = ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut ctx = ContextManager::new("长目标".into(), Budget::default());
         // 中文目标：>60 字节且第 60 字节落在多字节字符中间（真机 panic 场景）
         let long_goal = "帮我写一个完整的、带注释的、可运行的 Rust 实现快速排序并附带单元测试的程序，要求支持泛型和任意比较器";
@@ -1484,6 +1510,9 @@ pub(crate) mod tests {
     /// （record_tool_exchange 每次交换新 Turn）。修复前本测试必须红。
     #[test]
     fn test_compact_fires_in_single_run() {
+        // 双锁纪律补齐（同 test_compact_long_chinese_goal_no_panic 注）：
+        // 本测 set_var HEARTH_ARCHIVE_FILE，须与所有触发压缩的测试互斥。
+        let _env_ser = ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let old_archive = std::env::var("HEARTH_ARCHIVE_FILE").ok();

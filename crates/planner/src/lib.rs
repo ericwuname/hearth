@@ -382,9 +382,10 @@ impl Planner for DefaultPlanner {
                 ],
                 tools: vec![],
                 temperature: Some(0.2),
-                // R9-B3 (v0.1.6): 2048 → 8192——与主循环对齐（loop.rs max_tokens=8192）；
+                // R9-B3 (v0.1.6): 2048 → 8192——与主循环对齐（loop.rs max_tokens）；
                 // 象棋/8000 字长文等大任务目标分解需要大输出（真机 2048 截断 → 空/坏 JSON）。
-                max_tokens: Some(8192),
+                // 修复4：统一 env 取参（HEARTH_MAX_TOKENS，默认 65536）。
+                max_tokens: Some(agent_types::max_output_tokens()),
                 stream: false,
             })
             .await;

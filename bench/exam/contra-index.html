@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="RsvLvJKtFwNVdT8Jn5VZyT">
+<head data-page-node-id="PBFQpNqm0hh6M5nKqgbGsd">
+<meta charset="UTF-8" data-page-node-id="J3cWGRBmyJx3l7lyJOcy0M">
+<title>魂斗罗风格 - 单人闯关</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+canvas { border: 2px solid #333; image-rendering: pixelated; }
+#ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color: #fff; font-family: Arial, sans-serif; font-size: 16px; text-align: center; pointer-events: none; }
+#startScreen, #gameOverScreen, #winScreen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: Arial, sans-serif; text-align: center; }
+#startScreen h1, #gameOverScreen h1, #winScreen h1 { font-size: 48px; margin-bottom: 20px; color: #f00; text-shadow: 2px 2px #ff0; }
+#startScreen p, #gameOverScreen p, #winScreen p { font-size: 20px; margin: 10px; }
+.hidden { display: none; }
+</style>
+</head>
+<body data-page-node-id="JCgOxXbNHmG7RNArgO3xHF">
+<canvas id="gameCanvas" data-page-node-id="VWl9xIwUPj8vC7o8ppvgH5"></canvas>
+<div id="ui" data-page-node-id="oCfpyieCYFsXnSYpidDr6F">
+  <span id="scoreDisplay" data-page-node-id="xEAODHCemlXWKwMD8WLDGb">分数: 0</span> |
+  <span id="lifeDisplay" data-page-node-id="6oC8aXpMKhdMtF5NPg3O8M">生命: 3</span> |
+  <span id="levelDisplay" data-page-node-id="cHVhuKEC1L03xniUsi6udX">关卡: 1</span>
+</div>
+<div id="startScreen" data-page-node-id="b0RngCMAWgZ1BduAcQMP9d">
+  <h1 data-page-node-id="xXbzrSNsOzmyVQISIBYmEm">魂斗罗</h1>
+  <p data-page-node-id="dBJHL4RiXG2y8QCf8DpbKz">按 Enter 开始游戏</p>
+  <p data-page-node-id="0ZB6UHa39h9R7FUByLhoUl">方向键移动 | 空格跳跃 | J 射击</p>
+</div>
+<div id="gameOverScreen" class="hidden" data-page-node-id="RVok9naaSWhD7CVfEW1kbZ">
+  <h1 data-page-node-id="4QDfCsAGtUUDAVMBTbqTuO">游戏结束</h1>
+  <p id="finalScore" data-page-node-id="EFnewQ8X7whhYTDt23cu9A">分数: 0</p>
+  <p data-page-node-id="j27OVScLJWz2wO3dids2fy">按 Enter 重新开始</p>
+</div>
+<div id="winScreen" class="hidden" data-page-node-id="IJCTnYh1vaTSRmSKo3WXV4">
+  <h1 data-page-node-id="FxyrK1HCjK1i2UfFKhy2TZ">胜利!</h1>
+  <p id="winScore" data-page-node-id="kUbD9rp2JZZ5EgTr8eSmRW">分数: 0</p>
+  <p data-page-node-id="3qjBsurUhMJqb3GeeOEDNP">按 Enter 再玩一次</p>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Canvas size
+canvas.width = 800;
+canvas.height = 400;
+
+// Game state
+let gameState = 'start'; // start, playing, gameover, win
+let score = 0;
+let lives = 3;
+let level = 1;
+const maxLevel = 3;
+
+// Keys
+const keys = {};
+document.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Enter') {
+    if (gameState === 'start') startGame();
+    else if (gameState === 'gameover' || gameState === 'win') restartGame();
+  }
+});
+document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+// Player
+const player = {
+  x: 100, y: 300, width: 30, height: 50,
+  vx: 0, vy: 0, speed: 5, jumpForce: -12,
+  onGround: false, facing: 1, // 1 right, -1 left
+  shooting: false, shootCooldown: 0,
+  invincible: 0
+};
+
+// Arrays
+let bullets = [];
+let enemies = [];
+let platforms = [];
+let particles = [];
+
+// Ground level
+const GROUND_Y = 350;
+
+function startGame() {
+  gameState = 'playing';
+  document.getElementById('startScreen').classList.add('hidden');
+  resetLevel();
+}
+
+function restartGame() {
+  score = 0;
+  lives = 3;
+  level = 1;
+  gameState = 'playing';
+  document.getElementById('gameOverScreen').classList.add('hidden');
+  document.getElementById('winScreen').classList.add('hidden');
+  resetLevel();
+}
+
+function resetLevel() {
+  // Reset player
+  player.x = 100;
+  player.y = GROUND_Y - player.height;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = true;
+  player.facing = 1;
+  player.shootCooldown = 0;
+  player.invincible = 0;
+  
+  bullets = [];
+  enemies = [];
+  platforms = [];
+  particles = [];
+  
+  // Generate level based on current level
+  generateLevel();
+}
+
+function generateLevel() {
+  // Ground
+  platforms.push({ x: 0, y: GROUND_Y, width: 800, height: 50, type: 'ground' });
+  
+  // Platforms
+  const numPlatforms = 5 + level * 2;
+  for (let i = 0; i < numPlatforms; i++) {
+    const px = 150 + i * 120 + Math.random() * 50;
+    const py = 250 - Math.random() * 100;
+    platforms.push({ x: px, y: py, width: 80, height: 15, type: 'platform' });
+  }
+  
+  // Enemies
+  const numEnemies = 3 + level * 2;
+  for (let i = 0; i < numEnemies; i++) {
+    const ex = 300 + i * 150 + Math.random() * 100;
+    enemies.push(createEnemy(ex, GROUND_Y - 40));
+  }
+  
+  // Add a boss every 2 levels
+  if (level % 2 === 0 && level <= maxLevel) {
+    enemies.push(createEnemy(700, GROUND_Y - 60, true));
+  }
+}
+
+function createEnemy(x, y, isBoss = false) {
+  return {
+    x, y, width: isBoss ? 60 : 35, height: isBoss ? 60 : 35,
+    vx: -1.5 - level * 0.3, vy: 0,
+    hp: isBoss ? 10 : 2, maxHp: isBoss ? 10 : 2,
+    type: isBoss ? 'boss' : 'soldier',
+    shootTimer: 0
+  };
+}
+
+function spawnParticles(x, y, color, count = 5) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 8,
+      vy: (Math.random() - 0.5) * 8,
+      life: 20 + Math.random() * 10,
+      color
+    });
+  }
+}
+
+function update() {
+  if (gameState !== 'playing') return;
+  
+  // Player movement
+  player.vx = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) {
+    player.vx = -player.speed;
+    player.facing = -1;
+  }
+  if (keys['ArrowRight'] || keys['KeyD']) {
+    player.vx = player.speed;
+    player.facing = 1;
+  }
+  
+  // Jump
+  if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) {
+    player.vy = player.jumpForce;
+    player.onGround = false;
+  }
+  
+  // Shoot
+  if (keys['KeyJ'] && player.shootCooldown <= 0) {
+    bullets.push({
+      x: player.x + (player.facing === 1 ? player.width : 0),
+      y: player.y + player.height / 2 - 3,
+      vx: player.facing * 12,
+      vy: 0,
+      width: 10, height: 6,
+      fromPlayer: true,
+      damage: 1
+    });
+    player.shootCooldown = 12;
+  }
+  if (player.shootCooldown > 0) player.shootCooldown--;
+  
+  // Physics
+  player.vy += 0.6; // gravity
+  player.x += player.vx;
+  player.y += player.vy;
+  
+  // Platform collision
+  player.onGround = false;
+  for (const p of platforms) {
+    if (rectCollision(player, p)) {
+      // Landing on top
+      if (player.vy > 0 && player.y + player.height - player.vy <= p.y + 5) {
+        player.y = p.y - player.height;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
+  }
+  
+  // Boundaries
+  if (player.x < 0) player.x = 0;
+  if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+  if (player.y > canvas.height) {
+    hurtPlayer(1);
+    player.x = 100;
+    player.y = GROUND_Y - player.height;
+    player.vy = 0;
+  }
+  
+  if (player.invincible > 0) player.invincible--;
+  
+  // Update bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    
+    // Remove if off screen
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets.splice(i, 1);
+      continue;
+    }
+    
+    // Bullet vs enemy
+    if (b.fromPlayer) {
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        if (rectCollision(b, e)) {
+          e.hp -= b.damage;
+          bullets.splice(i, 1);
+          spawnParticles(e.x + e.width/2, e.y + e.height/2, '#ff0', 3);
+          
+          if (e.hp <= 0) {
+            score += e.type === 'boss' ? 500 : 100;
+            spawnParticles(e.x + e.width/2, e.y + e.height/2, '#f00', 8);
+            enemies.splice(j, 1);
+          }
+          break;
+        }
+      }
+    }
+  }
+  
+  // Update enemies
+  for (const e of enemies) {
+    e.x += e.vx;
+    e.vy += 0.5;
+    e.y += e.vy;
+    
+    // Enemy platform collision
+    for (const p of platforms) {
+      if (rectCollision(e, p) && e.vy > 0) {
+        e.y = p.y - e.height;
+        e.vy = 0;
+      }
+    }
+    
+    // Enemy shooting
+    e.shootTimer++;
+    if (e.shootTimer >= 60 - level * 5) {
+      e.shootTimer = 0;
+      const dir = e.x > player.x ? -1 : 1;
+      bullets.push({
+        x: e.x + (dir === -1 ? 0 : e.width),
+        y: e.y + e.height / 2 - 3,
+        vx: dir * 6,
+        vy: 0,
+        width: 8, height: 5,
+        fromPlayer: false,
+        damage: 1
+      });
+    }
+    
+    // Enemy vs player collision
+    if (player.invincible <= 0 && rectCollision(player, e)) {
+      hurtPlayer(1);
+    }
+  }
+  
+  // Enemy bullet vs player
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    if (!b.fromPlayer && player.invincible <= 0 && rectCollision(b, player)) {
+      hurtPlayer(b.damage);
+      bullets.splice(i, 1);
+    }
+  }
+  
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  
+  // Check level complete
+  if (enemies.length === 0) {
+    if (level >= maxLevel) {
+      gameState = 'win';
+      document.getElementById('winScore').textContent = '分数: ' + score;
+      document.getElementById('winScreen').classList.remove('hidden');
+    } else {
+      level++;
+      resetLevel();
+    }
+  }
+  
+  // Update UI
+  document.getElementById('scoreDisplay').textContent = '分数: ' + score;
+  document.getElementById('lifeDisplay').textContent = '生命: ' + lives;
+  document.getElementById('levelDisplay').textContent = '关卡: ' + level;
+}
+
+function rectCollision(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x &&
+         a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function hurtPlayer(dmg) {
+  lives -= dmg;
+  player.invincible = 60;
+  spawnParticles(player.x + player.width/2, player.y + player.height/2, '#0ff', 5);
+  
+  if (lives <= 0) {
+    gameState = 'gameover';
+    document.getElementById('finalScore').textContent = '分数: ' + score;
+    document.getElementById('gameOverScreen').classList.remove('hidden');
+  }
+}
+
+function draw() {
+  // Background
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw platforms
+  for (const p of platforms) {
+    ctx.fillStyle = p.type === 'ground' ? '#3a5' : '#864';
+    ctx.fillRect(p.x, p.y, p.width, p.height);
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(p.x, p.y, p.width, p.height);
+  }
+  
+  // Draw player
+  if (player.invincible <= 0 || Math.floor(player.invincible / 3) % 2 === 0) {
+    ctx.fillStyle = '#0af';
+    ctx.fillRect(player.x, player.y, player.width, player.height);
+    // Head
+    ctx.fillStyle = '#fdb';
+    ctx.fillRect(player.x + 5, player.y, 20, 15);
+    // Gun
+    ctx.fillStyle = '#888';
+    if (player.facing === 1) {
+      ctx.fillRect(player.x + player.width, player.y + 20, 15, 6);
+    } else {
+      ctx.fillRect(player.x - 15, player.y + 20, 15, 6);
+    }
+  }
+  
+  // Draw enemies
+  for (const e of enemies) {
+    if (e.type === 'boss') {
+      ctx.fillStyle = '#a00';
+    } else {
+      ctx.fillStyle = '#f80';
+    }
+    ctx.fillRect(e.x, e.y, e.width, e.height);
+    // HP bar
+    if (e.hp < e.maxHp) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(e.x, e.y - 8, e.width, 4);
+      ctx.fillStyle = '#0f0';
+      ctx.fillRect(e.x, e.y - 8, e.width * (e.hp / e.maxHp), 4);
+    }
+  }
+  
+  // Draw bullets
+  for (const b of bullets) {
+    ctx.fillStyle = b.fromPlayer ? '#ff0' : '#f0f';
+    ctx.fillRect(b.x, b.y, b.width, b.height);
+  }
+  
+  // Draw particles
+  for (const p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = p.life / 30;
+    ctx.fillRect(p.x, p.y, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Start
+gameLoop();
+</script>
+</body>
+</html>

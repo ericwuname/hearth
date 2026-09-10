@@ -23,10 +23,24 @@ fn quiet() -> bool {
 }
 
 /// R4 (v0.1.1): 用户指令气泡——`>` 前缀蓝色加粗（视觉区分"谁在说话"）。
+/// S10（手术包二）：每轮重置结果通道分隔线标志（三通道分层渲染的轮界）。
 pub fn user_prompt(goal: &str) {
+    RESULT_OPEN.store(false, Ordering::Relaxed);
     println!();
     println!("{}", format!("> {goal}").bright_blue().bold());
     println!();
+}
+
+/// S10（手术包二）：三通道分层渲染——**结果通道**分隔线标志
+///（首个正文 token 前打印一次 `───── 结果 ─────`；每轮经 user_prompt 重置）。
+static RESULT_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// S10：正文（结果）通道开始——分隔线之下为权威内容（模型最终回答/产物说明）。
+fn ensure_result_separator() {
+    if !RESULT_OPEN.swap(true, Ordering::Relaxed) {
+        println!();
+        println!("{}", "───── 结果 ─────".dimmed());
+    }
 }
 
 /// R4: 工具调用折叠——只显示关键参数（glob→pattern / read/edit→path / bash→command），
@@ -91,6 +105,9 @@ pub fn token(delta: &str) {
     // R3-3 视觉反转（E15）：正文是用户最该读的内容——旧版正文 .dimmed()
     // 暗灰、工具行 .yellow() 亮黄，层级倒挂（正文比噪声还暗）。自本版起
     // 正文正常色、工具行降 dimmed。
+    // S10（手术包二）：正文 = 结果通道——首个 token 前打一次分隔线
+    //（其上为思考/执行通道，其下为权威结果）。
+    ensure_result_separator();
     print!("{delta}");
 }
 
@@ -239,16 +256,34 @@ pub fn think_summary(phase: &str, text: &str) {
     if quiet() {
         return; // R3-3 quiet 档：思考摘要静默
     }
-    // 模型真实推理单独呈现——与"正在规划/执行"这类进度套话区分开，
-    // 让用户看到的是**模型实际在想什么、逻辑是什么**，而不是状态提示。
+    // S10（手术包二）：**思考通道**——暗灰斜体 + `💡 [思考]` 前缀，与
+    // 执行通道（⚙ 工具行）和结果通道（分隔线下的正文）视觉三分。
+    // 思考流不写入对话历史（仅投影——防注意力税回流）。
     if phase == "reasoning" {
-        println!("{}", "💭 推理（模型自述）".dimmed());
         for line in text.lines() {
-            println!("{}", format!("   {line}").dimmed());
+            println!("{}", format!("💡 [思考] {line}").dimmed().italic());
         }
         return;
     }
     println!("{}", format!("💭 [{phase}] {text}").dimmed());
+}
+
+/// S14（手术包二）：任务总结块（TL;DR）——收尾最后一块，**quiet 档也打印**
+/// （R3-3 quiet 档语义 = 只留用户指令/审批/产物/终态/错误；总结正是"终态"里
+/// 用户唯一要看的那一块——它就是"事后不用看过程"的答案）。
+/// 分层：═══ 边框品红加粗、【段名】行白色加粗、正文原色。
+pub fn summary_block(text: &str) {
+    println!();
+    for line in text.lines() {
+        if line.starts_with('═') {
+            println!("{}", line.bright_magenta().bold());
+        } else if line.starts_with('【') {
+            println!("{}", line.bright_white().bold());
+        } else {
+            println!("{line}");
+        }
+    }
+    println!();
 }
 
 /// plan_draft — 规划草案（steps / gaps 审计事实）。

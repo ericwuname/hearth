@@ -762,6 +762,42 @@ pub const MAX_INJECTED_CHARS: usize = 4096;
 /// 截断发生时追加 `\n[... N chars truncated]`（与 loop.rs 分块标记同格式）。
 /// 适用边界：LLM 上下文注入 / 失败事实保全 / 诊断消息等**事实投影**；
 /// 内部 query 构造与纯 UI 摘要豁免（见 docs 截断清单登记）。
+/// 修复 4（手术包二 P0）：最大输出 token 数统一取参。
+/// 背景：agnes-3.0-flash 的 thinking 与正文**共享输出预算**（评估报告 c16d133 实测：
+/// max_tokens=2048 时正文 0 字）；8192 硬编码（loop.rs:2855/2994、planner:387）
+/// 会导致重推理轮正文被截断（真机复现："模型输出残缺"）。env `HEARTH_MAX_TOKENS`
+/// 覆盖，默认 65536（3.0-flash 约束）；下限 256 防呆（过小回退默认并告警），
+/// 上限 131072（防误配）。
+pub fn max_output_tokens() -> u32 {
+    max_output_tokens_from(std::env::var("HEARTH_MAX_TOKENS").ok().as_deref())
+}
+
+/// 纯函数（无 env 读取——测试无竞态）：解析覆盖值。
+/// None/非法 → 默认 65536；<256 回退默认；>131072 收敛上限。
+pub fn max_output_tokens_from(raw: Option<&str>) -> u32 {
+    const DEFAULT: u32 = 65536;
+    const MIN: u32 = 256;
+    const MAX: u32 = 131072;
+    match raw {
+        None => DEFAULT,
+        Some(v) => match v.trim().parse::<u32>() {
+            Ok(n) if n < MIN => {
+                eprintln!("[warn] HEARTH_MAX_TOKENS={n} 过小（<{MIN}），回退默认 {DEFAULT}");
+                DEFAULT
+            }
+            Ok(n) if n > MAX => {
+                eprintln!("[warn] HEARTH_MAX_TOKENS={n} 超上限（>{MAX}），收敛到 {MAX}");
+                MAX
+            }
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("[warn] HEARTH_MAX_TOKENS 非法值 {v:?}，回退默认 {DEFAULT}");
+                DEFAULT
+            }
+        },
+    }
+}
+
 pub fn truncate_marked(s: &str, max_chars: usize) -> String {
     let total = s.chars().count();
     if total <= max_chars {
@@ -793,6 +829,27 @@ mod truncate_marked_tests {
             cjk.contains("[... 4 chars truncated]"),
             "中文字符按 chars 计：{cjk}"
         );
+    }
+
+    /// 修复 4（P0）：输出预算 env 解析——默认/合法/非法/下限/上限。
+    #[test]
+    fn test_max_output_tokens_from_table() {
+        // 未设 → 默认 65536（3.0-flash thinking 共享预算约束）
+        assert_eq!(max_output_tokens_from(None), 65536, "未设 env 用默认 65536");
+        // 合法值直通
+        assert_eq!(max_output_tokens_from(Some("8192")), 8192, "显式 8192 直通");
+        assert_eq!(max_output_tokens_from(Some(" 32768 ")), 32768, "容忍空白");
+        // 非法值 → 默认
+        assert_eq!(max_output_tokens_from(Some("abc")), 65536, "非法回退默认");
+        assert_eq!(max_output_tokens_from(Some("")), 65536, "空串回退默认");
+        // 下限保护（<256 回退默认）
+        assert_eq!(max_output_tokens_from(Some("16")), 65536, "过小回退默认");
+        assert_eq!(max_output_tokens_from(Some("255")), 65536, "边界 255 回退");
+        assert_eq!(max_output_tokens_from(Some("256")), 256, "边界 256 生效");
+        // 上限保护
+        assert_eq!(max_output_tokens_from(Some("999999")), 131072, "超限收敛");
+        // 负数是非法 parse（u32）→ 默认
+        assert_eq!(max_output_tokens_from(Some("-5")), 65536, "负数回退默认");
     }
 }
 

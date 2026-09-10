@@ -328,6 +328,8 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
     }
 
     let mut line_editor = Reedline::create();
+    // S11（手术包二）：连续两次 Ctrl-C（3s 内）才退出 REPL 的连击记录。
+    let mut last_ctrl_c: Option<std::time::Instant> = None;
     let prompt = DefaultPrompt::new(
         DefaultPromptSegment::Basic("hearth> ".into()),
         DefaultPromptSegment::Empty,
@@ -356,7 +358,24 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
     }
     loop {
         let line: Option<String> = match line_editor.read_line(&prompt) {
-            Ok(Signal::CtrlC) | Ok(Signal::CtrlD) => None,
+            // S11（手术包二）：Ctrl-C 双击退出——单次只"清空当前输入"（不误退、
+            // 不丢会话上下文）；**连续两次（3s 内）**才退出 REPL。会话每轮已
+            // 落盘（session_store），退出也不丢历史（hearth resume 可恢复）。
+            Ok(Signal::CtrlC) => {
+                let now = std::time::Instant::now();
+                if is_double_ctrl_c(last_ctrl_c, now) {
+                    crate::render::info(
+                        "  ⏹ 再次 Ctrl-C —— 退出 REPL（历史已落盘，`hearth resume <id>` 可恢复）",
+                    );
+                    break;
+                }
+                last_ctrl_c = Some(now);
+                crate::render::info(
+                    "  ⏸ Ctrl-C：已清空当前输入（会话上下文保留）——再按一次（3s 内）退出 REPL",
+                );
+                continue;
+            }
+            Ok(Signal::CtrlD) => None,
             Ok(Signal::Success(buf)) => Some(buf.trim().to_string()),
             Err(_) => {
                 // reedline 光标查询失败（受限终端/测试 pty 不响应 ESC[6n）——
@@ -403,8 +422,29 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
         }
         if matches!(line.as_str(), "/help" | "/h") {
             crate::render::info(
-                "命令：/quit 退出 · /file <路径> 读文件全文 · `{`…`}` 多行粘贴（贴完单独一行 } 提交）· trust on|off 会话级审批委托 · 运行中 Ctrl-C 取消本轮 · Ctrl-D 退出",
+                "命令：/quit 退出 · /file <路径> 读文件全文 · /summary 本会话至今总结 · `{`…`}` 多行粘贴（贴完单独一行 } 提交）· trust on|off 会话级审批委托 · 运行中 Ctrl-C 取消本轮 · Ctrl-D 退出",
             );
+            continue;
+        }
+        // S14（手术包二）：`/summary`——长会话随时要"至今做成了什么"的 TL;DR
+        // （复用 agent 侧同一函数/同一模板，与 run 收尾的总结同源；不消耗
+        // 步数预算、不写对话历史；模型不可用 → 机械降级块）。
+        if matches!(line.as_str(), "/summary") {
+            match agent.as_mut() {
+                Some(a) => {
+                    crate::render::info("  ⏳ 正在生成本会话总结（一次小调用，≤800 tokens）…");
+                    let s = a.summarize_session().await;
+                    crate::render::summary_block(&s.text);
+                    if !s.generated {
+                        crate::render::info(
+                            "  ↳ 机械降级（模型不可用/超时）——产物·自检为实数据，叙述段标「生成失败」",
+                        );
+                    }
+                }
+                None => {
+                    crate::render::error("会话不可用（agent 未初始化）——先发一条指令再 /summary")
+                }
+            }
             continue;
         }
         // RC29/RC24-C: 会话级审批委托——trust on / trust off（显式 opt-in，可随时撤销）
@@ -542,4 +582,40 @@ fn rebuild_agent(
     budget: u64,
 ) -> anyhow::Result<agent_core::AgentLoop> {
     crate::run_local::rebuild_agent(cfg, session_id, budget)
+}
+
+/// S11（手术包二）：REPL 退出判定——**连续两次 Ctrl-C（间隔 < 3s）**才退出；
+/// 单次 Ctrl-C 只清空当前输入（会话上下文保留，不误退丢上下文）。
+/// 纯函数（无 tty 依赖——reedline 交互由真机目测过关）。
+fn is_double_ctrl_c(prev: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    prev.map(|p| now.duration_since(p) < std::time::Duration::from_secs(3))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod s11_tests {
+    use super::is_double_ctrl_c;
+    use std::time::{Duration, Instant};
+
+    /// S11②：3s 内第二次 = 退出；单次/超时/乱序（now < prev）都不是退出。
+    #[test]
+    fn test_s11_double_ctrl_c_rule() {
+        let t0 = Instant::now();
+        assert!(
+            !is_double_ctrl_c(None, t0),
+            "首次 Ctrl-C 不得退出（只清空输入）"
+        );
+        assert!(
+            is_double_ctrl_c(Some(t0), t0 + Duration::from_millis(1200)),
+            "3s 内第二次 Ctrl-C 必须退出"
+        );
+        assert!(
+            !is_double_ctrl_c(Some(t0), t0 + Duration::from_secs(3)),
+            "恰好 3s（不含）不得退出"
+        );
+        assert!(
+            !is_double_ctrl_c(Some(t0), t0 + Duration::from_secs(10)),
+            "超时后的 Ctrl-C 只算新一次（需再按一次才退出）"
+        );
+    }
 }

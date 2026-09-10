@@ -45,10 +45,17 @@ pub struct Config {
     pub mode: Option<String>,
     /// D5: 开头轻探开关（默认 true；false 关闭）
     pub feedback_prompt: Option<bool>,
-    /// T10 (v0.2.3): 出网白名单——web_fetch 仅放行这些域名/后缀（逗号分隔，空=全拒）
+    /// T10 (v0.2.3) + hearth-slim S2: 出网白名单——web_fetch 空列表=全拒（不变）；
+    /// bash 空列表=默认放开（S2 语义反转，网络活动带 [net] 审计投影）
     pub egress_allowlist: Option<Vec<String>>,
     /// RC25: 读范围白名单（绝对路径列表；设置时替换默认 cwd+HOME）
     read_roots: Option<Vec<String>>,
+    /// S9（手术包二）：provider 降级链（有序，如 ["agnes","zhipu","gemini"]）。
+    /// 空/单元素 = 单通道（现行为不变）。**不含 key**。
+    pub providers: Option<Vec<String>>,
+    /// S9：各通道 key（`[provider_keys] agnes = "..."`）——本机 config.toml
+    ///（权限 600，unix），**永不入 git**（Push Protection 红线——任何 key 入库翻车）。
+    pub provider_keys: Option<std::collections::HashMap<String, String>>,
 }
 
 impl Config {
@@ -76,6 +83,13 @@ impl Config {
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text).with_context(|| format!("write {}", tmp.display()))?;
         std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        // S9（手术包二）：config 可含各通道 key（provider_keys）——权限收紧 600
+        //（unix；Windows 依赖用户目录 ACL），且**永不入 git**（红线）。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 
@@ -171,11 +185,23 @@ impl Config {
                 .or_else(|| self.mode.clone())
                 .unwrap_or_else(|| "auto".to_string()),
             feedback_prompt: self.feedback_prompt.unwrap_or(true),
-            // T10 (v0.2.3): 出网白名单 = 进程 env HEARTH_EGRESS_ALLOWLIST + config.toml（env 优先合并）
+            // T10 (v0.2.3) + hearth-slim S2: 出网白名单 = 进程 env HEARTH_EGRESS_ALLOWLIST + config.toml（env 优先合并；消费语义见各工具——bash 空=默认放开，web_fetch 空=全拒）
             egress_allowlist: merge_allowlist(
                 env("HEARTH_EGRESS_ALLOWLIST"),
                 self.egress_allowlist.as_deref(),
             ),
+            // S9（手术包二）：降级链——env HEARTH_PROVIDERS（逗号）> config providers。
+            // 空/单元素 = 单通道（现行为不变）。
+            providers: env("HEARTH_PROVIDERS")
+                .map(|s| {
+                    s.split(',')
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .or_else(|| self.providers.clone())
+                .unwrap_or_default(),
+            provider_keys: self.provider_keys.clone().unwrap_or_default(),
         };
         // RC18: explicit provider + explicit url (arg/env, not file) -> mismatch check
         if url_warning.is_none() {
@@ -245,6 +271,10 @@ pub struct ResolvedConfig {
     pub url_warning: Option<String>,
     /// RC25: read roots whitelist (config read_roots; None = default cwd+HOME)
     pub read_roots: Option<Vec<String>>,
+    /// S9（手术包二）：provider 降级链（有序；len<=1 = 单通道，行为不变）。
+    pub providers: Vec<String>,
+    /// S9：各通道 key（链内通道使用；主通道沿用 api_key 兜底）。
+    pub provider_keys: std::collections::HashMap<String, String>,
 }
 
 impl ResolvedConfig {
@@ -309,6 +339,8 @@ mod tests {
             egress_allowlist: Vec::new(),
             url_warning: None,
             read_roots: None,
+            providers: Vec::new(),
+            provider_keys: std::collections::HashMap::new(),
         };
         let err = r.require_api_key().unwrap_err().to_string();
         assert!(err.contains("下一步"), "报错必须含下一步动作: {err}");
@@ -316,6 +348,32 @@ mod tests {
             err.contains("config set api-key"),
             "必须提示 config set: {err}"
         );
+    }
+
+    /// S9（手术包二）：降级链配置解析——config providers 生效 / env 优先 /
+    /// 缺省为空（单通道行为不变）。
+    #[test]
+    fn test_s9_resolve_providers_chain() {
+        let _env_ser = p3_tests::ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("HEARTH_PROVIDERS");
+        let mut cfg = Config::default();
+        cfg.providers = Some(vec!["agnes".into(), "zhipu".into(), "gemini".into()]);
+        let r = cfg.resolve(None, None, None, None, None);
+        assert_eq!(
+            r.providers,
+            vec!["agnes", "zhipu", "gemini"],
+            "config providers 必须生效（有序链）"
+        );
+        std::env::set_var("HEARTH_PROVIDERS", "deepseek,openai");
+        let r2 = cfg.resolve(None, None, None, None, None);
+        assert_eq!(
+            r2.providers,
+            vec!["deepseek", "openai"],
+            "env HEARTH_PROVIDERS 优先于 config"
+        );
+        std::env::remove_var("HEARTH_PROVIDERS");
+        let r3 = Config::default().resolve(None, None, None, None, None);
+        assert!(r3.providers.is_empty(), "缺省 = 空链（单通道行为不变）");
     }
 }
 

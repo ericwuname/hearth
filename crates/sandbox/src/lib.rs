@@ -1559,7 +1559,7 @@ mod tests {
 
     /// Probe whether landlock is available on this kernel.
     /// Returns true if landlock_create_ruleset syscall succeeds.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     fn landlock_available() -> bool {
         use nix::libc;
         #[repr(C)]
@@ -1775,6 +1775,7 @@ mod tests {
     /// B-2 (RT3): 白名单必须覆盖 cargo test/build/python3/bash 实测的 syscall
     /// 与进程生命周期必需类（docs/seccomp-allowlist-v1.md）。自检：临时把
     /// SECCOMP_ALLOWLIST 清空则本断言必失败（证明非永真）。
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_allowlist_covers_cargo_syscalls() {
         // strace -f -c 实测集（cargo test 全量编译+运行 / build / python3 / bash）
@@ -1804,6 +1805,7 @@ mod tests {
     /// 实测 curl `Resolving timed out`、getent 被 SIGSYS 杀）。
     /// **负向断言**：服务端能力（bind 49 / listen 50 / accept 43）**不得**在白名单——
     /// 证明这是"放行出网"而非"放开沙箱"。
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_p5_egress_syscalls_allowed_and_server_blocked() {
         let allow = &crate::linux_impl::SECCOMP_ALLOWLIST;
@@ -1837,6 +1839,7 @@ mod tests {
 
     /// P5 可观测性：被 SIGSYS 杀死时必须有结构化说明（取代"核心已转储"）。
     /// 纯函数单测——先红后绿：把 31 改成 9 则本测试红（证明非永真）。
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_p5_signal_note_for_sigsys() {
         let note = crate::linux_impl::sandbox_signal_note(31).expect("SIGSYS 必须有说明");

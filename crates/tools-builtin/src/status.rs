@@ -31,7 +31,17 @@ impl Tool for IntrospectTool {
     fn description(&self) -> ToolDescription {
         ToolDescription {
             name: "introspect".into(),
-            description: "查询 Hearth 自身运行状态（体感内观）：当前相位、已用步数/预算上限、上下文填充百分比、已写文件数、provider。在感觉任务要超预算或上下文膨胀时调用，主动向用户汇报或请求重新评估。".into(),
+            description: "查询 Hearth 自身运行状态（体感内观）：当前相位、已用步数/预算上限、\
+上下文压缩压力百分比、已写文件数、workspace、provider。\n\
+何时用: 感觉快要超预算或上下文膨胀时；长任务中途做一次自我汇报；\
+向用户说明\"还剩多少额度/做到哪\"之前先取真实数据（不靠猜）。\n\
+何时不用: 需要项目内的代码/文件事实（read/grep/glob）；需要外部资料（web_search）。\n\
+示例: introspect()——无参数；返回 JSON（steps_used / budget_max_steps / compact_pressure_pct / written_files）。\n\
+边界: 只读自身状态，无参数、无副作用；数据来自 agent 每步写入的状态快照（不是新事实源，\
+不产生新证据）；返回字段缺失表示该状态尚未产生。\n\
+错误解读: 缺 steps_used/budget_max_steps = 尚无 run 状态（首次调用或非 agent 环境）；\
+\"body state not available yet\" = 状态快照未注入——不要据此宣称任务完成或预算耗尽。"
+                .into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {},

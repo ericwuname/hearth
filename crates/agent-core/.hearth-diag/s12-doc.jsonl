@@ -1,0 +1,16 @@
+{"elapsed_ms":0,"next":"Act","sid":"s12-doc","step":0,"step_type":"plan","t":"2026-09-10T15:11:06.727405300+00:00","writes":0}
+{"elapsed_ms":1,"next":"Plan","sid":"s12-doc","step":1,"step_type":"act","t":"2026-09-10T15:11:06.730426600+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T15:11:06.731054100+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T15:11:20.343015200+00:00","writes":1}
+{"elapsed_ms":0,"next":"Act","sid":"s12-doc","step":0,"step_type":"plan","t":"2026-09-10T15:28:17.658159+00:00","writes":0}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T15:45:07.344637200+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T16:04:41.198308700+00:00","writes":1}
+{"elapsed_ms":0,"next":"Act","sid":"s12-doc","step":0,"step_type":"plan","t":"2026-09-10T16:07:29.616396500+00:00","writes":0}
+{"elapsed_ms":2,"next":"Plan","sid":"s12-doc","step":1,"step_type":"act","t":"2026-09-10T16:07:29.622250400+00:00","writes":1}
+{"elapsed_ms":0,"next":"Act","sid":"s12-doc","step":0,"step_type":"plan","t":"2026-09-10T16:13:54.560060400+00:00","writes":0}
+{"elapsed_ms":2,"next":"Plan","sid":"s12-doc","step":1,"step_type":"act","t":"2026-09-10T16:13:54.566278+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T16:13:54.567417500+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T19:55:56.696603+00:00","writes":1}
+{"elapsed_ms":0,"next":"Act","sid":"s12-doc","step":0,"step_type":"plan","t":"2026-09-10T19:58:03.764796800+00:00","writes":0}
+{"elapsed_ms":2,"next":"Plan","sid":"s12-doc","step":1,"step_type":"act","t":"2026-09-10T19:58:03.772629100+00:00","writes":1}
+{"elapsed_ms":0,"next":"Done","sid":"s12-doc","step":2,"step_type":"plan","t":"2026-09-10T19:58:03.774675100+00:00","writes":1}

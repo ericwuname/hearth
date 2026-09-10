@@ -538,7 +538,10 @@ async fn test_p1_f1_multi_turn_user_message_in_context() {
 
     struct SpyingProvider {
         inner: MockProvider,
-        last_messages: StdMutex<Vec<String>>,
+        /// F1：**累计**每次 chat 的消息快照（S14 起 run 收尾会多一次"任务总结"
+        /// 调用——单存"最后一次"会被总结请求覆盖，掩盖任务上下文；断言时按
+        /// 系统提示排除总结调用）。
+        calls: StdMutex<Vec<Vec<String>>>,
     }
 
     #[async_trait]
@@ -560,8 +563,8 @@ async fn test_p1_f1_multi_turn_user_message_in_context() {
                 .map(|m| format!("{:?}", m.content))
                 .collect();
             {
-                let mut lm = self.last_messages.lock().unwrap();
-                *lm = contents.clone();
+                let mut lm = self.calls.lock().unwrap();
+                lm.push(contents.clone());
             }
             // Delegate to inner
             self.inner.chat(req).await
@@ -578,7 +581,7 @@ async fn test_p1_f1_multi_turn_user_message_in_context() {
 
     let spy = Arc::new(SpyingProvider {
         inner: MockProvider::new("spy", build_script()),
-        last_messages: StdMutex::new(Vec::new()),
+        calls: StdMutex::new(Vec::new()),
     });
 
     let mut registry = ProviderRegistry::new();
@@ -642,14 +645,28 @@ async fn test_p1_f1_multi_turn_user_message_in_context() {
     }
 
     // Check that the spy captured the user message
-    let captured = spy.last_messages.lock().unwrap();
-    let all_text: String = captured.join(" ||| ");
+    let captured = spy.calls.lock().unwrap();
+    // S14（手术包二）：收尾会多一次"任务总结"调用（其 prompt 是聚合事实，不含
+    // 原始 user message）——按系统提示排除该调用，断言仍聚焦**任务上下文**请求。
+    let task_calls: Vec<&Vec<String>> = captured
+        .iter()
+        .filter(|c| !c.iter().any(|s| s.contains("交付总结器")))
+        .collect();
+    assert!(
+        !task_calls.is_empty(),
+        "F1 FAIL: 未捕获到任何任务上下文请求（只有总结调用？）"
+    );
+    let all_text: String = task_calls
+        .iter()
+        .flat_map(|c| c.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ||| ");
     eprintln!("F1 spy captured messages: {}", all_text);
     assert!(
         all_text.contains(unique_msg),
         "F1 FAIL: user message '{}' not found in ChatRequest messages. Captured: {:?}",
         unique_msg,
-        captured
+        task_calls
     );
 
     eprintln!("P1-F1 PASS: user message reaches LLM context");

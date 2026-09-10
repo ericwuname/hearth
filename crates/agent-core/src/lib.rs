@@ -19,8 +19,8 @@ pub use orchestrator::{
     execute_plan, PipelineRunner, TaskOrchestrator, TaskReport, TaskStep, TaskValidator,
 };
 pub use r#loop::{
-    Agent, AgentLoop, ApprovalPolicy, CivWriter, EgressPersistFn, Event, Goal, LoopPhase,
-    RunReport, StepOutcome,
+    Agent, AgentLoop, ApprovalPolicy, CivWriter, EgressPersistFn, Event, Goal, RunReport, StepNext,
+    StepOutcome,
 };
 pub use replay::{replay_session, ReplaySummary};
 pub use scheduler::Scheduler;

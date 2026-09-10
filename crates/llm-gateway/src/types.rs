@@ -32,6 +32,12 @@ pub enum StreamEvent {
         call_id: String,
         name: Option<String>,
         args_delta: String,
+        /// PC-1 修复（P0/P1 修复任务书 v1.0）：OpenAI 风格 SSE 的 tool_calls 分片
+        /// **只有首片带 id**，后续片只有 `index` + arguments 增量——消费端必须按
+        /// index 聚合，否则后续片被当成新 call（工具名空/参数碎，实测 agnes 全工具
+        /// 失效）。非分片协议（ollama/replay）填 0。
+        #[serde(default)]
+        index: usize,
     },
     Finish {
         finish_reason: Option<String>,
@@ -100,17 +106,13 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
     {
         return ErrorClass::Fatal;
     }
-    // T2 (v0.2.3): 端点死（通道下线）≠ 瞬时抖动——connection refused/unreachable/DNS
-    // 是"通道已死"，重试无意义 → Fatal（提示换通道）；此前一律 Transient 导致死通道无限重试。
-    if low.contains("connection refused")
-        || low.contains("unreachable")
-        || low.contains("name or service not known")
-        || low.contains("dns")
-        || low.contains("temporarily down")
-    {
-        return ErrorClass::Fatal;
-    }
-    // 瞬时：传输/连接/超时/速率限制
+    // S7（手术包二）：网络类（不可达/DNS/连接拒绝）从 Fatal 降回 Transient——
+    // 用户拍板"等 1 分钟或者几分钟再试"，原 T2"通道已死"判定使断网即终止，
+    // 与 S7 长退避窗口冲突（真机断网 2 分钟恢复需续行）。防死通道无限重试的
+    // 职责移交**重试窗口上限**（loop 层 HEARTH_RETRY_WINDOW_MINS 默认 30 分钟
+    // 耗尽 → 暂停语义；S9 降级链再接通道切换）。唯一保留的网络类 Fatal =
+    // 连续 2 次 read-body 畸形流（上方规则，同一畸形流重试不自愈）。
+    // 瞬时：传输/连接/超时/速率限制/5xx 服务端
     if low.contains("read body")
         || low.contains("request failed")
         || low.contains("timed out")
@@ -119,9 +121,31 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
         || low.contains("reset")
         || low.contains("network")
         || low.contains("send request")
+        || low.contains("unreachable")
+        || low.contains("refused")
+        || low.contains("name or service not known")
+        || low.contains("dns")
+        || low.contains("temporarily down")
         || low.contains("429")
         || low.contains("1302")
         || low.contains("eof")
+    {
+        return ErrorClass::Transient;
+    }
+    // S7：5xx 服务端错误可重试（瞬时段）；策略拒绝/未知错误仍 Fatal（兜底）。
+    // PC-3 修复（P0/P1 修复任务书 v1.0）：**全部 5xx**（含 502/503/504 上游网关）
+    // 统一 Transient——旧规则只认 "500"/"internal server error"/"upstream"，
+    // 非结构化的通道（如 llm-cn 的 anyhow 文本）返回 "502" 时落到 Fatal 兜底，
+    // 与"5xx 统一 transient"口径不符（跨通道一致性）。
+    if low.contains("500")
+        || low.contains("502")
+        || low.contains("503")
+        || low.contains("504")
+        || low.contains("internal server error")
+        || low.contains("upstream")
+        || low.contains("bad gateway")
+        || low.contains("service unavailable")
+        || low.contains("gateway timeout")
     {
         return ErrorClass::Transient;
     }
@@ -225,16 +249,18 @@ mod tests {
             ("OpenAI request failed: connection reset", Transient),
             ("request timed out", Transient),
             ("HTTP 429: rate limited (code 1302)", Transient),
-            // T2 (v0.2.3): network unreachable = 通道死（Fatal，重试无意义）——旧表判 Transient 误导死通道无限重试
-            ("send request error: network unreachable", Fatal),
-            ("connection refused", Fatal),
-            ("name or service not known", Fatal),
+            // S7（手术包二）：网络类改判 Transient——断网可恢复（长退避窗口 +
+            // 窗口耗尽暂停语义兜底；S9 降级链再接通道切换）。原 T2"通道已死=Fatal"
+            // 使断网即终止，与 S7 目标冲突。
+            ("send request error: network unreachable", Transient),
+            ("connection refused", Transient),
+            ("name or service not known", Transient),
             // 瞬时（timeout/429）仍 Transient——可重试
             ("request timed out", Transient),
             ("HTTP 429 rate limit", Transient),
             // Tier3 T3 (handoff): 连续 2 次 read-body 失败 → provider 层标 Fatal
             // （同一畸形流重试不会自愈）——loop 收到 Fatal 不再重试，快速失败
-            // 切 FallbackChain。B04/B06（200s 挂起）的正面阻断。
+            // 切 FallbackChain。B04/B06（200s 挂起）的正面阻断。S7 保留。
             (
                 "read body failed twice consecutively (stream likely broken): error decoding response body — not retrying same provider",
                 Fatal,
@@ -244,9 +270,15 @@ mod tests {
             ("missing 'content' argument", Param),
             ("parse response: expected value at line 1", Param),
             ("OpenAI error 400: bad parameter", Param),
-            // HTTP 500 / 供应商内部错误 / 策略拒绝 → Fatal（give_up，不空转）
-            ("HTTP 500: internal server error", Fatal),
-            ("OpenAI error 500: upstream failure", Fatal),
+            // S7：5xx 服务端错误改判 Transient（可重试）；策略拒绝/未知错误仍 Fatal
+            ("HTTP 500: internal server error", Transient),
+            ("OpenAI error 500: upstream failure", Transient),
+            // PC-3（P0/P1 修复任务书 v1.0）：全部 5xx（含 502/503/504 上游网关）
+            // 统一 Transient——实测 agnes 上游 502 曾判 unrecoverable 零重试。
+            ("HTTP 502: bad gateway", Transient),
+            ("Hunyuan error 502 Bad Gateway: upstream", Transient),
+            ("error 503 service unavailable", Transient),
+            ("504 gateway timeout", Transient),
             ("content policy violation", Fatal),
             ("unknown provider error", Fatal),
         ];
