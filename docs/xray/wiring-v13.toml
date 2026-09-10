@@ -153,13 +153,13 @@ meaning = "CostGuard 仍为有效守卫"
 # ── v19.0 S3: 经验自适应开关 ─────────────────────────────
 [[capability]]
 id = "experience-adaptive-switch"
-claim = "经验注入受 consecutive_errors>=3 自适应门控（弱模型降级通道，非强模型常驻噪音）"
+claim = "经验注入自适应门控（consecutive_errors>=3）已退役——线C手术 D-9 删除该条件（B 臂 do_reflect 维护者随相位机拆除，D-7 起恒 0 死分支）；experience_store 机制本体保留（set_experience_store 在位，A 臂行为零变化）"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
-all = ["consecutive_errors >= 3", "store.search"]
-meaning = "只有连续失败≥3 才搜索经验注入"
+all = ["experience_store", "set_experience_store"]
+meaning = "机制本体保留（注入门控已退役——锚点更新至现状，S5/C-1 规格同步）"
 
 # ── v20.0 S1: planner all_done 需要真实 Write 节点 ─────────────
 [[capability]]
