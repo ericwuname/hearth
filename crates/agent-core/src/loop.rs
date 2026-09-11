@@ -134,6 +134,46 @@ enum SelfCheckGate {
     Replan,
 }
 
+/// K-1（契约手术，2026-09-11）：**交付物类型核对**——完成语义 2.0。
+/// 病灶（EMBER M0 v1 实测）：任务要求"在 ember/ 从零实现一个 Python CLI"，
+/// 21 步探测（找 key/验 python3/写 probe.json）后即 `✓ Done`，**核心交付物零行**
+/// ——all_done 校验只看"产物非空"，probe.json 是探测残留却满足了闸门。
+/// 本函数：任务文本含**产物意图**（实现/创建/写/生成/脚本/CLI/工具…）时，
+/// 核对实际产物**类型**是否匹配；缺失类型返回说明串（供 Replan 回喂）。
+fn deliverable_type_mismatch(goal: &str, written: &[WrittenFile]) -> Option<String> {
+    let g = goal.to_ascii_lowercase();
+    let expects_code = ["实现", "脚本", "cli", "工具", "程序", "命令行", "小工具"]
+        .iter()
+        .any(|k| g.contains(k));
+    let expects_doc = ["报告", "文档", "readme", "说明文件", "总结"]
+        .iter()
+        .any(|k| g.contains(k));
+    let expects_cfg = ["config", "配置文件", "配置项"]
+        .iter()
+        .any(|k| g.contains(k));
+    let has_ext = |exts: &[&str]| {
+        written.iter().any(|w| {
+            let p = w.path.to_ascii_lowercase();
+            exts.iter().any(|e| p.ends_with(e))
+        })
+    };
+    let mut missing: Vec<&str> = Vec::new();
+    if expects_code && !has_ext(&[".py", ".rs", ".js", ".ts", ".sh", ".go", ".java", ".c", ".cpp"]) {
+        missing.push("源码/脚本文件（.py/.rs/.js/.sh…）");
+    }
+    if expects_doc && !has_ext(&[".md", ".txt", ".rst"]) {
+        missing.push("文档（.md/.txt）");
+    }
+    if expects_cfg && !has_ext(&[".json", ".toml", ".yaml", ".yml", ".ini", ".cfg"]) {
+        missing.push("配置文件（.json/.toml/.yaml）");
+    }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(missing.join("、"))
+    }
+}
+
 /// Internal event emitted during the loop (mapped to api::AgentEvent by service).
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -3991,6 +4031,37 @@ impl AgentLoop {
     /// 失败事实回喂修复（≤2 轮）；轮次用尽 → **诚实交付**（记录未过项，不静默
     /// 交半成品）。自检结果始终写 scratch["selfcheck_result"]（进 run report）。
     async fn self_check_gate(&mut self) -> Result<SelfCheckGate> {
+        // K-1（契约手术）：**交付物类型核对**（完成语义 2.0）——先于产物自检。
+        // M0 v1 病灶：产物非空（探测残留 probe.json）即 Done，核心交付零行。
+        let goal_text = self
+            .ctx_mgr
+            .state()
+            .original_goal
+            .clone()
+            .unwrap_or_default();
+        if let Some(missing) = deliverable_type_mismatch(&goal_text, &self.written_files) {
+            if self.self_check_rounds >= 2 {
+                self.emit(Event::ThinkSummary {
+                    phase: "selfcheck".to_string(),
+                    text: format!(
+                        "[selfcheck] 交付物类型核对未过（2 轮已用尽）——缺：{missing}。诚实交付：产物清单见 run report。"
+                    ),
+                });
+                return Ok(SelfCheckGate::Proceed);
+            }
+            self.self_check_rounds += 1;
+            self.emit(Event::ThinkSummary {
+                phase: "selfcheck".to_string(),
+                text: format!(
+                    "[selfcheck] 交付物类型核对未过——任务要求含产物意图，但实际产物缺：{missing}（轮次 {}/2，回喂修复）",
+                    self.self_check_rounds
+                ),
+            });
+            self.ctx_mgr.add_user_message(format!(
+                "[selfcheck] 任务要求的交付物类型缺失：{missing}。当前产物不足以交卷——请继续完成核心交付物（不要只改说明文字，也不要只做环境探测）。"
+            ));
+            return Ok(SelfCheckGate::Replan);
+        }
         if self.written_files.is_empty() {
             return Ok(SelfCheckGate::Proceed); // 无产物任务（纯问答）不设自检
         }
@@ -5538,6 +5609,32 @@ mod tests {
     }
 
     #[test]
+    /// K-1（契约手术，2026-09-11）：交付物类型核对——M0 v1 病灶场景必须被拦。
+    /// 红（禁用核对）形态：probe.json 场景返回 None → 断言 Some 必失败。
+    #[test]
+    fn test_k1_deliverable_type_contract() {
+        let wf = |p: &str| WrittenFile {
+            path: p.to_string(),
+            content_len: 1,
+            light_verified: true,
+        };
+        let goal = "在 ember/ 目录从零实现一个 Python CLI：ember 问题 调用 agnes 返回答案";
+        // ① M0 v1 病灶：要求实现 CLI，产物只有探测残留 probe.json → 必须拦
+        let m = deliverable_type_mismatch(goal, &[wf("probe.json")]);
+        assert!(m.is_some(), "K-1: 要求实现 CLI 而产物只有 probe.json → 必须拦（M0 v1 病灶）");
+        assert!(m.unwrap().contains(".py"), "缺失说明须含源码类型线索");
+        // ② 正常：有 ember.py → 放行
+        assert!(deliverable_type_mismatch(goal, &[wf("ember.py")]).is_none());
+        // ③ 纯问答（无产物意图）→ 放行
+        assert!(deliverable_type_mismatch("回答两个字：收到", &[wf("x.json")]).is_none());
+        // ④ 文档意图：只有 json → 拦；有 md → 放行
+        assert!(deliverable_type_mismatch("写一份分析报告", &[wf("a.json")]).is_some());
+        assert!(deliverable_type_mismatch("写一份分析报告", &[wf("report.md")]).is_none());
+        // ⑤ 配置意图
+        assert!(deliverable_type_mismatch("生成配置文件", &[wf("a.py")]).is_some());
+        assert!(deliverable_type_mismatch("生成配置文件", &[wf("config.json")]).is_none());
+    }
+
     /// K-7（契约手术，2026-09-11）：provider 错误分类——M1 病灶场景必须一眼可辨。
     /// 红（旧实现：无标签）形态：断言 starts_with("[...") 必失败。
     #[test]
