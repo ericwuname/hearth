@@ -1,7 +1,7 @@
 //! Terminal rendering — colorised SSE event output.
 
 use colored::*;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 // ── R3-3 降噪三档（对话可用性根治任务书 v1.0；W-F）──
 // 0 = quiet：0 横幅 0 工具行 0 流式增量——只留用户指令/审批/产物/终态/错误
@@ -22,13 +22,44 @@ fn quiet() -> bool {
     verbosity() == 0
 }
 
+// ── K-2（契约手术，2026-09-11）：headless 输出契约 ──
+// `-p`（headless）模式下：**stdout 只出正文/答案**；进度/诊断/收尾/总结走 stderr
+// （信息不丢，只换通道）。quiet 与 headless 正交：quiet=用户要安静（丢弃进度）；
+// headless=管道语义（进度转 stderr）。
+static HEADLESS: AtomicBool = AtomicBool::new(false);
+
+pub fn set_headless(v: bool) {
+    HEADLESS.store(v, Ordering::Relaxed);
+}
+
+pub fn headless() -> bool {
+    HEADLESS.load(Ordering::Relaxed)
+}
+
+/// K-2: 进度/诊断输出——headless → stderr（不丢）；否则 stdout。
+/// render 层统一走本宏，保证 headless 下 stdout 只留答案通道。
+macro_rules! outln {
+    ($($arg:tt)*) => {
+        if crate::render::headless() { eprintln!($($arg)*); } else { println!($($arg)*); }
+    };
+}
+pub(crate) use outln;
+
+/// K-2: 无换行版（流式/提示符类）。
+macro_rules! out {
+    ($($arg:tt)*) => {
+        if crate::render::headless() { eprint!($($arg)*); } else { print!($($arg)*); }
+    };
+}
+pub(crate) use out;
+
 /// R4 (v0.1.1): 用户指令气泡——`>` 前缀蓝色加粗（视觉区分"谁在说话"）。
 /// S10（手术包二）：每轮重置结果通道分隔线标志（三通道分层渲染的轮界）。
 pub fn user_prompt(goal: &str) {
     RESULT_OPEN.store(false, Ordering::Relaxed);
-    println!();
-    println!("{}", format!("> {goal}").bright_blue().bold());
-    println!();
+    outln!();
+    outln!("{}", format!("> {goal}").bright_blue().bold());
+    outln!();
 }
 
 /// S10（手术包二）：三通道分层渲染——**结果通道**分隔线标志
@@ -38,8 +69,8 @@ static RESULT_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 /// S10：正文（结果）通道开始——分隔线之下为权威内容（模型最终回答/产物说明）。
 fn ensure_result_separator() {
     if !RESULT_OPEN.swap(true, Ordering::Relaxed) {
-        println!();
-        println!("{}", "───── 结果 ─────".dimmed());
+        outln!();
+        outln!("{}", "───── 结果 ─────".dimmed());
     }
 }
 
@@ -91,15 +122,15 @@ fn summarize_args(args: &serde_json::Value) -> String {
 
 /// Print a phase transition banner.
 pub fn phase(label: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return; // R3-3 quiet 档：0 横幅
     }
-    println!("{}", format!("◆ {}", label).dimmed());
+    outln!("{}", format!("◆ {}", label).dimmed());
 }
 
 /// Stream a token delta (no newline — streaming accumulation).
 pub fn token(delta: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return; // R3-3 quiet 档：流式增量静默
     }
     // R3-3 视觉反转（E15）：正文是用户最该读的内容——旧版正文 .dimmed()
@@ -108,17 +139,17 @@ pub fn token(delta: &str) {
     // S10（手术包二）：正文 = 结果通道——首个 token 前打一次分隔线
     //（其上为思考/执行通道，其下为权威结果）。
     ensure_result_separator();
-    print!("{delta}");
+    out!("{delta}");
 }
 
 /// R4: 工具调用折叠——`⚙ glob → pattern: **/*` 单行（关键参数 + 80 字截断）。
 pub fn tool_call(name: &str, args: &serde_json::Value) {
-    if quiet() {
+    if quiet() && !headless() {
         return; // R3-3 quiet 档：0 工具行
     }
-    println!();
+    outln!();
     // R3-3 视觉反转：工具行是过程噪声——降为 dimmed（正文才配亮色）
-    println!(
+    outln!(
         "{}",
         format!("⚙ {name} → {}", summarize_args(args)).dimmed()
     );
@@ -129,7 +160,7 @@ pub fn tool_call(name: &str, args: &serde_json::Value) {
 /// ("error"/"failed"/"missing") 字符串猜测——双向失效（中文错误画绿 ✓、
 /// 正常输出含 error 词画红 ✗）自本版起终结。截断 200 字符，与 ⚙ 对齐。
 pub fn tool_result(output: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return; // R3-3 quiet 档：工具结果静默
     }
     let truncated: String = output.chars().take(200).collect();
@@ -138,7 +169,7 @@ pub fn tool_result(output: &str) {
     } else {
         ""
     };
-    println!(
+    outln!(
         "  {}",
         format!("✓ {}{}", truncated, suffix).green().dimmed()
     );
@@ -146,8 +177,8 @@ pub fn tool_result(output: &str) {
 
 /// Need-approval prompt.
 pub fn need_approval(sid: &str, aid: &str, action: &str) {
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{}",
         format!("⛔ {action} — 用 `approve {sid} {aid}` 审批，或 `deny {sid} {aid}` 拒绝")
             .bright_red()
@@ -157,10 +188,10 @@ pub fn need_approval(sid: &str, aid: &str, action: &str) {
 
 /// Reflection verdict.
 pub fn reflection(verdict: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return;
     }
-    println!("{}", format!("  {}", verdict).cyan());
+    outln!("{}", format!("  {}", verdict).cyan());
 }
 
 /// Done / summary.
@@ -178,62 +209,62 @@ pub fn done(steps: u64, ok: bool) {
     let icon = if ok { "✓" } else { "✗" };
     let msg = format!("{icon} Done ({steps} steps)");
     if ok {
-        println!("{}", msg.bold());
+        outln!("{}", msg.bold());
     } else {
-        println!("{}", msg.red().bold());
+        outln!("{}", msg.red().bold());
     }
 }
 
 /// Error message.
 pub fn error(msg: &str) {
-    println!("{}", format!("✗ {}", msg).red());
+    outln!("{}", format!("✗ {}", msg).red());
 }
 
 /// Y2: Structured error — what happened / why / how to fix.
 pub fn error_structured(what: &str, why: &str, how: &str) {
-    println!();
-    println!("{}", format!("✗ {what}").red().bold());
-    println!("  原因：{}", why);
-    println!("  怎么修：{}", how);
-    println!();
+    outln!();
+    outln!("{}", format!("✗ {what}").red().bold());
+    outln!("  原因：{}", why);
+    outln!("  怎么修：{}", how);
+    outln!();
 }
 
 /// Info line.
 pub fn info(msg: &str) {
-    println!("{}", msg.dimmed());
+    outln!("{}", msg.dimmed());
 }
 
 /// Y2: Setup completion — smoke test passed, show next steps.
 pub fn setup_ok(url: &str) {
-    println!();
-    println!("{}", format!("✓ 冒烟测试通过：{url} 可用").green().bold());
-    println!();
-    println!("现在可以开始使用：");
-    println!("  codex chat \"你的目标\"    # 一次性任务（流式显示思考/工具/结果）");
-    println!("  codex repl             # 交互式多轮对话（含审批）");
-    println!("  codex sessions         # 查看进行中的会话");
-    println!("  codex resume <id>      # 断点续传已中断的会话");
-    println!();
+    outln!();
+    outln!("{}", format!("✓ 冒烟测试通过：{url} 可用").green().bold());
+    outln!();
+    outln!("现在可以开始使用：");
+    outln!("  codex chat \"你的目标\"    # 一次性任务（流式显示思考/工具/结果）");
+    outln!("  codex repl             # 交互式多轮对话（含审批）");
+    outln!("  codex sessions         # 查看进行中的会话");
+    outln!("  codex resume <id>      # 断点续传已中断的会话");
+    outln!();
 }
 
 // ========== B4-1 (backend taskbook #01): 真实事件流渲染 ==========
 
 /// span_open — 缩进进层（span 树还原）。
 pub fn span_open(name: &str, depth: usize, t0: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return;
     }
     let indent = "  ".repeat(depth);
-    println!("{}", format!("{indent}▸ span [{name}] {t0}").cyan());
+    outln!("{}", format!("{indent}▸ span [{name}] {t0}").cyan());
 }
 
 /// span_close — 缩进退层 + 耗时。
 pub fn span_close(depth: usize, duration_ms: u64) {
-    if quiet() {
+    if quiet() && !headless() {
         return;
     }
     let indent = "  ".repeat(depth);
-    println!(
+    outln!(
         "{}",
         format!("{indent}◂ span 耗时 {duration_ms}ms")
             .cyan()
@@ -243,7 +274,7 @@ pub fn span_close(depth: usize, duration_ms: u64) {
 
 /// R4: artifact — 产物登记（bright_cyan 高亮，任务书 R4 确认醒目）。
 pub fn artifact(path: &str, kind: &str, delta: u64) {
-    println!(
+    outln!(
         "{}",
         format!("📄 产物 {kind}: {path}（+{delta} 行）")
             .bright_cyan()
@@ -253,7 +284,7 @@ pub fn artifact(path: &str, kind: &str, delta: u64) {
 
 /// think_summary — 思考摘要（阶段模板）；P5 起亦承载**模型真实推理**（phase=reasoning）。
 pub fn think_summary(phase: &str, text: &str) {
-    if quiet() {
+    if quiet() && !headless() {
         return; // R3-3 quiet 档：思考摘要静默
     }
     // S10（手术包二）：**思考通道**——暗灰斜体 + `💡 [思考]` 前缀，与
@@ -261,11 +292,11 @@ pub fn think_summary(phase: &str, text: &str) {
     // 思考流不写入对话历史（仅投影——防注意力税回流）。
     if phase == "reasoning" {
         for line in text.lines() {
-            println!("{}", format!("💡 [思考] {line}").dimmed().italic());
+            outln!("{}", format!("💡 [思考] {line}").dimmed().italic());
         }
         return;
     }
-    println!("{}", format!("💭 [{phase}] {text}").dimmed());
+    outln!("{}", format!("💭 [{phase}] {text}").dimmed());
 }
 
 /// S14（手术包二）：任务总结块（TL;DR）——收尾最后一块，**quiet 档也打印**
@@ -273,17 +304,17 @@ pub fn think_summary(phase: &str, text: &str) {
 /// 用户唯一要看的那一块——它就是"事后不用看过程"的答案）。
 /// 分层：═══ 边框品红加粗、【段名】行白色加粗、正文原色。
 pub fn summary_block(text: &str) {
-    println!();
+    outln!();
     for line in text.lines() {
         if line.starts_with('═') {
-            println!("{}", line.bright_magenta().bold());
+            outln!("{}", line.bright_magenta().bold());
         } else if line.starts_with('【') {
-            println!("{}", line.bright_white().bold());
+            outln!("{}", line.bright_white().bold());
         } else {
-            println!("{line}");
+            outln!("{line}");
         }
     }
-    println!();
+    outln!();
 }
 
 /// plan_draft — 规划草案（steps / gaps 审计事实）。
@@ -300,14 +331,14 @@ pub fn plan_draft(
         steps.as_array().map(|a| a.len()).unwrap_or(0),
         auto_assumed.as_array().map(|a| a.len()).unwrap_or(0)
     );
-    println!("{}", format!("┌─ {header}").blue().bold());
+    outln!("{}", format!("┌─ {header}").blue().bold());
     let _ = header.len();
     // B2-B (backend-intelligence): 产品红线可见化——"要问你什么"（blocking gap 带 why）
     if let Some(details) = gaps_to_ask_details.as_array() {
         for d in details {
             let from = d.get("from").and_then(|x| x.as_str()).unwrap_or("?");
             let why = d.get("why").and_then(|x| x.as_str()).unwrap_or("");
-            println!("   {} {from}: {why}", "❓ 要问你".bright_yellow());
+            outln!("   {} {from}: {why}", "❓ 要问你".bright_yellow());
         }
     }
     // 自假定的 non-blocking gap（带 assume）——"它自己假定了什么"
@@ -316,7 +347,7 @@ pub fn plan_draft(
             let from = a.get("from").and_then(|x| x.as_str()).unwrap_or("?");
             let why = a.get("why").and_then(|x| x.as_str()).unwrap_or("");
             let assume = a.get("assume").and_then(|x| x.as_bool()).unwrap_or(false);
-            println!(
+            outln!(
                 "   {} ⚡ 假设[{from}]: {why}",
                 if assume { "🤖" } else { "  " }
             );
@@ -326,15 +357,15 @@ pub fn plan_draft(
         for s in steps.iter().take(8) {
             let task = s.get("task").and_then(|t| t.as_str()).unwrap_or("?");
             let status = s.get("status").and_then(|t| t.as_str()).unwrap_or("?");
-            println!("   · {task} [{status}]");
+            outln!("   · {task} [{status}]");
         }
         if steps.len() > 8 {
-            println!("   … 共 {} 步", steps.len());
+            outln!("   … 共 {} 步", steps.len());
         }
     }
     // W8/A3 (RC26): 旧残留的第二段 auto_assumed 渲染已删除——每份草案每条
     // 假设至多呈现一次（此前 ⚡ 假设行 ×2，missing_goal_source 574×2=1148 噪音）。
-    println!("{}", "└─".blue());
+    outln!("{}", "└─".blue());
 }
 
 #[cfg(test)]

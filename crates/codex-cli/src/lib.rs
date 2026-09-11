@@ -280,6 +280,46 @@ enum ConfigAction {
     },
 }
 
+/// K-2（契约手术，2026-09-11）：headless 答案提取——读会话 jsonl，取**最后一条
+/// assistant 文本**（Message.content 的 `{"Text": "..."}` 或纯 String 形态）。
+/// 只读、失败返回 None（headless 下无答案则不输出——不伪造）。
+fn headless_answer(session_id: &str) -> Option<String> {
+    let path = crate::session_store::sessions_dir().join(format!("{session_id}.jsonl"));
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut last: Option<String> = None;
+    for line in content.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(msgs) = v.get("messages").and_then(|m| m.as_array()) else {
+            continue;
+        };
+        for m in msgs {
+            let is_asst = matches!(
+                m.get("role").and_then(|r| r.as_str()),
+                Some("Assistant") | Some("assistant")
+            );
+            if !is_asst {
+                continue;
+            }
+            let t = match m.get("content") {
+                Some(serde_json::Value::String(x)) => Some(x.clone()),
+                Some(serde_json::Value::Object(o)) => o
+                    .get("Text")
+                    .and_then(|x| x.as_str())
+                    .map(|x| x.to_string()),
+                _ => None,
+            };
+            if let Some(t) = t {
+                if !t.trim().is_empty() {
+                    last = Some(t);
+                }
+            }
+        }
+    }
+    last
+}
+
 /// 主入口（hearth 与 codex 别名共享）。
 pub async fn hearth_main() -> Result<()> {
     // ── R3-3 降噪三档 CLI 接线（对话可用性根治任务书 v1.0；W-F）──
@@ -341,6 +381,8 @@ pub async fn hearth_main() -> Result<()> {
     // render 的 quiet() 保证）——stdout 仅正文，便于脚本捕获。
     if let Some(prompt) = cli.print.take() {
         crate::render::set_verbosity(0);
+        // K-2（契约手术）：headless 输出契约——stdout 只出答案；进度/收尾/总结走 stderr。
+        crate::render::set_headless(true);
         cli.command = Some(Commands::Chat {
             goal: prompt,
             budget: 40,
@@ -460,7 +502,14 @@ pub async fn hearth_main() -> Result<()> {
                 )
                 .await
                 {
-                    Ok((_sid, report)) => {
+                    Ok((sid, report)) => {
+                        // K-2（契约手术）：headless（-p）——stdout 只出答案。
+                        // 答案 = 会话最后一条 assistant 文本（render 进度已全走 stderr）。
+                        if crate::render::headless() {
+                            if let Some(ans) = headless_answer(&sid) {
+                                println!("{ans}");
+                            }
+                        }
                         // 成本护栏 (v0.2): 本地 chat 完成后显示 token 用量（跑完知道烧了多少）
                         if let Some(u) = report.get("usage").and_then(|u| u.as_object()) {
                             let prompt =

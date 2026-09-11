@@ -373,7 +373,7 @@ pub async fn run_local(
     let dispatcher = build_dispatcher(workspace.clone());
 
     // D4: 徽章——真实隔离或明确 noop，绝无"假装隔离"。
-    println!("{}  (session {})", isolation_badge(), &session_id[..8]);
+    crate::render::outln!("{}  (session {})", isolation_badge(), &session_id[..8]);
     // v0.1.1 用户真机（五子棋/贪吃蛇失败根因）：cgroup 不可用（VM 非特权 delegation
     // 未配 HEARTH_CGROUP_BASE）时工具全被 fail-closed 拦——**启动即警告**，
     // 用户不用等任务跑完才发现。非静默降级（与 RT4 语义一致）。
@@ -1304,17 +1304,17 @@ async fn render_agent_event(
                             .collect()
                     })
                     .unwrap_or_default();
-                print!(
+                crate::render::out!(
                     "{}",
                     format!("\n❓ 需要你确认 [{from}] {why}\n").bright_yellow()
                 );
                 // 选项式：先打印编号选项再收输入
                 if style == "single_select" && !options.is_empty() {
                     for (i, o) in options.iter().enumerate() {
-                        print!("{}", format!("  {}) {}\n", i + 1, o).bright_cyan());
+                        crate::render::out!("{}", format!("  {}) {}\n", i + 1, o).bright_cyan());
                     }
                 }
-                print!("{}", "  你的选择: ".to_string().bright_yellow());
+                crate::render::out!("{}", "  你的选择: ".to_string().bright_yellow());
                 let _ = std::io::stdout().flush();
                 // O-1 (P1-small): headless（stdin 非 tty）——无人应答，不阻塞等待
                 // stdin（对照实证：V2R2 budget ask 卡 200s 至外部超时）。立即放弃
@@ -1389,7 +1389,7 @@ async fn render_agent_event(
                     .await;
                 return Ok(());
             }
-            print!("{}", format!("⛔ {action} — 批准? [y/N] ").bright_red());
+            crate::render::out!("{}", format!("⛔ {action} — 批准? [y/N] ").bright_red());
             let _ = std::io::stdout().flush();
             let mut buf = String::new();
             let approved = std::io::stdin()
