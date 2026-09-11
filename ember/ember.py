@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""EMBER M1 — 工具循环版单轮问答 CLI（标准库 + tools.py 三工具）。
-
-施工溯源（诚实申报）：
-- tools.py：hearth-slim 施工（.133，2026-09-11）；
-- 本文件（工具循环接线）：**执行窗补全**——hearth 因环境网络抖动（问题卡03）
-  未能完成最后一步接线，执行窗接续完成，接口与设计遵循 M1 任务卡。
+"""EMBER M2 — 会话持久化版（记性）：跨进程记忆 + 续干。
 
 用法:
-    python3 ember.py "问题"        # 带工具循环；模型可自主调 bash/read/write
-协议: POST {base_url}/chat/completions（Agnes OpenAI 兼容）
+    python3 ember.py "问题"              # 新会话（带工具循环）
+    python3 ember.py -c "追问"           # 加载最近会话继续（记得上次的活）
+    python3 ember.py --list              # 列出历史会话
+    python3 ember.py -c --list           # 同 --list
+
+会话文件: .ember/sessions/<session_id>.jsonl（每行一条消息 JSON）
+最近指针: .ember/last_session
 """
 import json
 import os
@@ -16,19 +16,21 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 from tools import bash as tool_bash
 from tools import read as tool_read
 from tools import write as tool_write
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-# 执行窗调整（2026-09-11，M1 验收实测）：thinking 模型 + max_tokens=65536 的重推理轮
-# 响应常超 60s（'The read operation timed out' 反复重试）——提到 180s。
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+SESSIONS_DIR = os.path.join(BASE_DIR, ".ember", "sessions")
+LAST_POINTER = os.path.join(BASE_DIR, ".ember", "last_session")
 TIMEOUT_SECONDS = 180
 RETRY_DELAYS = [2, 4, 8]
-MAX_TOOL_ROUNDS = 20  # 防死循环上限
+MAX_TOOL_ROUNDS = 20
+HISTORY_CHAR_BUDGET = 40000  # 历史注入预算（超则从最旧丢，保首条目标消息）
 
-# ── 工具 schema（五要素：何时用/参数/示例/边界/错误解读） ──
 TOOLS_SCHEMA = [
     {
         "type": "function",
@@ -37,9 +39,9 @@ TOOLS_SCHEMA = [
             "description": (
                 "执行 shell 命令并返回 stdout+stderr 合并输出。\n"
                 "何时用: 运行程序、查看文件（grep/head/wc）、列目录、跑测试等。\n"
-                "参数: command (string) —— 完整命令。示例: bash(command=\"wc -l app.log\")。\n"
-                "边界: 超时 60 秒；输出超 64KB 截断；失败也返回文本（看 exit code/错误说明），不抛异常。\n"
-                "错误解读: 输出含 'exit code: N'（N≠0 为失败）或 '超时' 字样。"
+                "参数: command (string)。示例: bash(command=\"wc -l app.log\")。\n"
+                "边界: 超时 60 秒；输出超 64KB 截断；失败也返回文本，不抛异常。\n"
+                "错误解读: 输出含 'exit code: N'（N≠0 为失败）或 '[timeout]'。"
             ),
             "parameters": {
                 "type": "object",
@@ -54,10 +56,8 @@ TOOLS_SCHEMA = [
             "name": "read",
             "description": (
                 "读取文件内容（文本）。\n"
-                "何时用: 查看源码/日志/配置等文件内容。\n"
-                "参数: path (string)。示例: read(path=\"app.log\")。\n"
-                "边界: 超 64KB 截断；二进制文件可能不可读。\n"
-                "错误解读: 返回以 '错误:' 开头表示失败（文件不存在/无权限）。"
+                "何时用: 查看源码/日志/配置。参数: path (string)。示例: read(path=\"app.log\")。\n"
+                "边界: 超 64KB 截断。错误解读: 返回以 '错误:' 开头表示失败。"
             ),
             "parameters": {
                 "type": "object",
@@ -72,10 +72,9 @@ TOOLS_SCHEMA = [
             "name": "write",
             "description": (
                 "写文件（自动创建父目录），整体覆盖。\n"
-                "何时用: 生成代码/报告/工具等产物。\n"
-                "参数: path (string), content (string)。示例: write(path=\"analyze.py\", content=\"...\")。\n"
-                "边界: 覆盖写（非追加）；content 为完整文件内容。\n"
-                "错误解读: 返回以 '错误:' 开头表示失败（无权限等）。"
+                "何时用: 生成代码/报告等产物。参数: path, content (string)。\n"
+                "示例: write(path=\"analyze.py\", content=\"...\")。\n"
+                "边界: 覆盖写；content 为完整内容。错误解读: '错误:' 开头为失败。"
             ),
             "parameters": {
                 "type": "object",
@@ -93,7 +92,6 @@ TOOL_IMPL = {"bash": tool_bash, "read": tool_read, "write": tool_write}
 
 
 def load_config():
-    """读取 config.json；key 为空时从环境变量补全并写回（600 权限）。"""
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -103,7 +101,6 @@ def load_config():
         sys.exit(1)
     except json.JSONDecodeError as e:
         print("错误: config.json 不是合法 JSON (%s)" % e, file=sys.stderr)
-        print("建议: 检查文件内容（base_url/model/key 三键，UTF-8）。", file=sys.stderr)
         sys.exit(1)
     for field in ("base_url", "model", "key"):
         if field not in cfg:
@@ -124,8 +121,106 @@ def load_config():
     return cfg
 
 
+# ── 会话持久化（M2） ──
+
+def save_session(session_id, messages):
+    """全量写入会话 JSONL + 更新 last_session 指针。"""
+    try:
+        os.makedirs(SESSIONS_DIR, exist_ok=True)
+        path = os.path.join(SESSIONS_DIR, "%s.jsonl" % session_id)
+        with open(path, "w", encoding="utf-8") as f:
+            for m in messages:
+                f.write(json.dumps(m, ensure_ascii=False) + "\n")
+        with open(LAST_POINTER, "w", encoding="utf-8") as f:
+            f.write(session_id)
+    except OSError as e:
+        print("[warn] 会话落盘失败: %s" % e, file=sys.stderr)
+
+
+def load_latest_session():
+    """返回 (session_id, messages)；无历史 → (None, [])。"""
+    try:
+        with open(LAST_POINTER, "r", encoding="utf-8") as f:
+            sid = f.read().strip()
+    except OSError:
+        sid = ""
+    if not sid:
+        # 指针缺失 → 退化取最新 jsonl
+        try:
+            files = [f for f in os.listdir(SESSIONS_DIR) if f.endswith(".jsonl")]
+            if not files:
+                return None, []
+            newest = max(files, key=lambda f: os.path.getmtime(os.path.join(SESSIONS_DIR, f)))
+            sid = newest[:-6]
+        except OSError:
+            return None, []
+    path = os.path.join(SESSIONS_DIR, "%s.jsonl" % sid)
+    messages = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    messages.append(json.loads(line))
+    except (OSError, json.JSONDecodeError) as e:
+        print("[warn] 读取会话失败: %s" % e, file=sys.stderr)
+        return None, []
+    return (sid if messages else None), messages
+
+
+def list_sessions():
+    """列出会话：(id8, mtime, 首条 user 消息摘要)。"""
+    rows = []
+    try:
+        for fn in os.listdir(SESSIONS_DIR):
+            if not fn.endswith(".jsonl"):
+                continue
+            p = os.path.join(SESSIONS_DIR, fn)
+            summary = ""
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            m = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if m.get("role") == "user":
+                            summary = (m.get("content") or "")[:40].replace("\n", " ")
+                            break
+            except OSError:
+                pass
+            rows.append((fn[:-6], os.path.getmtime(p), summary))
+    except OSError:
+        return []
+    rows.sort(key=lambda r: -r[1])
+    return rows
+
+
+def trim_history(messages, budget=HISTORY_CHAR_BUDGET):
+    """预算控制：总量超 budget 时从最旧丢（保留首条 user 目标消息）。"""
+    def size(ms):
+        return sum(len(json.dumps(m, ensure_ascii=False)) for m in ms)
+
+    if size(messages) <= budget or len(messages) <= 2:
+        return messages
+    first_user = next((m for m in messages if m.get("role") == "user"), None)
+    kept = list(messages)
+    while size(kept) > budget and len(kept) > 2:
+        # 从最旧开始丢（跳过首条 user 目标）
+        dropped = False
+        for i in range(1, len(kept)):
+            if kept[i] is not first_user:
+                del kept[i]
+                dropped = True
+                break
+        if not dropped:
+            break
+    return kept
+
+
+# ── 模型调用 ──
+
 def chat_once(cfg, messages):
-    """单次请求；返回 assistant message dict。"""
     url = cfg["base_url"].rstrip("/") + "/chat/completions"
     body = json.dumps({
         "model": cfg["model"],
@@ -149,7 +244,6 @@ def chat_once(cfg, messages):
 
 
 def call_model(cfg, messages):
-    """带重试的模型调用（401/403 不重试；瞬时错误 2/4/8s 退避）。"""
     last_err = None
     for i in range(4):
         delay = RETRY_DELAYS[min(i, len(RETRY_DELAYS) - 1)]
@@ -171,13 +265,10 @@ def call_model(cfg, messages):
         if i < 3:
             print("[retry] 请求失败（第 %d 次）: %s — 等待 %ds 后重试…" % (i + 1, last_err, delay), file=sys.stderr)
             time.sleep(delay)
-        else:
-            print("[retry] 请求失败（第 %d 次）: %s" % (i + 1, last_err), file=sys.stderr)
     raise RuntimeError("重试 3 次后仍失败，最后一次错误: %s" % last_err)
 
 
 def run_tool(name, raw_args):
-    """执行工具调用；返回结果文本（永不抛异常）。"""
     fn = TOOL_IMPL.get(name)
     if fn is None:
         return "错误: 未知工具 '%s'（可用: bash / read / write）" % name
@@ -194,25 +285,22 @@ def run_tool(name, raw_args):
         return fn(**args)
     except TypeError as e:
         return "错误: 工具 %s 参数不匹配 (%s)；收到: %s" % (name, e, json.dumps(args, ensure_ascii=False)[:200])
-    except Exception as e:  # 兜底：工具内部异常也结构化返回
+    except Exception as e:
         return "错误: 工具 %s 执行异常: %s" % (name, e)
 
 
-def solve(cfg, question):
-    """工具循环主体：多轮调工具直到模型交卷。返回最终答案文本。"""
-    messages = [{"role": "user", "content": question}]
+def solve(cfg, question, history=None):
+    """工具循环；返回 (answer_text, full_messages)。"""
+    messages = list(history) if history else []
+    messages.append({"role": "user", "content": question})
+    messages = trim_history(messages)
     empty_nudges = 0
-    for round_no in range(1, MAX_TOOL_ROUNDS + 1):
+    for _ in range(MAX_TOOL_ROUNDS):
         msg = call_model(cfg, messages)
         tool_calls = msg.get("tool_calls") or []
         content = msg.get("content") or ""
         if tool_calls:
-            # 保留 assistant 消息（含 tool_calls）——tool 结果必须与之配对
-            messages.append({
-                "role": "assistant",
-                "content": content,
-                "tool_calls": tool_calls,
-            })
+            messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
             for tc in tool_calls:
                 fn_info = tc.get("function") or {}
                 name = fn_info.get("name") or ""
@@ -220,43 +308,86 @@ def solve(cfg, question):
                 t0 = time.time()
                 print("[tool] %s(%s)" % (name, (str(raw_args) or "")[:160]), file=sys.stderr)
                 result = run_tool(name, raw_args)
-                dt = time.time() - t0
-                print("[tool] ← %s（%.1fs，%d 字符）" % (name, dt, len(result)), file=sys.stderr)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id") or "",
-                    "content": result,
-                })
+                print("[tool] ← %s（%.1fs，%d 字符）" % (name, time.time() - t0, len(result)), file=sys.stderr)
+                messages.append({"role": "tool", "tool_call_id": tc.get("id") or "", "content": result})
             continue
-        # 无工具调用 = 交卷
         if content.strip():
-            return content
-        # 空正文（thinking 占满/模型异常）→ 催一次，最多 2 次
+            messages.append({"role": "assistant", "content": content})
+            return content, messages
         empty_nudges += 1
         if empty_nudges > 2:
-            return "（模型连续返回空正文——可能 thinking 占满输出预算，请重试）"
+            return "（模型连续返回空正文——可能 thinking 占满输出预算，请重试）", messages
         messages.append({"role": "user", "content": "请直接给出最终答案（不要再调用工具）。"})
-    return "（达到 %d 轮工具循环上限，任务未收敛——请缩小问题范围重试）" % MAX_TOOL_ROUNDS
+    return "（达到 %d 轮工具循环上限，任务未收敛——请缩小问题范围重试）" % MAX_TOOL_ROUNDS, messages
+
+
+USAGE = """用法:
+  python3 ember.py "问题"        # 新会话（带工具循环）
+  python3 ember.py -c "追问"     # 继续最近会话（记得上次的活）
+  python3 ember.py --list        # 列出历史会话"""
 
 
 def main():
-    if len(sys.argv) != 2 or not sys.argv[1].strip():
-        print('用法: python3 ember.py "问题"', file=sys.stderr)
+    args = sys.argv[1:]
+    if not args:
+        print(USAGE, file=sys.stderr)
         sys.exit(1)
-    question = sys.argv[1].strip()
+
+    # --list
+    if args[0] in ("--list", "-l"):
+        rows = list_sessions()
+        if not rows:
+            print("（暂无历史会话）")
+            return
+        print("历史会话（%d 个）:" % len(rows))
+        for sid, mtime, summary in rows[:20]:
+            ts = time.strftime("%m-%d %H:%M", time.localtime(mtime))
+            print("  %s  %s  %s" % (sid[:8], ts, summary))
+        return
+
+    # -c / --continue
+    if args[0] in ("-c", "--continue"):
+        if len(args) < 2 or not args[1].strip():
+            print("用法: python3 ember.py -c \"追问\"", file=sys.stderr)
+            sys.exit(1)
+        question = args[1].strip()
+        sid, history = load_latest_session()
+        if not history:
+            print("[info] 未找到历史会话——按新会话处理", file=sys.stderr)
+            sid = None
+        elif sid:
+            print("[info] 已加载会话 %s（%d 条历史消息）" % (sid[:8], len(history)), file=sys.stderr)
+        cfg = load_config()
+        try:
+            answer, messages = solve(cfg, question, history)
+        except RuntimeError as e:
+            print("错误: %s" % e, file=sys.stderr)
+            sys.exit(1)
+        session_id = sid or str(uuid.uuid4())
+        save_session(session_id, messages)
+        print(answer)
+        return
+
+    # 默认：新会话
+    if len(args) != 1 or not args[0].strip():
+        print(USAGE, file=sys.stderr)
+        sys.exit(1)
+    question = args[0].strip()
     cfg = load_config()
     try:
-        answer = solve(cfg, question)
+        answer, messages = solve(cfg, question)
     except RuntimeError as e:
         print("错误: %s" % e, file=sys.stderr)
         if "认证失败" in str(e):
-            print("建议: 检查 config.json 的 key 或环境变量 APIHUB_AGNES_AI_API_KEY 是否正确。", file=sys.stderr)
+            print("建议: 检查 config.json 的 key 或环境变量 APIHUB_AGNES_AI_API_KEY。", file=sys.stderr)
         else:
             print("建议: 检查网络连通性（目标 %s）与 base_url 配置；稍后可重试。" % cfg["base_url"], file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\n已中断。", file=sys.stderr)
+        print("\n已中断（会话已保存）。", file=sys.stderr)
         sys.exit(130)
+    session_id = str(uuid.uuid4())
+    save_session(session_id, messages)
     print(answer)
 
 
