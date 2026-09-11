@@ -5722,6 +5722,72 @@ mod tests {
         assert_eq!(f.get("skipped_any").and_then(|v| v.as_bool()), Some(false));
     }
 
+    /// K-8（**gate 级**，2026-09-12，砺 §二 盲区补齐）：K-1 交付物类型核对未过时，
+    /// 事实必须落**事实层**（scratch["selfcheck_result"]，kind=deliverable_type_mismatch）
+    /// ——不得只留在流式投影里（null=未跑 与 核对未过 不可区分 = 违反事实产生权公理）。
+    /// 构造：goal 含产物意图（"实现…CLI"）+ 只写 probe.json（类型不符）→ 2 轮用尽诚实交付。
+    /// **先红后绿**：移除 k1_mismatch_fact 的 scratch 写入 → 本测试必红（scratch = null）。
+    #[tokio::test]
+    async fn test_k8_k1_gate_mismatch_fact_lands_in_scratch() {
+        let dir = tempfile::tempdir().unwrap();
+        let probe = serde_json::json!({"path": "probe.json", "content": "{\"probe\": true}"});
+        let responses = vec![
+            s12_resp("w", vec![s12_call("k1", "write_file", &probe)]),
+            s12_resp("done", vec![]), // gate#1: mismatch → Replan(round 1)
+            s12_resp("done", vec![]), // gate#2: mismatch → Replan(round 2)
+            s12_resp("done", vec![]), // gate#3: 2 轮用尽 → 诚实交付
+            s12_resp("done", vec![]),
+        ];
+        let mut agent = s12_agent(dir.path(), responses);
+        agent.set_session_id("k8-gate".into());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+        let report = agent
+            .run(Goal::with_budget(
+                "实现一个 Python CLI 小工具",
+                Budget {
+                    max_steps: 20,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .unwrap();
+        let sc = agent
+            .ctx_mgr
+            .get_scratch("selfcheck_result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            sc.get("passed").and_then(|v| v.as_bool()),
+            Some(false),
+            "K-8: K-1 未过必须落 passed=false（不得为 null=未跑）: {sc}"
+        );
+        assert_eq!(
+            sc.get("kind").and_then(|v| v.as_str()),
+            Some("deliverable_type_mismatch"),
+            "K-8: 必须能与产物自检未过区分（kind 标记）: {sc}"
+        );
+        assert!(
+            !sc.get("failures")
+                .and_then(|v| v.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(true),
+            "K-8: failures 不得为空: {sc}"
+        );
+        let mut rows: Vec<String> = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::ThinkSummary { text, .. } = evt {
+                rows.push(text);
+            }
+        }
+        assert!(
+            rows.iter().any(|t| t.contains("交付物类型核对未过")),
+            "投影须含核对未过: {rows:?}"
+        );
+        eprintln!("k8-gate PASS: ok={} scratch={sc}", report.ok);
+    }
+
     /// K-7（契约手术，2026-09-11）：provider 错误分类——M1 病灶场景必须一眼可辨。
     /// 红（旧实现：无标签）形态：断言 starts_with("[...") 必失败。
     #[test]
