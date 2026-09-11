@@ -408,10 +408,14 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, args: serde_json::Value, ctx: &ToolContext) -> Result<String> {
-        let cmd = args
-            .get("cmd")
-            .and_then(|v| v.as_str())
+        // K-3（契约手术，2026-09-11）：参数归一契约——与 read/grep/edit 同款
+        // extract_str_arg（LLM 层 JSON 降级为 raw String 时，裸 `.get("cmd")` 必
+        // 失败 → "missing 'cmd'"、命令全废；EMBER M1 施工实证同类病灶的破坏力）。
+        // 先红后绿证据：test_k3_cmd_arg_three_shapes——回退版 FAILED（②raw-String
+        // missing 'cmd'）/修复版 ok。
+        let cmd = crate::extract_str_arg(&args, "cmd")
             .ok_or_else(|| anyhow!("missing 'cmd' argument"))?;
+        let cmd: &str = cmd.as_str();
 
         // P5-FOUNDATION-01 · S5-② 出网白名单（顶层裁决：产品可联网，但必须按白名单走）。
         // 沙箱的 seccomp 只能管 syscall，管不了域名——域名级收口必须在工具层做。
@@ -705,6 +709,38 @@ fn extract_lints(text: &str) -> String {
 mod tests {
     use super::*;
     use tool_runtime::ToolContext;
+
+    /// K-3（契约手术，2026-09-11）：bash 参数形态契约矩阵——
+    /// LLM 层 JSON 降级的三种形态下都必须能取到 `cmd`（不得报 "missing 'cmd'"）。
+    /// 红样本 = EMBER M1 实测病灶形态（raw String 降级致全部 bash 调用失败）。
+    /// 断言不依赖真 shell（Windows/无 bash 环境同样可判"参数提取是否成功"）。
+    #[tokio::test]
+    async fn test_k3_cmd_arg_three_shapes() {
+        use tool_runtime::Tool;
+        let tool = BashTool::new();
+        let ctx = ToolContext::default();
+        let shapes: [(&str, serde_json::Value); 3] = [
+            ("①Object", serde_json::json!({"cmd": "echo k3a"})),
+            (
+                "②raw-String",
+                serde_json::Value::String(r#"{"cmd": "echo k3b"}"#.into()),
+            ),
+            (
+                "③truncated-prefix",
+                serde_json::Value::String(r#"{"cmd": "echo k3c", "extra": "trunc"#.into()),
+            ),
+        ];
+        for (label, v) in shapes {
+            let r = tool.execute(v, &ctx).await;
+            if let Err(e) = &r {
+                let msg = format!("{e}");
+                assert!(
+                    !msg.contains("missing 'cmd'"),
+                    "K-3 {label}: cmd 必须被取到（实际错误: {msg}）"
+                );
+            }
+        }
+    }
 
     fn env_with_allowlist(list: &str) -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
