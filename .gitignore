@@ -12,3 +12,9 @@ release/*.tar.gz
 
 # exam fixtures need versioned logs
 !bench/exam/**/*.log
+
+# 腐化事故残留（2026-09-12 归档至 Desktop/hearth-git-corrupt-20260911-archive.tar.gz，不入库）
+.git.corrupt-*/
+
+# 工具产物（playwright-cli 运行残留）
+.playwright-cli/
