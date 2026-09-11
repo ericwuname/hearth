@@ -56,12 +56,12 @@
 `~/.bashrc` 第 118–130 行（两 VM 相同）：
 
 ```bash
-export OPENAI_API_KEY="sk-omwq7hA65YxmAXuUiDuKlyGlplSAOBsZ09BUF454iwJweNwx"
-export OPENAI_API_KEY="cpk-TbY5hUhEuA9CJpzagi4yB2SO90gs0RdoLHfKAi0Y1erVdC2N"   # 覆盖上一条
-export OPENAI_API_KEY="cpk-TbY5hUhEuA9CJpzagi4yB2SO90gs0RdoLHfKAi0Y1erVdC2N"   # 再覆盖
+export OPENAI_API_KEY="sk-<REDACTED-KEY>"
+export OPENAI_API_KEY="cpk-<REDACTED-AGNES-KEY>B2SO90gs0RdoLHfKAi0Y1erVdC2N"   # 覆盖上一条
+export OPENAI_API_KEY="cpk-<REDACTED-AGNES-KEY>B2SO90gs0RdoLHfKAi0Y1erVdC2N"   # 再覆盖
 export PATH="$HOME/.local/bin:$PATH"
 . "$HOME/.cargo/env"
-export APIHUB_AGNES_AI_API_KEY=cpk-TbY5hUhEuA9CJpzagi4yB2SO90gs0RdoLHfKAi0Y1erVdC2N
+export APIHUB_AGNES_AI_API_KEY=cpk-<REDACTED-AGNES-KEY>B2SO90gs0RdoLHfKAi0Y1erVdC2N
 export HEARTH_CGROUP_BASE=/sys/fs/cgroup/hearth
 export HEARTH_EGRESS_ALLOWLIST=rust-lang.org,crates.io,docs.rs,doc.rust-lang.org,github.com
 alias hearth-cli="bash ~/.local/bin/hearth"
@@ -104,10 +104,10 @@ HEARTH_EGRESS_ALLOWLIST=rust-lang.org,crates.io,docs.rs,doc.rust-lang.org,github
 ### 3.4 ⚠️ 安全提示：`.bashrc` 里的 Agnes key 与记忆中的不一致
 
 `.bashrc` 内 3 处 key：
-- `sk-omwq7hA65YxmAXuUiDuKlyGlplSAOBsZ09BUF454iwJweNwx`（被后两条覆盖）
-- `cpk-TbY5hUhEuA9CJpzagi4yB2SO90gs0RdoLHfKAi0Y1erVdC2N` ×2（OPENAI_API_KEY + APIHUB_AGNES_AI_API_KEY）
+- `sk-<REDACTED-KEY>`（被后两条覆盖）
+- `cpk-<REDACTED-AGNES-KEY>B2SO90gs0RdoLHfKAi0Y1erVdC2N` ×2（OPENAI_API_KEY + APIHUB_AGNES_AI_API_KEY）
 
-**记忆里登记的 Agnes key 是 `cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c`——两者不同。**
+**记忆里登记的 Agnes key 是 `cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c`——两者不同。**
 需你确认哪个有效；失效的那个应从 `.bashrc` 清除（明文 key 落盘且被覆盖两次，本身也是隐患）。
 
 ---

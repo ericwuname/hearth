@@ -232,7 +232,7 @@
 - **L528** 我看到了你的联网，需要添加白名单，是你自己要加这个访问网址，然后我审批进入白名单吗，还是我必须手工添加网址呢；你可以添加一些网址进行访问，试试看。还有就是你的任务好像中断了，这个中断是什么原因呢，或许也可以记录一下原因，放到bug中。
 - **L694** 我记得是有自动压缩的功能的，而且你说已经满仓了，但是你不是还可以跟我对话吗。然后白名单的添加的ssh的指令写给我一下，我在power shell 登录VM 执行一下指令吧，这样方便一点，我不用打开VM，在我的本机上也可以处理。
 - **L853** continue
-- **L962** 你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH url:https://api.agnes-ai.cn/v1 ,模型：agnes-2.5-flash。
+- **L962** 你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-<REDACTED-KEY>Rebb4fwyIeCpBKqETe5xdWmh0gsH url:https://api.agnes-ai.cn/v1 ,模型：agnes-2.5-flash。
 - **L1285** 为啥添加失败了，必须我手工添加吗，还有网络访问白名单可以了吗
 - **L1384** 2026-08-26T13:26:02.652213Z ERROR agent_core::scheduler: tool dispatch failed tool=web_fetch error=出网被拒：域名 example.com 不在 HEARTH_EGRESS_ALLOWLIST 白名单——联网工具是唯一受控出网口；如需放行请配置白名单（如 HEARTH_EGRESS_ALLOWLIST=example.com,rust-lang.org）
 - **L1386** 能说下当前的情况吗，我看着有点不太清晰。
@@ -403,10 +403,10 @@
 - **L4046** 又中断了，x Done 这个不是等我决策，让我说继续吧
 - **L4229** 又出现了x Done(17 steps),这个是不是到你汇报的节点，还是什么。我必须说继续吗
 - **L4391** 又出现了x Done 了，我还是说继续吗
-- **L5086** 你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1 ，key:sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH mode :agnes-2.5-flash
+- **L5086** 你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1 ，key:sk-<REDACTED-KEY>Rebb4fwyIeCpBKqETe5xdWmh0gsH mode :agnes-2.5-flash
 - **L5130** jix
 - **L5184** 我记得已经调整了，可以自定义供应商啊，你目前不是agnes吗
-- **L5215** 你用这个deepseek的key吧：sk-8c898382ecaa451c96d5573bb7b10874 ，还剩4.4元钱。
+- **L5215** 你用这个deepseek的key吧：sk-<REDACTED-KEY>573bb7b10874 ，还剩4.4元钱。
 - **L5262** 我刚刚新建的key,没有问题吧。你检查一下url,或者其他配置
 - **L5411** 出结果了吗
 - **L5436** https://api.deepseek.com mode :deepseek-v4-flash 你检查一下

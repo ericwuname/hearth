@@ -10,7 +10,7 @@ import json, os, re, subprocess, sys, time, glob
 
 HOME = os.environ.get("AUDIT_HOME", "/tmp/hearth_audit")
 HEARTH = "/home/wutao/codex/target/release/hearth"
-KEY = "sk-28d7376b6b7d4c339f5023e5a0aedbf1"
+KEY = "sk-<REDACTED-KEY>"
 os.makedirs(HOME, exist_ok=True)
 os.makedirs(f"{HOME}/works", exist_ok=True)
 

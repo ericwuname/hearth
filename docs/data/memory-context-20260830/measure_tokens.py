@@ -6,7 +6,7 @@ API prompt_tokens (authoritative). Provider: Agnes agnes-2.5-flash.
 import json, urllib.request, os, sys, re
 
 API = "https://api.agnes-ai.cn/v1/chat/completions"
-KEY = "cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c"
+KEY = "cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c"
 MODEL = "agnes-2.5-flash"
 REPO = r"C:/Users/87465/Desktop/codex-rust-v1.0-final"
 

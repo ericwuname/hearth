@@ -1,9 +1,13 @@
 # Hearth 问题总账 & 整改申请
 
-> **提交路径**：评审/守门人窗口 → **顶层规划窗口审批** → **执行窗口执行**>   
-> **版本日期**：2026-08-29>   
-> **基线**：本机 HEAD = **v0.2.9**（R2-C ContextBuilder 已落地 `build_messages` L1–L5）；评审 VM `.133` 源码 = v0.2.8（§7.6 已同步，E7 部分闭环）；`.131`（执行窗口）仍为 v0.2.7（W1 范围）>   
-> **提交策略（用户拍板）**：**攒批提交**——攒够一批再一次性审批、一次性执行，不让单一审批窗口与单一执行窗口的注意力被零散提交打碎>   
+> **提交路径**：评审/守门人窗口 → **顶层规划窗口审批** → **执行窗口执行**
+>   
+> **版本日期**：2026-08-29
+>   
+> **基线**：本机 HEAD = **v0.2.9**（R2-C ContextBuilder 已落地 `build_messages` L1–L5）；评审 VM `.133` 源码 = v0.2.8（§7.6 已同步，E7 部分闭环）；`.131`（执行窗口）仍为 v0.2.7（W1 范围）
+>   
+> **提交策略（用户拍板）**：**攒批提交**——攒够一批再一次性审批、一次性执行，不让单一审批窗口与单一执行窗口的注意力被零散提交打碎
+>   
 > **评审窗口边界**：不做 `crates/` 代码改动；只产出发现、源码锚点、证据与建议方向。环境层治理已在评审 VM（`.133`）执行并留痕
 
 ---
@@ -46,7 +50,8 @@
 | RC12 | `HEARTH_EGRESS_ALLOWLIST`（.bashrc:125）        | `ctx.env` → `web.rs` | `.bashrc` 非交互早退，env 到不了进程       |
 | RC18 | `--provider agnes` 的意图                        | 实际请求的端点              | `cfg.url` 覆盖 provider 默认端点      |
 
-**这与既有公理「后端产生事实，前端投影事实」是同一条原则的五次违反。**  
+**这与既有公理「后端产生事实，前端投影事实」是同一条原则的五次违反。**
+  
 建议在架构层面统一处置：**凡"产生即不投影"的字段，进 CI 静态检查。**
 
 ---
@@ -238,13 +243,16 @@ B. 评审前临时同步并记 md5                                              
 
 ## 7.5 外部 AI 交叉评审验证（ChatGPT 回函，2026-08-29）
 
-材料已打包外发：`release/hearth-manual-test-DIGEST.md`（51 KB 摘要）+ `release/hearth-manual-test-logs-ALL.txt`（1.6 MB 全量）。  
+材料已打包外发：`release/hearth-manual-test-DIGEST.md`（51 KB 摘要）+ `release/hearth-manual-test-logs-ALL.txt`（1.6 MB 全量）。
+  
 ChatGPT 回函落在 `release/Hearth_CLI_手工测试补充审查报告_2026-08-29_chatgpt.md`（23 条 NEW-01~23）。**逐条验证后分类如下。**
 
 ### ⚠️ 首先纠正回函的前提错误
 
-回函开篇写「审查对象：`hearth 0.2.3 (5a0be40)`（当前用户现场基线）」—— **该基线是错误的**。  
-0.2.3 正是本总账 E1 所记录的 `~/.cargo/bin/hearth` 陈旧副本（PATH 第一优先造成的假象），**当前真实基线是 v0.2.8**。  
+回函开篇写「审查对象：`hearth 0.2.3 (5a0be40)`（当前用户现场基线）」—— **该基线是错误的**。
+  
+0.2.3 正是本总账 E1 所记录的 `~/.cargo/bin/hearth` 陈旧副本（PATH 第一优先造成的假象），**当前真实基线是 v0.2.8**。
+  
 回函自己在 NEW-01 提出 provenance 校验建议，却在第一条落入了同一个陷阱 —— 这反过来**强证 provenance 纪律必须制度化**（见 W1 验收项）。
 
 ### ✅ 验证通过 → 已并入本总账
@@ -274,8 +282,10 @@ NEW-02（Done 语义）≈ RC8/RC9/RC10 ｜ NEW-03/04（继续/checkpoint）≈ 
 
 我此前据 `sandbox/lib.rs:577-580`（seccomp 含 `SYS_SOCKET`/`SYS_CONNECT`）断言「沙箱不拦出网」——**该说法只对了一半，净效应是错的**。
 
-实测：沙箱内 `cat /etc/resolv.conf` 可读（landlock 放行），但 **DNS 解析被 seccomp 打死**（`getent` / `python gethostbyname` → SIGSYS 159），`curl` 因解析超时失败（exit 28）。  
-→ **净效应：沙箱内 bash 出不了网**，web_fetch 白名单边界**意外成立**（靠 DNS 被拦，非设计意图）。  
+实测：沙箱内 `cat /etc/resolv.conf` 可读（landlock 放行），但 **DNS 解析被 seccomp 打死**（`getent` / `python gethostbyname` → SIGSYS 159），`curl` 因解析超时失败（exit 28）。
+  
+→ **净效应：沙箱内 bash 出不了网**，web_fetch 白名单边界**意外成立**（靠 DNS 被拦，非设计意图）。
+  
 → 副作用：**Agent 在沙箱内无法做任何网络诊断**，永远只看到"超时"，分不清 allowlist 拒绝 / DNS 失败 / 网络不通 —— 这正是它误诊「沙箱完全隔离外网」的土壤（结论碰巧对，推理全错）。
 
 ### 待 Claude 回函
@@ -343,14 +353,16 @@ NEW-02（Done 语义）≈ RC8/RC9/RC10 ｜ NEW-03/04（继续/checkpoint）≈ 
 | 纯问询（D1–D3）                    |      3 |      3 | **100%** | —                      |
 | **合计**                        | **18** | **10** |  **56%** | —                      |
 
-> **纯读任务成功率 0%** —— 18 跑里最触目惊心的数字。这意味着：任何"调研 / 分析 / 读代码给结论"的任务，在当前版本下**必然不被判定为完成**，且相当比例会挂死到超时。>   
+> **纯读任务成功率 0%** —— 18 跑里最触目惊心的数字。这意味着：任何"调研 / 分析 / 读代码给结论"的任务，在当前版本下**必然不被判定为完成**，且相当比例会挂死到超时。
+>   
 > 而这恰恰是手工测试日志里出现频率最高的一类任务，也正是用户 99 次"继续"的主要来源。
 
 ---
 
 ## 7.65 v0.2.8 手工测试日志分析（`release/手工测试v0.2.8.txt`，2026-08-29 03:35）
 
-用户提供第 10 份日志（1,667 行 / 6.2 万字符，PowerShell+ssh 终端录屏 + REPL 混合格式）。  
+用户提供第 10 份日志（1,667 行 / 6.2 万字符，PowerShell+ssh 终端录屏 + REPL 混合格式）。
+  
 **本日志价值极高：用户当场口头指出了两个此前只能从代码推断的问题。**
 
 ### 用户当场抓到的（日志行号）
@@ -407,10 +419,14 @@ NEW-02（Done 语义）≈ RC8/RC9/RC10 ｜ NEW-03/04（继续/checkpoint）≈ 
 - one-shot / CI 场景下命令**静默不执行**，用户只看到一句 "no interaction state"
 - 全部失败渲染为绿色 `✓`（RC20 叠加）
 
-**建议**  
-① 审批判定改为语义化（白名单 `/dev/null` 这类无副作用设备，黑名单真正的破坏性操作）  
-② 工具审批门补 `self.interactive` 判空，与出网审批、预算询问对齐  
-③ 非交互模式下改为显式错误：「`hearth chat` 为非交互模式，命令 X 需审批，请用 `hearth repl`」  
+**建议**
+  
+① 审批判定改为语义化（白名单 `/dev/null` 这类无副作用设备，黑名单真正的破坏性操作）
+  
+② 工具审批门补 `self.interactive` 判空，与出网审批、预算询问对齐
+  
+③ 非交互模式下改为显式错误：「`hearth chat` 为非交互模式，命令 X 需审批，请用 `hearth repl`」
+  
 ④ 修 T6：确认 `add_landlock_rule` 对 `/dev/null` 的 FS_RW 为何未生效（该函数失败目前只打 WARN 不阻断）
    **【已闭环 · 2026-08-30 N1-SBX f8f549a】**：根因 = FS_RW 混入目录专有权（READ_DIR/
    REMOVE_DIR/MAKE_*/REFER 共 11 位），非目录 parent_fd 必 EINVAL（内核语义，诊断矩阵
@@ -420,8 +436,10 @@ NEW-02（Done 语义）≈ RC8/RC9/RC10 ｜ NEW-03/04（继续/checkpoint）≈ 
 
 ### 补充：resume 的 core dump（exit 159）性质判定
 
-`.131` 上 `hearth resume` 报 core dump / exit 159（SIGSYS）；`.133` 上实测 `hearth resume` **RC=0 正常恢复并回答**。  
-→ **resume 路径本身没坏**；`.131` 上的 159 是 resume 触发的**工具调用撞上 seccomp 白名单缺口**（与 `chmod` 159、`getent` 159 同源）。  
+`.131` 上 `hearth resume` 报 core dump / exit 159（SIGSYS）；`.133` 上实测 `hearth resume` **RC=0 正常恢复并回答**。
+  
+→ **resume 路径本身没坏**；`.131` 上的 159 是 resume 触发的**工具调用撞上 seccomp 白名单缺口**（与 `chmod` 159、`getent` 159 同源）。
+  
 → 原排查方向「文件系统兼容性或信号处理」会把人带偏，实际应查**具体哪个工具用了白名单外的 syscall**。
 
 ---
@@ -612,7 +630,8 @@ give_up
 
 ## 7.8 第二轮外部评审（Claude 回函）+ 密钥紧急事件
 
-材料：`docs/hearth-manual-test-incremental-findings-v1.md`（Claude 外部评审，10 条发现 + 6 明文 key 告警）。  
+材料：`docs/hearth-manual-test-incremental-findings-v1.md`（Claude 外部评审，10 条发现 + 6 明文 key 告警）。
+  
 逐条核实书：`docs/claude-findings-verification-砺.md`（守门人 VERIDCT + 源码锚点 + 实证）。
 
 ### 🚨 #0 明文密钥泄漏（操作安全紧急事件）
@@ -626,7 +645,8 @@ give_up
 | 是否已 commit？         | **是**——`git log` 提交 `059f160`                                                 |
 | 是否推到远程？             | **暂未**——`059f160` 不在 `origin/main`（`f19db66...`），本地泄露提交尚未推送                   |
 
-含 **6 个不同明文 key**，其中当前活跃 **Agnes `cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c` 命中 3 次**（行 10801/10802/25401）。  
+含 **6 个不同明文 key**，其中当前活跃 **Agnes `cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c` 命中 3 次**（行 10801/10802/25401）。
+  
 **守门员动作（非破坏性，已执行）**：冻结推送、标记 `.gitignore` 缺口。轮换与历史擦除（filter-repo，不可逆）**待顶层拍板**，守门员不动历史。
 
 ### Claude 回函逐条 VERIDCT（摘要）
@@ -674,7 +694,8 @@ give_up
 
 ## 7.9 防线 A / B / C 补跑结果（用户授权，2026-08-29）
 
-> 设计依据：`docs/hearth-session-resilience-taskbook.md`（WS-X1 会话持久化 + 崩溃隔离 / WS-X2 轻量 compaction）。>   
+> 设计依据：`docs/hearth-session-resilience-taskbook.md`（WS-X1 会话持久化 + 崩溃隔离 / WS-X2 轻量 compaction）。
+>   
 > 原则：**不信报告信源码 + 实证优先**。A/C 的结构性证据来自 `.133` R2-C 门禁实测（`cargo test -p agent-core` 67 passed，含 `test_t3`/`test_t4`）+ `hearth_resume_fix.txt` 10/10；B 来自源码白名单盘点 + 已实证 NEW-07/NEW-13。
 
 ### 防线 A · `/resume` 语义实证 —— ✅ PASS
@@ -689,7 +710,8 @@ give_up
 | compact 后仍存活   | 单测 `test_t4_continuity_survives_compaction`（loop.rs:5247）+ `test_cb_compact_keeps_continuity_and_topology`（loop.rs:5588）：compact 不触 topology/continuity，original_goal 不受影响 |
 | 端到端实证          | `docs/incidents/2026-08-28-tier3/hearth_resume_fix.txt`：10/10 resume SUCCESS rc=0（deepseek）                                                                                |
 
-**裁决**：resume 路径**结构正确**——history + task_graph + continuity 均能恢复；实证 10/10 全绿；此前 `.131` 的 exit 159 是 resume 触发的**工具调用撞 seccomp 缺口**（与 chmod/getent 同源），非 resume 本身缺陷（§7.65 已判）。  
+**裁决**：resume 路径**结构正确**——history + task_graph + continuity 均能恢复；实证 10/10 全绿；此前 `.131` 的 exit 159 是 resume 触发的**工具调用撞 seccomp 缺口**（与 chmod/getent 同源），非 resume 本身缺陷（§7.65 已判）。
+  
 **残留告警**：`loop.rs:1498 MAX_HISTORY_MSGS=40` —— 超过 40 条消息的历史被 `split_off` 硬丢弃（独立于 compaction 的另一失忆通道），建议纳入 RC5 处置。
 
 ### 防线 B · seccomp 能力缺口盘点 —— ⚠️ fail-closed 正确，但有两个能力缺口
@@ -743,8 +765,10 @@ give_up
 
 ## 7.11 日志深挖第二轮：Claude 观察全语料化 + 盲区补挖（砺·评审，2026-08-29 14:xx）
 
-> 背景：外部交叉评审的**目标是盲区挖掘**（把 DIGEST + 全量日志发给 ChatGPT/Claude，找我们自己看不见的故障模式）。Claude 的发现多来自定向 grep（自称"未发现≠不存在"），多个仅 n=1/n=3。>   
-> 本轮把它的每个观察**变成全语料频次证据**（9 份日志 / 33,100 行；v0.2.8 不在 ALL 包内，已单独分析于 §7.65），并补挖它没碰的维度。>   
+> 背景：外部交叉评审的**目标是盲区挖掘**（把 DIGEST + 全量日志发给 ChatGPT/Claude，找我们自己看不见的故障模式）。Claude 的发现多来自定向 grep（自称"未发现≠不存在"），多个仅 n=1/n=3。
+>   
+> 本轮把它的每个观察**变成全语料频次证据**（9 份日志 / 33,100 行；v0.2.8 不在 ALL 包内，已单独分析于 §7.65），并补挖它没碰的维度。
+>   
 > 脚本可复跑：`.workbuddy/mine_logs.py` / `mine2.py` / `mine3.py`。行号换算：`ALL = 9372 + v0.2.4原行号`。
 
 ### 7.11.1 全语料分版本频次表（核心列）
@@ -854,7 +878,8 @@ give_up
 
 ## 9. 顶层审批待办清单（攒批提交 · 单一入口）
 
-> 本条是给**顶层规划窗口**的一页纸：所有待办按「谁来做 / 是否阻断 / 当前状态」归并，避免零散提交打碎审批注意力。>   
+> 本条是给**顶层规划窗口**的一页纸：所有待办按「谁来做 / 是否阻断 / 当前状态」归并，避免零散提交打碎审批注意力。
+>   
 > 提交策略（用户拍板）：**攒批**——攒够一批一次性审批、一次性执行。
 
 ### 9.1 🔴 阻断级（不解决不能动 push / 不能算收口）

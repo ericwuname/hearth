@@ -12,7 +12,7 @@ import json, os, re, subprocess, sys, time
 
 HOME = "/tmp/hearth_b3a"
 HEARTH = "/home/wutao/codex/target/release/hearth"
-KEY = "sk-28d7376b6b7d4c339f5023e5a0aedbf1"
+KEY = "sk-<REDACTED-KEY>"
 os.makedirs(f"{HOME}/works", exist_ok=True)
 
 def run_chat(goal, input_text, budget=8, timeout=180):
