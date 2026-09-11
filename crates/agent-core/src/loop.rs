@@ -2924,6 +2924,40 @@ impl AgentLoop {
                     retry_attempt += 1;
                     let delay = retry_backoff_secs(&self.retry_backoffs_secs, retry_attempt);
                     let remaining = self.retry_window_secs.saturating_sub(elapsed);
+                    // K-5（契约手术，2026-09-11）：**退避预算感知**——EMBER M1 实测病灶：
+                    // provider 抖动期长退避（30s/1m/2m）吃光任务墙钟预算
+                    //（deadline exceeded 1114s >= 900s 被杀）；S7 与 S8 各自正确、
+                    // 组合出错。规则：本次退避时长 > 剩余任务时间的 30% → 不硬等，
+                    // 直接转暂停语义（断点已存、可 resume；比"睡到被 deadline 杀"好）。
+                    if let Some(dl) = self.ctx_mgr.task_deadline() {
+                        let remain_task = dl
+                            .saturating_duration_since(std::time::Instant::now())
+                            .as_secs();
+                        if remain_task > 0 && delay > remain_task / 3 {
+                            self.emit(Event::ThinkSummary {
+                                phase: "retry".to_string(),
+                                text: format!(
+                                    "[retry] provider 瞬时故障（{}）——本次退避 {}s 超出剩余任务预算 {}s 的 30%（K-5 预算感知）→ 不硬等，改走暂停（断点已存，可 resume 续跑）",
+                                    summarize_provider_error(&msg),
+                                    delay,
+                                    remain_task
+                                ),
+                            });
+                            tracing::warn!(
+                                error=%e,
+                                retries=retry_attempt,
+                                delay_sec=delay,
+                                task_remaining_s=remain_task,
+                                "K-5 backoff budget-aware: switching to pause instead of sleeping into deadline"
+                            );
+                            break Err(anyhow::Error::new(ProviderRetryWindowExhausted {
+                                retries: retry_attempt,
+                                elapsed_secs: elapsed,
+                                window_secs: self.retry_window_secs,
+                                last_error: summarize_provider_error(&msg),
+                            }));
+                        }
+                    }
                     // 投影：每次重试前一条 [retry]（可观测，用户可等）。
                     self.emit(Event::ThinkSummary {
                         phase: "retry".to_string(),
@@ -6476,6 +6510,69 @@ mod tests {
             "小窗口必须快速收口（不再 120s 硬 cap 快速 failed），实际 {wall:?}"
         );
         eprintln!("s7 window-pause PASS: {calls} calls in {wall:?} → paused (resumable)");
+    }
+
+    /// K-5（契约手术，2026-09-11）：**退避预算感知**——本次退避时长 > 剩余任务时间
+    /// 的 30% → 不硬等（防吃光墙钟被 deadline 杀），直接转暂停语义（可 resume）。
+    /// 红样本 = EMBER M1 实测病灶：provider 抖动期长退避（30s/1m/2m）吃光 900s
+    /// 预算 → `deadline exceeded 1114s >= 900s` 被杀（S7 与 S8 各自正确、组合出错）。
+    /// 构造：任务预算 60s（deadline=new+60s），退避 25s（25 > 60/3=20 → 触发）。
+    /// 红（无 K-5）形态：真 sleep 25s → wall ≥ 25s；本断言 wall < 5s 必红。
+    #[tokio::test]
+    async fn test_k5_backoff_budget_aware_pause() {
+        struct FailingTransientLlm {
+            calls: std::sync::Mutex<usize>,
+        }
+        #[async_trait]
+        impl LlmProvider for FailingTransientLlm {
+            fn name(&self) -> &str {
+                "failing-transient"
+            }
+            fn model(&self) -> &str {
+                "failing-transient"
+            }
+            fn capabilities(&self) -> llm_gateway::Capabilities {
+                llm_gateway::Capabilities::default()
+            }
+            async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse> {
+                *self.calls.lock().unwrap() += 1;
+                Err(llm_gateway::LlmError::Transient("read body: boom".into()).into())
+            }
+            fn stream(
+                &self,
+                _req: ChatRequest,
+            ) -> futures::stream::BoxStream<'static, Result<llm_gateway::StreamEvent>> {
+                Box::pin(futures::stream::empty())
+            }
+            async fn embed(&self, _inputs: &[String]) -> Result<Vec<llm_gateway::Embedding>> {
+                Ok(vec![])
+            }
+        }
+        let llm = Arc::new(FailingTransientLlm {
+            calls: std::sync::Mutex::new(0),
+        });
+        let dispatcher = Arc::new(ToolDispatcher::new());
+        let mut goal = Goal::new("k5 budget aware");
+        goal.budget.max_time_secs = Some(60); // 任务墙钟 60s
+        let mut agent = make_test_agent(llm.clone(), dispatcher, goal);
+        agent.retry_backoffs_secs = vec![25, 25, 25]; // 25s > 60/3=20s → 触发 K-5
+        agent.retry_window_secs = 7200; // 大窗口（排除"窗口耗尽"路径）
+        let t0 = std::time::Instant::now();
+        let r = agent.do_plan_inner().await;
+        let wall = t0.elapsed();
+        let e = match r {
+            Ok(_) => panic!("K-5 场景应止于预算感知暂停"),
+            Err(e) => e,
+        };
+        assert!(
+            e.downcast_ref::<ProviderRetryWindowExhausted>().is_some(),
+            "K-5: 必须转暂停语义（可 resume），实际 {e:#}"
+        );
+        assert!(
+            wall.as_secs() < 5,
+            "K-5: 不得硬等 25s（预算感知应立即转暂停），实际 {wall:?}"
+        );
+        eprintln!("k5 budget-aware PASS: wall={wall:?} → paused before sleeping");
     }
 
     /// S7（手术包二）①：瞬时故障重试后成功——前 3 次 429（Transient）第 4 次
