@@ -47,7 +47,7 @@ def color(text, code):
 
 # ========== API Key ==========
 def get_api_key():
-    api_key = "AQ.Ab8RN6L-sy3klev-5Cr61SNOMGIt-HqdWfVfFFBQ4O0FNt4MhA"
+    api_key = "AQ.<REDACTED-GEMINI-KEY>"
     if not api_key:
         print(color("❌ 错误：未找到 GEMINI_API_KEY。请设置环境变量。", COLOR_RED))
         print(color("   示例: $env:GEMINI_API_KEY='你的Key'", COLOR_YELLOW))

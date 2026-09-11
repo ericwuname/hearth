@@ -200,7 +200,7 @@
 - ❌ 旧记忆「VM 能到 crates.io 不能到 github.com」→ **实测 `github.com` HTTP 200**，VM 出网正常
 - ❌ Hearth 自诊断「沙箱环境完全隔离外网」→ seccomp 白名单含 `SYS_SOCKET(41)`/`SYS_CONNECT(42)`（`sandbox/lib.rs:577-580`），**沙箱不拦出网**
 - ❌ 旧记忆「10 个 sandbox 失败 = cgroup 权限不足」→ **根因是 env 到不了**，治理后全绿，代码无缺陷
-- ❌ `.bashrc` 内 Agnes key `cpk-TbY5hUh…` → **401 无效令牌**；有效 key 为 `cpk-f4UBH3NaHUUN…`（HTTP 200）
+- ❌ `.bashrc` 内 Agnes key `cpk-TbY5hUh…` → **401 无效令牌**；有效 key 为 `cpk-<REDACTED-AGNES-KEY>…`（HTTP 200）
 
 ---
 
@@ -645,7 +645,7 @@ give_up
 | 是否已 commit？         | **是**——`git log` 提交 `059f160`                                                 |
 | 是否推到远程？             | **暂未**——`059f160` 不在 `origin/main`（`f19db66...`），本地泄露提交尚未推送                   |
 
-含 **6 个不同明文 key**，其中当前活跃 **Agnes `cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c` 命中 3 次**（行 10801/10802/25401）。
+含 **6 个不同明文 key**，其中当前活跃 **Agnes `cpk-<REDACTED-AGNES-KEY><REDACTED-KEY-FRAGMENT>` 命中 3 次**（行 10801/10802/25401）。
   
 **守门员动作（非破坏性，已执行）**：冻结推送、标记 `.gitignore` 缺口。轮换与历史擦除（filter-repo，不可逆）**待顶层拍板**，守门员不动历史。
 

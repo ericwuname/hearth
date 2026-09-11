@@ -187,7 +187,7 @@ self.ctx_mgr.set_scratch("selfcheck_result", serde_json::json!({
 **实测证据**：
 
 1. `git ls-remote origin main` → `68406dd2fe4c4394688870158629a629100d0a86`
-2. `git log --all -S"cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9"` → 命中 `68406dd`（含你的 **Agnes 会员主用 key**，周 75,000 次配额）+ `sk-28d7376b…` 等
+2. `git log --all -S"cpk-<REDACTED-AGNES-KEY>"` → 命中 `68406dd`（含你的 **Agnes 会员主用 key**，周 75,000 次配额）+ `sk-28d7376b…` 等
 3. 即：**远端 public 仓库 `ericwuname/hearth` 的 main 分支，当前树里带明文密钥**。
 
 **为什么之前的双保险没生效**：GitHub Push Protection / secret scanning 主要识别**已知厂商的 key 格式**（OpenAI `sk-`、AWS `AKIA`、GCP 等）。Agnes 的 `cpk-` 是**私有格式，扫描器不认识** → push 时不会被拦，推送后也不会告警。

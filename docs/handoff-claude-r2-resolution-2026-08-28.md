@@ -2,7 +2,7 @@
 
 > **签发窗口**：全面评审 / 守门人窗口（仅出文档与源码取证，不落实现代码）  
 > **流转路径**：评审窗口 → 顶层规划窗口（审批）→ 施工窗口（执行）  
-> **评审源**：外部同行评审 Claude（2026-08-28），针对两份交付物——`docs/hearth-vs-codex-benchmark-2026-08-28.md`、`docs/hearth-evidence-package-v1.md`  
+> **评审源**：外部同行评审 Claude（2026-08-28），针对两份交付物——`docs/hearth-vs-codex-benchmark-<REDACTED-VOLC-KEY>.md`、`docs/hearth-evidence-package-v1.md`  
 > **关联任务**：Task #27（§6 一致性，已完成）/ #28（修被 ignore 的安全测试）/ #29（回填真实测试输出）
 
 ---
@@ -42,7 +42,7 @@
 
 ## 3. §3 处置：§6 与 §4 一致性（评审窗口已完成）
 
-- 对标报告 `docs/hearth-vs-codex-benchmark-2026-08-28.md` §6 第一条，已从「优先补 MCP（最高 ROI）」改为：
+- 对标报告 `docs/hearth-vs-codex-benchmark-<REDACTED-VOLC-KEY>.md` §6 第一条，已从「优先补 MCP（最高 ROI）」改为：
   > 「先完成 B 类可靠性遥测与修复被 ignore 的核心安全测试，确认稳定性达标后再启动扩展性功能」
 - 与 §4「稳定性行为验证（deadline/resume/压缩/沙箱）P0（先决）」行一致。✅
 
@@ -343,7 +343,7 @@ Patch A-G 落地后，第一步直接跑全量：cargo test --workspace（无 en
 
 ## 补充 5：两份证据包文档随本任务入库
 
-`hearth-evidence-package-v1.md` / `hearth-vs-codex-benchmark-2026-08-28.md` 目前仍未入库（今日 `d81087b` 批量提交时点早于其产出）。本任务处置完成后随 patch **同 commit 入库**，防止审计证据再次游离（腐化审计 P0 刚收口，别开新口子）。
+`hearth-evidence-package-v1.md` / `hearth-vs-codex-benchmark-<REDACTED-VOLC-KEY>.md` 目前仍未入库（今日 `d81087b` 批量提交时点早于其产出）。本任务处置完成后随 patch **同 commit 入库**，防止审计证据再次游离（腐化审计 P0 刚收口，别开新口子）。
 
 ## 补充 6：§8 治理建议——顶层拍板：采纳
 

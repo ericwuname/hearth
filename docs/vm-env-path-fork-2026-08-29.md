@@ -107,7 +107,7 @@ HEARTH_EGRESS_ALLOWLIST=rust-lang.org,crates.io,docs.rs,doc.rust-lang.org,github
 - `sk-<REDACTED-KEY>`（被后两条覆盖）
 - `cpk-<REDACTED-AGNES-KEY>B2SO90gs0RdoLHfKAi0Y1erVdC2N` ×2（OPENAI_API_KEY + APIHUB_AGNES_AI_API_KEY）
 
-**记忆里登记的 Agnes key 是 `cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c`——两者不同。**
+**记忆里登记的 Agnes key 是 `cpk-<REDACTED-AGNES-KEY><REDACTED-KEY-FRAGMENT>`——两者不同。**
 需你确认哪个有效；失效的那个应从 `.bashrc` 清除（明文 key 落盘且被覆盖两次，本身也是隐患）。
 
 ---

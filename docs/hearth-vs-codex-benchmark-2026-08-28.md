@@ -165,7 +165,7 @@ Hearth 原始设想是「可信委托」的 Codex-class Agent。当前实现在�
 
 ## 7. 交付与参考文件
 
-- 本报告：`docs/hearth-vs-codex-benchmark-2026-08-28.md`
+- 本报告：`docs/hearth-vs-codex-benchmark-<REDACTED-VOLC-KEY>.md`
 - 参考（已生成）：
   - `docs/feature-completeness-audit-2026-08-28.md`（功能全景与完善度）
   - `docs/project-rot-audit-2026-08-28.md`（腐化审计）

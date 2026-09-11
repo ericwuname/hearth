@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """P2 Node 01: chars<->tokens calibration on real Hearth workload samples.
 Measures per corpus: naive_chars, estimate_koujing (Rust Debug+bytes replication),
@@ -6,7 +7,9 @@ API prompt_tokens (authoritative). Provider: Agnes agnes-2.5-flash.
 import json, urllib.request, os, sys, re
 
 API = "https://api.agnes-ai.cn/v1/chat/completions"
-KEY = "cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c"
+# key 走环境变量（2026-09-12 脱敏：明文 key 曾入库并已泄露到 public 仓库，禁止再写回文件）
+# 用法：export HEARTH_LLM_KEY=<你的 key>
+KEY = os.environ.get("HEARTH_LLM_KEY", "")
 MODEL = "agnes-2.5-flash"
 REPO = r"C:/Users/87465/Desktop/codex-rust-v1.0-final"
 

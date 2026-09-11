@@ -522,11 +522,11 @@ Options:
   -h, --help                 Print help
   -V, --version              Print version
 wutao@wutao-VMware-Virtual-Platform:~$ hearth init
-provider [deepseek]: sk-88ede9b5dd3449758d526294f41182ce
-API key（回车跳过）: sk-88ede9b5dd3449758d526294f41182ce
+provider [deepseek]: sk-<REDACTED-KEY>
+API key（回车跳过）: sk-<REDACTED-KEY>
 base URL（回车=provider 默认）:
 已写入 /home/wutao/.config/hearth/config.toml
-✗ provider 组装失败: 未知 provider: sk-88ede9b5dd3449758d526294f41182ce——可用: deepseek / openai / ollama / vllm。
+✗ provider 组装失败: 未知 provider: sk-<REDACTED-KEY>——可用: deepseek / openai / ollama / vllm。
 下一步: hearth config set provider deepseek
 wutao@wutao-VMware-Virtual-Platform:~$ hearth init
 provider [deepseek]: deepseek
@@ -534,14 +534,14 @@ API key（回车跳过）: hearth init^Z
 [1]+  已停止               hearth init
 wutao@wutao-VMware-Virtual-Platform:~$ hearth init
 provider [deepseek]: deepseek1
-API key（回车跳过）: sk-88ede9b5dd3449758d526294f41182ce
+API key（回车跳过）: sk-<REDACTED-KEY>
 base URL（回车=provider 默认）: https://api.deepseek.com
 已写入 /home/wutao/.config/hearth/config.toml
 ✗ provider 组装失败: 未知 provider: deepseek1——可用: deepseek / openai / ollama / vllm。
 下一步: hearth config set provider deepseek
 wutao@wutao-VMware-Virtual-Platform:~$ hearth init
 provider [deepseek]: deepseek
-API key（回车跳过）: sk-88ede9b5dd3449758d526294f41182ce
+API key（回车跳过）: sk-<REDACTED-KEY>
 base URL（回车=provider 默认）: https://api.deepseek.com
 已写入 /home/wutao/.config/hearth/config.toml
 provider deepseek 组装 OK
@@ -8352,11 +8352,11 @@ resume 本地会话 b6596551-9874-451a-8bca-eacfe1b05a7d（1 轮历史，历史�
   ◂ span 耗时 10305ms
 💭 [plan] 正在规划任务分解
 终检通过：台账无任何残留"待执行"标记（79 行 / 6670 字节）。现在回填 T11/T12 观察结果（本轮 continue 本身就是多轮连续性的实测）：✓ Done (6 steps)
-wutao@wutao-VMware-Virtual-Platform:~$ 白名单我加入了，你看看能不能继续联网了。还有帮我注册一个API供应商Agnes，具体的信息：sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH
+wutao@wutao-VMware-Virtual-Platform:~$ 白名单我加入了，你看看能不能继续联网了。还有帮我注册一个API供应商Agnes，具体的信息：sk-<REDACTED-KEY>
 https://api.agnes-ai.cn/v1
 agnes-2.5-flash
 Agnes
-白名单我加入了，你看看能不能继续联网了。还有帮我注册一个API供应商Agnes，具体的信息：sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH：未找到命令
+白名单我加入了，你看看能不能继续联网了。还有帮我注册一个API供应商Agnes，具体的信息：sk-<REDACTED-KEY>：未找到命令
 -bash: https://api.agnes-ai.cn/v1: 没有那个文件或目录
 agnes-2.5-flash：未找到命令
 Agnes：未找到命令
@@ -8421,9 +8421,9 @@ wutao@wutao-VMware-Virtual-Platform:~$ hearth repl
 Hearth REPL（直跑模式，连续对话）——输入目标开始，/quit 退出，Ctrl-D 退出。
   📋 粘贴全文：输入 `{` 开始多行（贴完用单独一行 `}` 结束）；`/file <路径>` 直接读文件；运行中 Ctrl-C 取消本轮。
   💾 检测到 9 个本地会话（最近: b6596551-9874-451a-8bca-eacfe1b05a7d，3 轮）——`hearth resume <id>` 恢复，`hearth sessions` 列出
-hearth> 〉你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH   url:https://api.agnes-ai.cn/v1  ,模型：agnes-2.5-flash。
+hearth> 〉你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-<REDACTED-KEY>   url:https://api.agnes-ai.cn/v1  ,模型：agnes-2.5-flash。
 
-> 你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH   url:https://api.agnes-ai.cn/v1  ,模型：agnes-2.5-flash。
+> 你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加了，还有就是帮我添加一个新的API供应商Agnes，key ：sk-<REDACTED-KEY>   url:https://api.agnes-ai.cn/v1  ,模型：agnes-2.5-flash。
 
 ◆ Init
   ▸ span [plan] 2026-08-26T13:06:06.730577173+00:00
@@ -8431,7 +8431,7 @@ hearth> 〉你读一下`read BUG_LEDGER.md,然后网络白名单我已经添加�
 ┌─ 🗺 规划草案（steps=2 gaps=1 待问=0 自动假设=1）
    🤖 ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设）
    · Read BUG_LEDGER.md to review current context, any bugs, or configuration notes relevant to adding API providers. [Pending]
-   · Add a new API provider 'Agnes' with base URL https://api.agnes-ai.cn/v1, API key sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH, and model 'agnes-2.5-flash' to the appropriate configuration file(s). [Pending]
+   · Add a new API provider 'Agnes' with base URL https://api.agnes-ai.cn/v1, API key sk-<REDACTED-KEY>, and model 'agnes-2.5-flash' to the appropriate configuration file(s). [Pending]
    ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设） →
 └─
   ◂ span 耗时 9959ms
@@ -8559,7 +8559,7 @@ members = [
    🤖 ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设）
    · Read BUG_LEDGER.md to understand current project state and any configuration requirements. [Pending]
    · Locate the API supplier/provider configuration file using glob/grep/introspect. [Pending]
-   · Edit the configuration to add API supplier Agnes with key sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH, base URL https://api.agnes-ai.cn/v1, and model agnes-2.5-flash. [Pending]
+   · Edit the configuration to add API supplier Agnes with key sk-<REDACTED-KEY>, base URL https://api.agnes-ai.cn/v1, and model agnes-2.5-flash. [Pending]
    · Verify the new Agnes supplier and model are correctly present in the configuration. [Pending]
    ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设） →
 └─
@@ -8692,7 +8692,7 @@ use clap::{Parser, Subcommand};
    🤖 ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设）
    · Read BUG_LEDGER.md to understand project context, existing API provider setup, and any relevant conventions before making changes. [Pending]
    · Search the repository (glob/grep/read) to locate the configuration file(s) where API providers, keys, base URLs, and models are defined. [Pending]
-   · Add the new API provider 'Agnes' to the identified config with key sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH, base URL https://api.agnes-ai.cn/v1, and model agnes-2.5-flash. [Pending]
+   · Add the new API provider 'Agnes' to the identified config with key sk-<REDACTED-KEY>, base URL https://api.agnes-ai.cn/v1, and model agnes-2.5-flash. [Pending]
    ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设） →
 └─
   ◂ span 耗时 47986ms
@@ -9426,12 +9426,12 @@ provider deepseek 组装 OK
 wutao@wutao-VMware-Virtual-Platform:~$ hearth config set provider openai
 hearth config set url https://api.agnes-ai.cn/v1
 hearth config set model agnes-2.5-flash
-hearth config set api-key sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH
+hearth config set api-key sk-<REDACTED-KEY>
 hearth repl
 已写入 /home/wutao/.config/hearth/config.toml: provider = openai
 已写入 /home/wutao/.config/hearth/config.toml: url = https://api.agnes-ai.cn/v1
 已写入 /home/wutao/.config/hearth/config.toml: model = agnes-2.5-flash
-已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH
+已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-<REDACTED-KEY>
 🔒 landlock+seccomp (fail-closed)  (session ba292695)
 Hearth REPL（直跑模式，连续对话）——输入目标开始，/quit 退出，Ctrl-D 退出。
   📋 粘贴全文：输入 `{` 开始多行（贴完用单独一行 `}` 结束）；`/file <路径>` 直接读文件；运行中 Ctrl-C 取消本轮。
@@ -10798,8 +10798,8 @@ Commands:
 
 Options:
   -h, --help  Print help
-wutao@wutao-VMware-Virtual-Platform:~$ hearth config set api-key cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c
-已写入 /home/wutao/.config/hearth/config.toml: api-key = cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c
+wutao@wutao-VMware-Virtual-Platform:~$ hearth config set api-key cpk-<REDACTED-AGNES-KEY>
+已写入 /home/wutao/.config/hearth/config.toml: api-key = cpk-<REDACTED-AGNES-KEY>
 wutao@wutao-VMware-Virtual-Platform:~$ hearth get
 error: unrecognized subcommand 'get'
 
@@ -20398,7 +20398,7 @@ hearth> 〉看了这么多的内容，说说情况吧
 | **Docker** | 正常运行 (v29.6.2) |
 | **Hearth CLI** | 正常，有 ~25 个本地会话记录 |
 | **模型** | agnes-2.0-flash via relay (127.0.0.1:4446) |
-| **API Key** | sk-LUQiBu5WS6Z3ebNGSqpQ9ntHQFrCuOfS8KeQaCCJRCf56XQy |
+| **API Key** | sk-<REDACTED-KEY> |
 
 ---
 
@@ -25398,7 +25398,7 @@ hearth> 〉6                                                                    
   ◂ span 耗时 74ms
 💭 [act] 正在执行工具调用
   ✓ "0cebf7a3-7e08-46a1-88d5-364c8cad2b34.graph.json\n0cebf7a3-7e08-46a1-88d5-364c8cad2b34.jsonl\n142160da-a872-4277-a60f-443f56686e2a.graph.json\n142160da-a872-4277-a60f-443f56686e2a.jsonl\n1776b6cb-33f4…
-  ✓ "provider = \"openai\"\nmodel = \"agnes-2.5-flash\"\nurl = \"https://api.agnes-ai.cn/v1\"\napi_key = \"cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9TF5lTItbuXHSTP3w0c\"\nmode = \"agnes-2.5-flash\"\n"
+  ✓ "provider = \"openai\"\nmodel = \"agnes-2.5-flash\"\nurl = \"https://api.agnes-ai.cn/v1\"\napi_key = \"cpk-<REDACTED-AGNES-KEY>\"\nmode = \"agnes-2.5-flash\"\n"
   ✓ "Interactive REPL: multi-turn conversation with approvals\n\nUsage: hearth repl\n\nOptions:\n  -h, --help  Print help\n"
   ✓ "wutao      10418  1.5  3.4 1746236 280620 pts/0  Sl+  13:23   3:06 hearth repl\nwutao      17687  0.0  0.1 2580616 9700 pts/0    S+   16:08   0:00 /home/wutao/hearth chat 你好，请说hello --provider openai…
   ▸ span [observe] 2026-08-27T08:43:15.942991713+00:00
@@ -30907,7 +30907,7 @@ hearth> 〉继续
 💭 [act] 正在执行工具调用
   ✓ "exit code: -1\nstdout:\n/bin/chmod: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=d116a2c370579f6a76bbbcdcbb905a2…
   ✓ "/bin/bash\nno shell\n"
-  ✓ "SHELL=/bin/bash\nHEARTH_EGRESS_ALLOWLIST=rust-lang.org,crates.io,docs.rs,doc.rust-lang.org,github.com\nOPENAI_API_KEY=cpk-TbY5hUhEuA9CJpzagi4yB2SO90gs0RdoLHfKAi0Y1erVdC2N\nHEARTH_CGROUP_BASE=/sys/fs/…
+  ✓ "SHELL=/bin/bash\nHEARTH_EGRESS_ALLOWLIST=rust-lang.org,crates.io,docs.rs,doc.rust-lang.org,github.com\nOPENAI_API_KEY=cpk-<REDACTED-AGNES-KEY>\nHEARTH_CGROUP_BASE=/sys/fs/…
   ▸ span [observe] 2026-08-27T16:18:07.953161865+00:00
 ◆ Observe
   ◂ span 耗时 0ms
@@ -31327,16 +31327,16 @@ provider 设置成功。需要 API key：
 
 请提供真实的 API key 或告知下一步操作。✓ Done (14 steps)
 
-hearth> 〉你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1  ，key:sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH  mode :agnes-2.5-flash
+hearth> 〉你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1  ，key:sk-<REDACTED-KEY>  mode :agnes-2.5-flash
 
-> 你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1  ，key:sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH  mode :agnes-2.5-flash
+> 你用agnes的key吧：供应商名称用:Agnes临时，URL：https://api.agnes-ai.cn/v1  ，key:sk-<REDACTED-KEY>  mode :agnes-2.5-flash
 
 ◆ Init
   ▸ span [plan] 2026-08-27T16:24:15.962608117+00:00
 ◆ Plan
 ┌─ 🗺 规划草案（steps=1 gaps=1 待问=0 自动假设=1）
    🤖 ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设）
-   · 配置供应商信息：名称Agnes临时，URL https://api.agnes-ai.cn/v1，key sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH，mode agnes-2.5-flash [Pending]
+   · 配置供应商信息：名称Agnes临时，URL https://api.agnes-ai.cn/v1，key sk-<REDACTED-KEY>，mode agnes-2.5-flash [Pending]
    ⚡ 假设[missing_goal_source]: 目标未标注来源，按用户直接指令执行（已假设） →
 └─
   ◂ span 耗时 7127ms
@@ -31346,7 +31346,7 @@ hearth> 〉你用agnes的key吧：供应商名称用:Agnes临时，URL：https:/
 
 ⚙ bash → cmd: hearth config set url \"https://api.agnes-ai.cn/v1\" 2>&1
 
-⚙ bash → cmd: hearth config set api-key \"sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0g…
+⚙ bash → cmd: hearth config set api-key \"sk-<REDACTED-KEY>…
 
 ⚙ bash → cmd: hearth config set mode agnes-2.5-flash 2>&1
 
@@ -31357,7 +31357,7 @@ hearth> 〉你用agnes的key吧：供应商名称用:Agnes临时，URL：https:/
 💭 [act] 正在执行工具调用
   ✓ "已写入 /home/wutao/.config/hearth/config.toml: provider = Agnes临时\n"
   ✓ "已写入 /home/wutao/.config/hearth/config.toml: url = https://api.agnes-ai.cn/v1\n"
-  ✓ "已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-8LBZ1Gtu0faQ39XfIRL5Rebb4fwyIeCpBKqETe5xdWmh0gsH\n"
+  ✓ "已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-<REDACTED-KEY>\n"
   ✓ "已写入 /home/wutao/.config/hearth/config.toml: mode = agnes-2.5-flash\n"
   ✓ "Agnes临时\nhttps://api.agnes-ai.cn/v1\nsk-8…0gsH\nagnes-2.5-flash\n"
   ▸ span [observe] 2026-08-27T16:24:23.235775204+00:00
@@ -31456,9 +31456,9 @@ hearth> 〉我记得已经调整了，可以自定义供应商啊，你目前不
 
 你想先用方案 1 测试连通性，还是我来查找并修改代码支持 `Agnes临时` 这个自定义 provider？✓ Done (2 steps)
 
-hearth> 〉你用这个deepseek的key吧：sk-8c898382ecaa451c96d5573bb7b10874 ，还剩4.4元钱。
+hearth> 〉你用这个deepseek的key吧：sk-<REDACTED-KEY> ，还剩4.4元钱。
 
-> 你用这个deepseek的key吧：sk-8c898382ecaa451c96d5573bb7b10874 ，还剩4.4元钱。
+> 你用这个deepseek的key吧：sk-<REDACTED-KEY> ，还剩4.4元钱。
 
 ◆ Init
   ▸ span [plan] 2026-08-27T16:26:34.134360546+00:00
@@ -31473,7 +31473,7 @@ hearth> 〉你用这个deepseek的key吧：sk-8c898382ecaa451c96d5573bb7b10874 �
 
 ⚙ bash → cmd: hearth config set provider deepseek 2>&1
 
-⚙ bash → cmd: hearth config set api-key \"sk-8c898382ecaa451c96d5573bb7b10874\" 2>&1
+⚙ bash → cmd: hearth config set api-key \"sk-<REDACTED-KEY>\" 2>&1
 
 ⚙ bash → cmd: hearth chat \"测试连接 DeepSeek\" 2>&1
   ▸ span [act] 2026-08-27T16:26:36.056336708+00:00
@@ -31481,7 +31481,7 @@ hearth> 〉你用这个deepseek的key吧：sk-8c898382ecaa451c96d5573bb7b10874 �
   ◂ span 耗时 60067ms
 💭 [act] 正在执行工具调用
   ✓ "已写入 /home/wutao/.config/hearth/config.toml: provider = deepseek\n"
-  ✓ "已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-8c898382ecaa451c96d5573bb7b10874\n"
+  ✓ "已写入 /home/wutao/.config/hearth/config.toml: api-key = sk-<REDACTED-KEY>\n"
 ✗ 工具出错: "bash: tool 'bash' timed out after 30s"
   ▸ span [observe] 2026-08-27T16:27:36.124157798+00:00
 ◆ Observe
@@ -31608,7 +31608,7 @@ hearth> 〉接着
 
 ⚙ bash → cmd: hearth config get url 2>&1
 
-⚙ bash → cmd: curl -s --max-time 15 -H \"Authorization: Bearer sk-8c898382ecaa451c96d5573bb…
+⚙ bash → cmd: curl -s --max-time 15 -H \"Authorization: Bearer sk-<REDACTED-KEY>…
   ▸ span [act] 2026-08-27T16:30:09.849482161+00:00
 ◆ Act
   ◂ span 耗时 15094ms

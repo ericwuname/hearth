@@ -15,7 +15,9 @@ GROUP="${1:?用法: r9pkgb.sh <G1|G2|G3|G4> [--only id]}"
 ONLY=""
 [[ "${2:-}" == "--only" ]] && ONLY="${3:-}"
 
-KEY="cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c"
+# key 走环境变量（2026-09-12 脱敏：明文 key 曾入库并已泄露到 public 仓库，禁止再写回文件）
+# 用法：export HEARTH_LLM_KEY=<你的 key>
+KEY="${HEARTH_LLM_KEY:?需先 export HEARTH_LLM_KEY}"
 MODEL="agnes-2.5-flash"
 BASE="https://api.agnes-ai.cn/v1"
 HOST="https://api.agnes-ai.cn"

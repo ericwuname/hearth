@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """B3-A (backend-intelligence): clarify 闭环端到端验证。
@@ -12,7 +13,9 @@ import json, os, re, subprocess, sys, time
 
 HOME = "/tmp/hearth_b3a"
 HEARTH = "/home/wutao/codex/target/release/hearth"
-KEY = "sk-<REDACTED-KEY>"
+# key 走环境变量（2026-09-12 脱敏：明文 key 曾入库并已泄露到 public 仓库，禁止再写回文件）
+# 用法：export HEARTH_LLM_KEY=<你的 key>
+KEY = os.environ.get("HEARTH_LLM_KEY", "")
 os.makedirs(f"{HOME}/works", exist_ok=True)
 
 def run_chat(goal, input_text, budget=8, timeout=180):

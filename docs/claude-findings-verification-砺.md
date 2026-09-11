@@ -19,7 +19,7 @@ Claude 认为"git 提交密钥扫描没覆盖日志文件"。实测恰恰相反�
 | 是否已 commit？ | **是**——`git log` 显示提交 `059f160`（"v0.2.8 权威门禁 375 passed"） |
 | 是否推到远程？ | **暂未**——`059f160` 不在 `origin/main`（`f19db66...`），本地泄露提交尚未推送 |
 
-已 grep 实锤 `release/hearth-manual-test-logs-ALL.txt` 含 **6 个不同明文 key**，其中 **`cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c`（你当前在用的活跃 Agnes key）命中 3 次**（行 10801/10802/25401）。
+已 grep 实锤 `release/hearth-manual-test-logs-ALL.txt` 含 **6 个不同明文 key**，其中 **`cpk-<REDACTED-AGNES-KEY><REDACTED-KEY-FRAGMENT>`（你当前在用的活跃 Agnes key）命中 3 次**（行 10801/10802/25401）。
 
 **窗口期判断**：密钥已提交在本地、remote 已配置（`github.com/ericwuname/codex-rust-v1.0-final.git`）但**当前泄露提交未推送**——趁未 push 是最后阻断窗口。
 

@@ -4,7 +4,7 @@ from collections import Counter
 HOST = "192.168.220.131"
 USER = "wutao"
 PW = "123456"
-AGNES_KEY = "cpk-<REDACTED-AGNES-KEY>ZT0kyuqlu9TF5lTItbuXHSTP3w0c"
+AGNES_KEY = "cpk-<REDACTED-AGNES-KEY><REDACTED-KEY-FRAGMENT>"
 AGNES_URL = "https://api.agnes-ai.cn/v1"
 MODEL = "agnes-2.5-flash"
 GOAL = "用一句话回答：2加2等于几？只输出结果，不要解释。"
