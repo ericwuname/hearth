@@ -167,6 +167,13 @@ enum Commands {
         /// steps 接着数，追加的部分是净余量。
         #[arg(long)]
         budget: Option<u64>,
+
+        /// PC-5（执行窗，2026-09-11）：审批委托——resume 续跑时的破坏性操作
+        /// 需要与 chat 同款的委托能力。缺失时非交互 stdin 一律 DenyAll →
+        /// 续跑在首个写操作处被拒（EMBER M1 实测：resume 恢复 7 轮历史后
+        /// 因 approval_denied_noninteractive 直接 Done，续跑形同虚设）。
+        #[arg(long)]
+        approve_within: Option<String>,
     },
 
     /// Interactive REPL: multi-turn conversation with approvals.
@@ -694,7 +701,12 @@ pub async fn hearth_main() -> Result<()> {
             }
         }
 
-        Commands::Resume { id, goal, budget } => {
+        Commands::Resume {
+            id,
+            goal,
+            budget,
+            approve_within,
+        } => {
             // X1-4 (v0.1.6): 本地直跑模式 resume——从落盘 JSONL 重建历史继续
             // （治"窗口废了重开"：前面 N 轮对话不丢，进程重启后无缝续接）。
             if url.is_none() {
@@ -729,6 +741,31 @@ pub async fn hearth_main() -> Result<()> {
                     }
                 };
                 agent.restore_history(turns);
+                // PC-5：审批委托注入（与 chat --approve-within session 同语义）。
+                // 续跑常在非交互（nohup/ssh）下发起——无委托则首个写操作即被拒。
+                match approve_within.as_deref() {
+                    Some("session") => {
+                        agent.set_approval_policy(agent_core::ApprovalPolicy::DelegateSession);
+                        render::info("  🔓 续跑：会话级审批委托已开启（--approve-within session）");
+                    }
+                    Some(other) => {
+                        render::error(&format!(
+                            "--approve-within 仅支持 session（收到 {other}）——用法: hearth resume <id> --approve-within session"
+                        ));
+                        return Ok(());
+                    }
+                    None => {
+                        use std::io::IsTerminal as _;
+                        if !std::io::stdin().is_terminal() {
+                            agent.set_approval_policy(
+                                agent_core::ApprovalPolicy::DenyAllNonInteractive,
+                            );
+                            render::info(
+                                "  🤖 续跑非交互模式——破坏性操作将被结构化拒绝（如为 headless 续跑，请加 --approve-within session）",
+                            );
+                        }
+                    }
+                }
                 // S8（手术包二）：run 级断点恢复——steps/预算位/产物清单/关键
                 // scratch 一并回灌（执行位接续，不止历史）。无断点 → 仅历史
                 // 恢复（退化不炸）。
