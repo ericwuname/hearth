@@ -422,8 +422,52 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
         }
         if matches!(line.as_str(), "/help" | "/h") {
             crate::render::info(
-                "命令：/quit 退出 · /file <路径> 读文件全文 · /summary 本会话至今总结 · `{`…`}` 多行粘贴（贴完单独一行 } 提交）· trust on|off 会话级审批委托 · 运行中 Ctrl-C 取消本轮 · Ctrl-D 退出",
+                "命令：/quit 退出 · /file <路径> 读文件全文 · /summary 本会话至今总结 · /cost 本会话用量 · /context 会话上下文 · `{`…`}` 多行粘贴（贴完单独一行 } 提交）· trust on|off 会话级审批委托 · 运行中 Ctrl-C 取消本轮 · Ctrl-D 退出",
             );
+            continue;
+        }
+        // S17（手术包二）：`/cost`——本会话用量投影（报告 usage 行累加）。
+        // 注意力税可见化：瘦身效果的日常仪表盘（不消耗步数/不写历史）。
+        if line == "/cost" {
+            let dir = std::path::Path::new(".hearth")
+                .join("reports")
+                .join(&session_id);
+            let (mut up, mut down, mut calls, mut runs) = (0u64, 0u64, 0u64, 0usize);
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.extension().is_some_and(|x| x == "md") {
+                        if let Ok(txt) = std::fs::read_to_string(&p) {
+                            runs += 1;
+                            for l in txt.lines() {
+                                if let Some((u, d, c)) = parse_usage_line(l) {
+                                    up += u;
+                                    down += d;
+                                    calls += c;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::render::info(&format!(
+                "💰 /cost 本会话 {}：↑{up} ↓{down} tokens（calls={calls}，{runs} run，报告目录 .hearth/reports/{}/）",
+                &session_id[..8.min(session_id.len())],
+                &session_id[..8.min(session_id.len())]
+            ));
+            continue;
+        }
+        // S17：`/context`——会话上下文速览（cwd/轮次/会话 id/报告位置）。
+        if line == "/context" {
+            let cwd = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "?".into());
+            let turns = crate::session_store::load_turns(&session_id).len();
+            crate::render::info(&format!(
+                "🧭 /context 会话 {}：cwd={cwd} · 历史轮次={turns} · 报告=.hearth/reports/{}/ · 用量见 /cost",
+                &session_id[..8.min(session_id.len())],
+                &session_id[..8.min(session_id.len())]
+            ));
             continue;
         }
         // S14（手术包二）：`/summary`——长会话随时要"至今做成了什么"的 TL;DR
@@ -617,5 +661,41 @@ mod s11_tests {
             !is_double_ctrl_c(Some(t0), t0 + Duration::from_secs(10)),
             "超时后的 Ctrl-C 只算新一次（需再按一次才退出）"
         );
+    }
+}
+
+/// S17（手术包二）：从报告行解析 usage——"tokens: ↑123 ↓45 (calls=6)"。
+/// 容忍缺 calls 段（旧报告格式）；解析失败返回 None（跳过该行）。
+fn parse_usage_line(line: &str) -> Option<(u64, u64, u64)> {
+    let t = line.split("tokens:").nth(1)?;
+    let up = t.split('↑').nth(1)?.split_whitespace().next()?.parse().ok()?;
+    let down = t.split('↓').nth(1)?.split_whitespace().next()?.parse().ok()?;
+    let calls = t
+        .split("calls=")
+        .nth(1)
+        .and_then(|c| {
+            c.split(|ch: char| !ch.is_ascii_digit())
+                .find(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(0u64);
+    Some((up, down, calls))
+}
+
+#[cfg(test)]
+mod s17_tests {
+    use super::parse_usage_line;
+
+    #[test]
+    fn test_parse_usage_line_variants() {
+        assert_eq!(
+            parse_usage_line("  📊 tokens: ↑40874 ↓1477 (calls=6)"),
+            Some((40874, 1477, 6))
+        );
+        // 旧格式无 calls → 0
+        assert_eq!(parse_usage_line("tokens: ↑3000 ↓500"), Some((3000, 500, 0)));
+        // 非 usage 行 → None
+        assert_eq!(parse_usage_line("hello world"), None);
+        assert_eq!(parse_usage_line("tokens: ↑abc ↓1"), None);
     }
 }

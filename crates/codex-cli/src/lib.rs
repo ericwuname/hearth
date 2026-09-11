@@ -32,7 +32,13 @@ use colored::Colorize;
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+
+    /// S18（手术包二）：headless 单轮——`hearth -p "<提问>"`。
+    /// stdout 仅最终正文（quiet 档：进度/思考/工具行走 stderr），退出码语义：
+    /// 0=成功、非 0=失败——可直接用于脚本管道 `$(hearth -p "...")`。
+    #[arg(short = 'p', long = "print", value_name = "PROMPT")]
+    print: Option<String>,
 
     /// Service URL（提供则连远程 service；缺省 auto 直跑）。
     #[arg(long)]
@@ -322,7 +328,23 @@ pub async fn hearth_main() -> Result<()> {
         }
     }
 
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    // ── S18（手术包二）headless 单轮：`-p "<提问>"` ≡ `--quiet chat "<提问>"` ──
+    // 零复制实现：改写为等价 Chat 子命令；quiet 档（progress 走 stderr 语义由
+    // render 的 quiet() 保证）——stdout 仅正文，便于脚本捕获。
+    if let Some(prompt) = cli.print.take() {
+        crate::render::set_verbosity(0);
+        cli.command = Some(Commands::Chat {
+            goal: prompt,
+            budget: 40,
+            acceptance: Vec::new(),
+            provider: None,
+            model: None,
+            mode: None,
+            api_key: None,
+            approve_within: Some("session".to_string()),
+        });
+    }
 
     // RC27 (P3-BACKLOG): PATH 同名护栏——hearth 解析到非 /usr/local/bin/hearth 时告警
     // （E1 家族防线：陈旧 binary 经 PATH 混入）。仅告警不阻断（开发态 cargo run 合法）。
@@ -352,6 +374,11 @@ pub async fn hearth_main() -> Result<()> {
 
     // D3: 配置三层优先级（参数 > env > toml > 默认）。
     let file_cfg = config::Config::load()?;
+    // 修复 4（顶层批复）：config 为真相源——max_tokens 覆盖注入 agent 侧取参
+    //（复用既有 HEARTH_MAX_TOKENS 读取路径；缺省保持内置默认，零行为变化）。
+    if let Some(mt) = file_cfg.max_tokens {
+        std::env::set_var("HEARTH_MAX_TOKENS", mt.to_string());
+    }
     // RC16: service 模式触发只认显式 flag 或 HEARTH_SERVICE_URL——
     // 旧 HEARTH_URL 不再静默切 service（先红后绿测试锁定）。
     let url = cli.url.or_else(|| std::env::var("HEARTH_SERVICE_URL").ok());
@@ -367,7 +394,15 @@ pub async fn hearth_main() -> Result<()> {
         .as_ref()
         .map(|u| client::CodexClient::new(u.clone(), api_key.clone()));
 
-    match cli.command {
+    // S18：command 为 Option（-p 模式已在上面转为 Chat）——缺失则给用法。
+    let Some(command) = cli.command else {
+        render::error(
+            "未提供命令——用法: hearth -p \"<提问>\"（headless）| hearth chat <goal> | hearth repl | hearth --help",
+        );
+        return Ok(());
+    };
+
+    match command {
         Commands::Chat {
             goal,
             budget,
@@ -667,7 +702,10 @@ pub async fn hearth_main() -> Result<()> {
                 if turns.is_empty() {
                     render::error_structured(
                         "会话不存在或为空",
-                        &format!("未找到本地会话 {id}（~/.config/hearth/sessions/）"),
+                        &format!(
+                            "未找到本地会话 {id}（{}）",
+                            crate::session_store::sessions_dir().display()
+                        ),
                         "检查: 先跑过 chat/repl 产生会话，或重新发起任务",
                     );
                     return Ok(());
@@ -905,7 +943,10 @@ pub async fn hearth_main() -> Result<()> {
                 if turns.is_empty() {
                     render::error_structured(
                         "会话不存在或为空",
-                        &format!("未找到本地会话 {id}（~/.config/hearth/sessions/）"),
+                        &format!(
+                            "未找到本地会话 {id}（{}）",
+                            crate::session_store::sessions_dir().display()
+                        ),
                         "检查: hearth sessions 列出可用会话",
                     );
                     return Ok(());
@@ -963,7 +1004,10 @@ pub async fn hearth_main() -> Result<()> {
                 if turns.is_empty() {
                     render::error_structured(
                         "会话不存在或为空",
-                        &format!("未找到本地会话 {id}（~/.config/hearth/sessions/）"),
+                        &format!(
+                            "未找到本地会话 {id}（{}）",
+                            crate::session_store::sessions_dir().display()
+                        ),
                         "检查: hearth sessions 列出可用会话",
                     );
                     return Ok(());
@@ -1073,7 +1117,10 @@ pub async fn hearth_main() -> Result<()> {
                 if turns.is_empty() {
                     render::error_structured(
                         "会话不存在或为空",
-                        &format!("未找到本地会话 {id}（~/.config/hearth/sessions/）"),
+                        &format!(
+                            "未找到本地会话 {id}（{}）",
+                            crate::session_store::sessions_dir().display()
+                        ),
                         "检查: hearth sessions 列出可用会话",
                     );
                     return Ok(());

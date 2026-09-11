@@ -8,12 +8,18 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// 配置文件路径（Linux/macOS：`~/.config/hearth/config.toml`；Windows：`%APPDATA%/hearth/config.toml`）。
+/// C-2：APPDATA 缺失时回退 `HOME/.config/hearth/config.toml`（与 Unix 习惯及
+/// diagnostics 写入位置一致——避免落到非标准的 `HOME/hearth/`）。
 pub fn config_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         let base = std::env::var("APPDATA")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| std::env::var("HOME").map(PathBuf::from).unwrap_or_default());
+            .unwrap_or_else(|_| {
+                std::env::var("HOME")
+                    .map(|h| PathBuf::from(h).join(".config"))
+                    .unwrap_or_default()
+            });
         base.join("hearth").join("config.toml")
     }
     #[cfg(not(target_os = "windows"))]
@@ -56,6 +62,10 @@ pub struct Config {
     /// S9：各通道 key（`[provider_keys] agnes = "..."`）——本机 config.toml
     ///（权限 600，unix），**永不入 git**（Push Protection 红线——任何 key 入库翻车）。
     pub provider_keys: Option<std::collections::HashMap<String, String>>,
+    /// 修复 4（顶层批复）：输出预算覆盖（per-run）——config 为真相源，运行时
+    /// 注入 agent 侧取参（不新增独立 env 概念；缺省 = 内置默认 65536）。
+    /// 背景：agnes-3.0-flash thinking 与正文共享输出预算，8192 硬编码致正文残缺。
+    pub max_tokens: Option<u32>,
 }
 
 impl Config {
