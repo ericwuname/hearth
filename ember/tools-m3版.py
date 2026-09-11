@@ -126,70 +126,15 @@ def bash(command):
 
 # ---------------------------------------------------------------- read
 
-def read(path, offset=None, limit=None):
-    """读文件内容；支持分页（offset/limit）；超 64KB 截断；失败返回结构化说明。
-
-    参数:
-        path   – 文件路径
-        offset – 起始行号（1 起；None = 从第 1 行）
-        limit  – 读取行数（None = 读到文件尾）
-
-    两个参数都缺省时行为与旧版完全一致（读全部 + 64KB 截断）。
-    指定 offset/limit 时按行分页，返回值末尾附行号范围标注。
-    """
-    # 兼容 dict 风格调用：read({"path": "x", "offset": 1, "limit": 10})
-    if isinstance(path, dict):
-        p = str(path.get("path") or "").strip()
-        if offset is None:
-            offset = path.get("offset")
-        if limit is None:
-            limit = path.get("limit")
-    else:
-        p = str(path or "").strip()
-
+def read(path):
+    """读文件内容；超 64KB 同样截断；失败返回结构化说明。"""
+    args = _as_args(path)
+    p = str(args.get("path") or "").strip()
     if not p:
         return "错误: read 工具缺少 path 参数。示例: read(path=\"app.log\")"
-
-    # 归一 offset / limit
-    if offset is not None:
-        try:
-            offset = int(offset)
-        except (TypeError, ValueError):
-            return "错误: offset 必须是整数（行号，1 起），收到: %r" % offset
-        if offset < 1:
-            offset = 1
-    if limit is not None:
-        try:
-            limit = int(limit)
-        except (TypeError, ValueError):
-            return "错误: limit 必须是正整数（行数），收到: %r" % limit
-        if limit < 1:
-            limit = 1
-
     try:
         with open(p, "r", encoding="utf-8", errors="replace") as f:
-            if offset is None and limit is None:
-                # 完全向后兼容：读全部 + 64KB 截断
-                text = f.read()
-                text, truncated = _truncate(text)
-                note = ""
-                if truncated:
-                    note = ("\n[truncated] 文件超过 64KB，已截断（头 2/3 + 尾 1/3）。"
-                            "需要完整内容请用 read 分页（offset/limit）或 bash 分段查看。")
-                return text + note
-            else:
-                # 分页模式：按行读取
-                lines = f.readlines()
-                total_lines = len(lines)
-                start = offset if offset is not None else 1
-                if start > total_lines:
-                    return "错误: offset=%d 超出文件范围（共 %d 行）。" % (start, total_lines)
-                end = start + limit - 1 if limit is not None else total_lines
-                end = min(end, total_lines)
-                selected = lines[start - 1:end]
-                text = "".join(selected)
-                range_note = "\n[第 %d-%d 行（共 %d 行）]" % (start, end, total_lines)
-                return text + range_note
+            text = f.read()
     except FileNotFoundError:
         return "错误: 文件不存在: %s。建议: 用 bash(ls) 确认文件名与路径。" % p
     except IsADirectoryError:
@@ -198,6 +143,11 @@ def read(path, offset=None, limit=None):
         return "错误: 无读取权限: %s。" % p
     except OSError as e:
         return "错误: 读取失败 %s: %s。" % (p, e)
+    text, truncated = _truncate(text)
+    note = ""
+    if truncated:
+        note = "\n[truncated] 文件超过 64KB，已截断（头 2/3 + 尾 1/3）。需要完整内容请用 bash 分段查看。"
+    return text + note
 
 
 # ---------------------------------------------------------------- write

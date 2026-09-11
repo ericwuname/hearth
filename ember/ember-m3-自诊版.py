@@ -55,20 +55,13 @@ TOOLS_SCHEMA = [
         "function": {
             "name": "read",
             "description": (
-                "读取文件内容（文本），支持分页。\n"
-                "何时用: 查看源码/日志/配置；大文件用 offset+limit 分块阅读。\n"
-                "参数: path (string, 必填); offset (int, 可选, 起始行号 1 起, 缺省=第 1 行); limit (int, 可选, 读取行数, 缺省=读到文件尾)。\n"
-                "示例: read(path=\"app.log\", offset=101, limit=50)。\n"
-                "边界: 无 offset/limit 时超 64KB 截断；有分页时返回行号范围标注; 末尾不足 limit 时返回实际行数。\n"
-                "错误解读: 返回以 '错误:' 开头表示失败。"
+                "读取文件内容（文本）。\n"
+                "何时用: 查看源码/日志/配置。参数: path (string)。示例: read(path=\"app.log\")。\n"
+                "边界: 超 64KB 截断。错误解读: 返回以 '错误:' 开头表示失败。"
             ),
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "文件路径"},
-                    "offset": {"type": "integer", "description": "起始行号（1 起）；None 表示从第 1 行"},
-                    "limit": {"type": "integer", "description": "读取行数；None 表示读到文件尾"},
-                },
+                "properties": {"path": {"type": "string", "description": "文件路径"}},
                 "required": ["path"],
             },
         },
