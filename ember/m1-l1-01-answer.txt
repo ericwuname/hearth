@@ -1,0 +1,35 @@
+
+
+搞定，工具已写好并跑通，结果如下：
+
+## 分析结果（基于 app.log）
+
+**整体情况**
+- **总行数：500**（全部 500 行都成功解析，格式规整）
+- **ERROR：52 条**（占 10.4%）
+- **WARN：73 条**（占 14.6%）
+- INFO 375 条
+
+**ERROR 按模块分布**
+| 模块 | ERROR 数 | 占比 |
+|---|---|---|
+| api | 14 | 26.9% |
+| scheduler | 11 | 21.2% |
+| notify | 11 | 21.2% |
+| db | 10 | 19.2% |
+| auth | 6 | 11.5% |
+
+**哪个模块问题最严重 → `api`**
+- 按 ERROR 数排第一（14 条），且 WARN 也很多（16 条），综合最严重。
+- 它的高频错误：`unauthorized access attempt`(3)、`null pointer in handler`(3)、`oom killed worker`(3)、`failed to write file`(2)……其中 OOM 和无权限访问值得重点排查。
+
+> 补充：如果只看 WARN，`notify` 是 WARN 最多（20 条），但它的 ERROR 只有 11，所以综合（以 ERROR 为主）仍判 `api` 最严重。
+
+## 工具说明（已保留，可复用）
+- 文件：`log_analyze.py`（Python，无需第三方库）
+- 用法：
+  - `python3 log_analyze.py app.log`
+  - 换新日志：`python3 log_analyze.py 新日志.log`（默认就是 `app.log`，直接跑也行）
+  - `python3 log_analyze.py 新日志.log --top 10`（调整展示的高频错误条数）
+
+它会自动识别 `[级别] 模块: 消息` 这种格式，能容错处理没有时间戳或级别没加方括号的情况，无法解析的行归到 OTHER。以后日志格式只要大体一致就能直接套用。
