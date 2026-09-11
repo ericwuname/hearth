@@ -83,9 +83,48 @@ fn retry_backoff_secs(seq: &[u64], attempt: u32) -> u64 {
 }
 
 /// S7：错误单行摘要（投影用——不把整段错误灌进事件流）。
+/// K-7（契约手术，2026-09-11）：provider 错误**分类细化**——EMBER M1 实测：
+/// .133 IPv6 无出口致全链路瞬退，错误一律 transient → S7 耐心退避**掩盖根因**
+/// 空转 1h（curl 有 Happy Eyeballs 回退故正常）。分类标签进投影/日志，让
+/// "环境问题（DNS/地址族）vs provider 抖动（5xx/限流）"一眼可辨。
 fn summarize_provider_error(msg: &str) -> String {
     let one = msg.lines().next().unwrap_or("").trim();
-    agent_types::truncate_marked(one, 160)
+    let lower = one.to_ascii_lowercase();
+    let kind = if lower.contains("dns")
+        || lower.contains("failed to lookup")
+        || lower.contains("name or service not known")
+        || lower.contains("no such host")
+    {
+        "DNS/解析"
+    } else if lower.contains("connection refused") || lower.contains("os error 10061") {
+        "连接拒绝"
+    } else if lower.contains("network is unreachable")
+        || lower.contains("no route")
+        || lower.contains("address family")
+        || lower.contains("unreachable")
+    {
+        "地址族/路由"
+    } else if lower.contains("error sending request") {
+        // reqwest 通用连接失败（M1 实测串形态）——最可能=DNS/地址族，提示排查方向。
+        "连接失败(查 DNS/地址族)"
+    } else if lower.contains("tls") || lower.contains("certificate") || lower.contains("ssl") {
+        "TLS"
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "超时"
+    } else if lower.contains("429") || lower.contains("rate limit") {
+        "限流"
+    } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") {
+        "鉴权"
+    } else if lower.contains("500")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("504")
+    {
+        "上游5xx"
+    } else {
+        "未分类"
+    };
+    agent_types::truncate_marked(&format!("[{kind}] {one}"), 200)
 }
 
 /// S12（手术包二）：交付前自检闸的判定——Proceed = 继续收尾；
@@ -5499,6 +5538,30 @@ mod tests {
     }
 
     #[test]
+    /// K-7（契约手术，2026-09-11）：provider 错误分类——M1 病灶场景必须一眼可辨。
+    /// 红（旧实现：无标签）形态：断言 starts_with("[...") 必失败。
+    #[test]
+    fn test_k7_provider_error_classification() {
+        let m1 = summarize_provider_error(
+            "OpenAI request failed: error sending request for url (https://api.agnes-ai.cn/v1/chat/completions)",
+        );
+        assert!(
+            m1.starts_with("[连接失败"),
+            "K-7: M1 实测串必须可辨（got: {m1}）"
+        );
+        assert!(summarize_provider_error("failed to lookup address: Name or service not known")
+            .starts_with("[DNS/解析]"));
+        assert!(
+            summarize_provider_error("connect error: Connection refused (os error 10061)")
+                .starts_with("[连接拒绝]")
+        );
+        assert!(summarize_provider_error("Network is unreachable").starts_with("[地址族/路由]"));
+        assert!(summarize_provider_error("HTTP 429 Too Many Requests").starts_with("[限流]"));
+        assert!(summarize_provider_error("HTTP 502 Bad Gateway").starts_with("[上游5xx]"));
+        assert!(summarize_provider_error("operation timed out after 30s").starts_with("[超时]"));
+        assert!(summarize_provider_error("something odd").starts_with("[未分类]"));
+    }
+
     /// K-6（契约手术，2026-09-11）：审批语义 workspace 化——workspace 内绝对路径
     /// 不触发审批（M1 病灶）；逃逸仍审批。红（旧 has_root）形态：① 返回 true → 断言必失败。
     #[test]
