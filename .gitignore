@@ -18,3 +18,6 @@ release/*.tar.gz
 
 # 工具产物（playwright-cli 运行残留）
 .playwright-cli/
+
+# 损坏 git 目录副本（事故残留，2026-09-12 清理）
+.git.broken-*/
