@@ -212,12 +212,22 @@ pub fn has_run_state(run_id: &str) -> bool {
 /// `.hearth/runs/` 目录不存在——落盘不可见）。best-effort：失败不阻断
 ///（镜像只是取证面；run 可能含用户代码，私有内容纪律与 sessions 同规）。
 pub fn save_run_state_mirror(cwd: &std::path::Path, run_id: &str, state: &serde_json::Value) {
+    // K-4（契约手术，2026-09-11）：落盘失败不得**静默**——保 best-effort 语义
+    // （不阻断主路径），但留痕迹（tracing::warn 与主落盘点同规）。
     let dir = cwd.join(".hearth").join("runs");
-    if std::fs::create_dir_all(&dir).is_err() {
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %e, dir = %dir.display(), "断点镜像目录创建失败（不阻断）");
         return;
     }
-    if let Ok(body) = serde_json::to_string_pretty(state) {
-        let _ = std::fs::write(dir.join(format!("{run_id}.json")), body);
+    match serde_json::to_string_pretty(state) {
+        Ok(body) => {
+            if let Err(e) = std::fs::write(dir.join(format!("{run_id}.json")), body) {
+                tracing::warn!(error = %e, run_id, "断点镜像写入失败（不阻断）");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, run_id, "断点镜像序列化失败（不阻断）");
+        }
     }
 }
 
@@ -230,6 +240,35 @@ mod tests {
 
     // 环境变量 HEARTH_SESSIONS_DIR 是进程全局——并行测试会互相覆盖 env 致
     // 读回 0（v0.2.2 暴露：加 talent 后测试线程顺序变化）。串行化 env 竞争测试。
+    /// K-4（契约手术，2026-09-11）：状态落盘契约——"写 → 无内存依赖重读 → 一致"。
+    /// 等价跨进程：load_turns 只读磁盘、函数内无进程级缓存（跨进程场景 = 新进程
+    /// 首次 load，代码路径与本断言相同）。红样本形态（M2 半成品）：改写了写侧
+    /// 但未实际落盘 → 本断言（文件存在 + 重读一致）必失败。
+    #[test]
+    fn test_k4_persistence_roundtrip_no_memory_dependency() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("hearth-k4-{}", std::process::id()));
+        std::env::set_var("HEARTH_SESSIONS_DIR", &tmp);
+        let sid = "k4-roundtrip";
+        let turns: Vec<Turn> = (0..3).map(Turn::new).collect();
+        save_snapshot(sid, &turns).expect("K-4 契约：声明持久化的写侧必须成功");
+        // ① 实际落盘（非仅内存意图）
+        let f = tmp.join(format!("{sid}.jsonl"));
+        assert!(f.exists(), "K-4: 持久化必须实际落盘（文件存在）");
+        // ② 无内存依赖重读一致（等价跨进程首读）
+        let back = load_turns(sid);
+        assert_eq!(back.len(), 3, "K-4: 重读轮数一致");
+        assert_eq!(back[0].index, 0, "K-4: 内容一致（首轮 index）");
+        assert_eq!(back[2].index, 2, "K-4: 内容一致（末轮 index）");
+        // ③ run_state 同契约（S8 断点主链路）
+        let st = serde_json::json!({"steps_used": 7, "k4": true});
+        save_run_state(sid, &st).expect("K-4: run_state 落盘必须成功");
+        let back_st = load_run_state(sid).expect("K-4: run_state 必须可重读");
+        assert_eq!(back_st["steps_used"].as_u64(), Some(7), "K-4: run_state 一致");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::remove_var("HEARTH_SESSIONS_DIR");
+    }
+
     #[test]
     fn test_roundtrip_turn() {
         let _g = super::ENV_LOCK.lock().unwrap();
