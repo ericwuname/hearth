@@ -41,7 +41,11 @@ pub fn get_session_cwd() -> Option<std::path::PathBuf> {
 
 /// S15: 命令包装——先 cd 会话 cwd（若有），执行用户命令，尾部打印新 cwd 标记，
 /// 保持用户命令退出码。用户命令的多行/&&/||语义由 `{ ...; }` 保留。
-pub fn wrap_with_cwd(cmd: &str, base: &std::path::Path, already: Option<&std::path::Path>) -> String {
+pub fn wrap_with_cwd(
+    cmd: &str,
+    base: &std::path::Path,
+    already: Option<&std::path::Path>,
+) -> String {
     let start = already.unwrap_or(base);
     let start_disp = start.display();
     // cd 失败不阻断（路径消失时退回原 cwd 执行，标记仍会回写真实 PWD）。
@@ -1165,7 +1169,10 @@ mod s15_tests {
         let out2 = "echo __HEARTH_CWD__={/early}\n__HEARTH_CWD__={/late}";
         let (cwd2, clean2) = extract_cwd_marker(out2);
         assert_eq!(cwd2, Some(std::path::PathBuf::from("/late")), "取最后标记");
-        assert!(clean2.contains("{/early}"), "早出现的回显保留（非尾部标记）");
+        assert!(
+            clean2.contains("{/early}"),
+            "早出现的回显保留（非尾部标记）"
+        );
         assert!(!clean2.contains("/late}"), "尾部标记已剥离：{clean2}");
         // 无标记 → (None, 原样)
         let (cwd3, clean3) = extract_cwd_marker("plain output");

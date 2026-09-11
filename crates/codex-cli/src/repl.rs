@@ -668,8 +668,20 @@ mod s11_tests {
 /// 容忍缺 calls 段（旧报告格式）；解析失败返回 None（跳过该行）。
 fn parse_usage_line(line: &str) -> Option<(u64, u64, u64)> {
     let t = line.split("tokens:").nth(1)?;
-    let up = t.split('↑').nth(1)?.split_whitespace().next()?.parse().ok()?;
-    let down = t.split('↓').nth(1)?.split_whitespace().next()?.parse().ok()?;
+    let up = t
+        .split('↑')
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    let down = t
+        .split('↓')
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
     let calls = t
         .split("calls=")
         .nth(1)
