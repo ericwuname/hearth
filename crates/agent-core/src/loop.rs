@@ -178,6 +178,26 @@ fn deliverable_type_mismatch(goal: &str, written: &[WrittenFile]) -> Option<Stri
     }
 }
 
+/// K-8（砺验收 2026-09-12）：K-1 交付物类型核对**未过**时的事实对象。
+/// 必须与产物自检路径（写 `selfcheck_result` 处）同 schema，否则 run report 与
+/// S14 收尾三行读到的 `selfcheck` 会是 null（语义="未跑"），核心交付缺失无从审计。
+/// 注：`checks` 必须有 1 条——`summary_facts` 走 `total == 0` 分支会显示
+/// "未跑（本轮无类型化产物）"，与事实相反。
+fn k1_mismatch_fact(rounds: u32, missing: &str) -> serde_json::Value {
+    serde_json::json!({
+        "passed": false,
+        "rounds_used": rounds,
+        "kind": "deliverable_type_mismatch",
+        "checks": [{
+            "kind": "deliverable_type_mismatch",
+            "passed": false,
+            "detail": format!("缺：{missing}"),
+        }],
+        "failures": [format!("交付物类型核对未过——缺：{missing}")],
+        "skipped_any": false,
+    })
+}
+
 /// Internal event emitted during the loop (mapped to api::AgentEvent by service).
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -4044,6 +4064,13 @@ impl AgentLoop {
             .clone()
             .unwrap_or_default();
         if let Some(missing) = deliverable_type_mismatch(&goal_text, &self.written_files) {
+            // K-8（砺验收 2026-09-12 补）：**失败事实必须落事实层**。
+            // 此前两条出口均 direct return、不写 scratch，而 run report（4273/4301）
+            // 与 S14 收尾三行（4564）都读 scratch["selfcheck_result"]——结果
+            // "交付物类型核对未过"在报告里恒为 null（语义="未跑"），与"本轮无产物
+            // 未自检"不可区分，核心交付缺失在交卷后无从审计。违反事实产生权公理。
+            // 注：checks 必须放 1 条（非空），否则 summary_facts 走 total==0 分支
+            // 仍显示"未跑（本轮无类型化产物）"，等于没补。
             if self.self_check_rounds >= 2 {
                 self.emit(Event::ThinkSummary {
                     phase: "selfcheck".to_string(),
@@ -4051,6 +4078,10 @@ impl AgentLoop {
                         "[selfcheck] 交付物类型核对未过（2 轮已用尽）——缺：{missing}。诚实交付：产物清单见 run report。"
                     ),
                 });
+                self.ctx_mgr.set_scratch(
+                    "selfcheck_result",
+                    k1_mismatch_fact(self.self_check_rounds, &missing),
+                );
                 return Ok(SelfCheckGate::Proceed);
             }
             self.self_check_rounds += 1;
@@ -4064,6 +4095,10 @@ impl AgentLoop {
             self.ctx_mgr.add_user_message(format!(
                 "[selfcheck] 任务要求的交付物类型缺失：{missing}。当前产物不足以交卷——请继续完成核心交付物（不要只改说明文字，也不要只做环境探测）。"
             ));
+            self.ctx_mgr.set_scratch(
+                "selfcheck_result",
+                k1_mismatch_fact(self.self_check_rounds, &missing),
+            );
             return Ok(SelfCheckGate::Replan);
         }
         if self.written_files.is_empty() {
@@ -5640,6 +5675,51 @@ mod tests {
         // ⑤ 配置意图
         assert!(deliverable_type_mismatch("生成配置文件", &[wf("a.py")]).is_some());
         assert!(deliverable_type_mismatch("生成配置文件", &[wf("config.json")]).is_none());
+    }
+
+    /// K-8（2026-09-12 砺验收补）：K-1 未过时的**事实对象结构**——必须能被
+    /// run report（`summary.selfcheck`）与 S14 收尾三行（`summary_facts`）读出。
+    /// 补丁前 K-1 两条出口都不写 scratch → selfcheck 恒为 null（="未跑"），
+    /// "核心交付缺失"在交卷后无从审计。
+    #[test]
+    fn test_k8_k1_mismatch_fact_shape() {
+        let f = k1_mismatch_fact(2, "源码/脚本文件（.py/.rs/.js/.sh…）");
+        assert_eq!(
+            f.get("passed").and_then(|v| v.as_bool()),
+            Some(false),
+            "未过必须落 false（不是 null）: {f}"
+        );
+        assert_eq!(
+            f.get("kind").and_then(|v| v.as_str()),
+            Some("deliverable_type_mismatch"),
+            "须能与产物自检未过区分: {f}"
+        );
+        let checks = f
+            .get("checks")
+            .and_then(|v| v.as_array())
+            .expect("checks 必须是数组");
+        assert_eq!(
+            checks.len(),
+            1,
+            "checks 必须 1 条——空数组会让 summary_facts 走 total==0 分支显示'未跑'（与事实相反）: {f}"
+        );
+        assert_eq!(
+            checks[0].get("passed").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        let failures = f
+            .get("failures")
+            .and_then(|v| v.as_array())
+            .expect("failures 必须是数组");
+        assert!(
+            !failures.is_empty(),
+            "failures 不得为空——投影层据此显示未过项: {f}"
+        );
+        assert!(
+            failures[0].as_str().unwrap().contains("源码"),
+            "失败说明须含缺失类型线索: {f}"
+        );
+        assert_eq!(f.get("skipped_any").and_then(|v| v.as_bool()), Some(false));
     }
 
     /// K-7（契约手术，2026-09-11）：provider 错误分类——M1 病灶场景必须一眼可辨。
