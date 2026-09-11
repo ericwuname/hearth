@@ -69,21 +69,20 @@ def _parse_args(raw):
 
 # ---------------------------------------------------------------- 参数归一
 
-def _as_args(first, second=None):
+def _as_args(first, second=None, third=None):
     """把 dispatcher 传入的参数归一化成 dict。
 
-    支持两种调用形态：
+    支持三种调用形态：
     - fn(args_dict)：整个载荷是一个 dict（tool_calls arguments 解析结果）；
-    - fn(param1, param2)：按位置传参。
+    - fn(param1, param2[, param3])：按位置传参（path / content-or-old / new）。
     """
     if isinstance(first, dict):
-        base = dict(first)
-        if second is not None and "content" not in base:
-            base["content"] = second
-        return base
+        return dict(first)
     d = {"path": first}
     if second is not None:
         d["content"] = second
+    if third is not None:
+        d["new"] = third
     return d
 
 def bash(command):
@@ -228,3 +227,61 @@ def write(path, content=None):
         return "错误: 写入失败 %s: %s。" % (p, e)
     nbytes = len(c.encode("utf-8"))
     return "已写入 %s：%d 字符 / %d 字节。" % (p, written, nbytes)
+
+
+# ---------------------------------------------------------------- edit (M5)
+
+def edit(path, old=None, new=None):
+    """精确替换：把文件中**唯一一处** old 替换为 new（M5 新增，大文件小改动省 token）。
+
+    语义：
+    - old 不存在   → 结构化错误（提示先 read 复制原文）；
+    - old 出现多次 → 拒绝并报告出现次数（防误改）；
+    - 唯一命中     → 执行替换并报告字符/字节变化。
+    调用形态：edit(args_dict) 或 edit(path, old, new)。
+    """
+    if isinstance(path, dict):
+        base = dict(path)
+    else:
+        base = {"path": path, "old": old, "new": new}
+    p = str(base.get("path") or "").strip()
+    old_s = base.get("old")
+    new_s = base.get("new")
+    if not isinstance(old_s, str):
+        old_s = "" if old_s is None else json.dumps(old_s, ensure_ascii=False)
+    if not isinstance(new_s, str):
+        new_s = "" if new_s is None else json.dumps(new_s, ensure_ascii=False)
+    if not p:
+        return "错误: edit 工具缺少 path 参数。示例: edit(path=\"a.py\", old=\"x\", new=\"y\")"
+    if not old_s:
+        return "错误: edit 工具缺少 old 参数（要替换的原文，不能为空）。"
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return "错误: 文件不存在: %s。建议: 先 read 确认路径，或用 write 新建。" % p
+    except IsADirectoryError:
+        return "错误: 目标是目录而非文件: %s。" % p
+    except PermissionError:
+        return "错误: 无读取权限: %s。" % p
+    except OSError as e:
+        return "错误: 读取失败 %s: %s。" % (p, e)
+    count = text.count(old_s)
+    if count == 0:
+        preview = old_s[:80].replace("\n", "\\n")
+        return ("错误: edit 失败——old 在 %s 中未找到（0 处命中）。"
+                "建议: 先 read 精确复制原文（注意缩进/换行）。old 首 80 字符: %s" % (p, preview))
+    if count > 1:
+        return ("错误: edit 拒绝——old 在 %s 中出现 %d 次（要求唯一命中，防误改）。"
+                "建议: 扩大 old 上下文使其唯一，或改用 write 整体重写。" % (p, count))
+    updated = text.replace(old_s, new_s, 1)
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(updated)
+    except PermissionError:
+        return "错误: 无写入权限: %s。" % p
+    except OSError as e:
+        return "错误: 写入失败 %s: %s。" % (p, e)
+    return ("已替换 %s：1 处，%d → %d 字符（%d → %d 字节）。" % (
+        p, len(text), len(updated),
+        len(text.encode("utf-8")), len(updated.encode("utf-8"))))

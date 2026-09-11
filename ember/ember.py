@@ -19,6 +19,7 @@ import urllib.request
 import uuid
 
 from tools import bash as tool_bash
+from tools import edit as tool_edit
 from tools import read as tool_read
 from tools import write as tool_write
 
@@ -29,7 +30,8 @@ LAST_POINTER = os.path.join(BASE_DIR, ".ember", "last_session")
 TIMEOUT_SECONDS = 180
 RETRY_DELAYS = [2, 4, 8]
 MAX_TOOL_ROUNDS = 20
-HISTORY_CHAR_BUDGET = 40000  # 历史注入预算（超则从最旧丢，保首条目标消息）
+HISTORY_CHAR_BUDGET = int(os.environ.get("EMBER_HISTORY_BUDGET", "64000"))
+KEEP_RECENT_MSGS = 12  # 压缩时保留的最近消息条数（≈6 轮）
 
 TOOLS_SCHEMA = [
     {
@@ -76,6 +78,29 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "edit",
+            "description": (
+                "精确替换文件中的一段文本（大文件小改动首选，省 token）。\n"
+                "何时用: 只改文件里的一小段（改配置值/改函数体/修一行），不要整文件重写。\n"
+                "参数: path (string), old (string, 要被替换的原文, 必须唯一), new (string)。\n"
+                "示例: edit(path=\"a.py\", old=\"timeout=60\", new=\"timeout=180\")。\n"
+                "边界: old 必须在文件里**恰好出现一次**；出现 0 次或多处都会被拒绝（防误改）。\n"
+                "错误解读: 返回以 '错误:' 开头——'未找到'→先 read 复制原文；'出现 N 次'→扩大 old 上下文。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径"},
+                    "old": {"type": "string", "description": "要被替换的原文（须唯一）"},
+                    "new": {"type": "string", "description": "替换成的新文本"},
+                },
+                "required": ["path", "old", "new"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write",
             "description": (
                 "写文件（自动创建父目录），整体覆盖。\n"
@@ -95,7 +120,7 @@ TOOLS_SCHEMA = [
     },
 ]
 
-TOOL_IMPL = {"bash": tool_bash, "read": tool_read, "write": tool_write}
+TOOL_IMPL = {"bash": tool_bash, "read": tool_read, "write": tool_write, "edit": tool_edit}
 
 
 def load_config():
@@ -140,6 +165,16 @@ def save_session(session_id, messages):
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
         with open(LAST_POINTER, "w", encoding="utf-8") as f:
             f.write(session_id)
+        # M5: 断点可见——记录最后一条工具动作，供 -c 恢复时提示
+        last_tool = next((m for m in reversed(messages) if m.get("role") == "tool"), None)
+        if last_tool is not None:
+            note = str(last_tool.get("content") or "")[:300]
+            try:
+                with open(os.path.join(BASE_DIR, ".ember", "last_action.txt"), "w",
+                          encoding="utf-8") as f:
+                    f.write(note)
+            except OSError:
+                pass
     except OSError as e:
         print("[warn] 会话落盘失败: %s" % e, file=sys.stderr)
 
@@ -201,6 +236,77 @@ def list_sessions():
         return []
     rows.sort(key=lambda r: -r[1])
     return rows
+
+
+def chat_plain(cfg, messages, max_tokens=800):
+    """不带工具 schema 的纯文本调用（摘要等内部用途）。"""
+    url = cfg["base_url"].rstrip("/") + "/chat/completions"
+    body = json.dumps({
+        "model": cfg["model"],
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer %s" % cfg["key"],
+    })
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    ch = payload.get("choices") or []
+    if not ch:
+        raise RuntimeError("摘要调用无 choices")
+    return (ch[0].get("message") or {}).get("content") or ""
+
+
+def _summarize_messages(cfg, dropped):
+    """把被压缩掉的中间消息概括成 ≤400 字要点；失败返回 None（调用方兜底）。"""
+    if not dropped:
+        return None
+    body = []
+    for m in dropped:
+        role = m.get("role", "?")
+        txt = m.get("content") or ""
+        if not isinstance(txt, str):
+            txt = json.dumps(txt, ensure_ascii=False)
+        body.append("%s: %s" % (role, txt[:1500]))
+    prompt = ("把下面这段对话历史压缩成不超过 400 字的要点，覆盖：做过什么、产物文件路径、"
+              "已知结论、未完事项。只输出摘要正文，不要客套：\n\n" + "\n".join(body)[:20000])
+    try:
+        out = chat_plain(cfg, [{"role": "user", "content": prompt}])
+        out = (out or "").strip()
+        return out if out else None
+    except Exception:
+        return None
+
+
+def compress_history(cfg, messages):
+    """M5：超预算时智能压缩——首条目标 + 最近若干条原文 + 中间历史摘要（模型生成）。
+    摘要失败则退回'丢最旧'（不中断任务），两种情况都向 stderr 投影。"""
+    def size(ms):
+        return sum(len(json.dumps(m, ensure_ascii=False)) for m in ms)
+
+    total = size(messages)
+    if total <= HISTORY_CHAR_BUDGET:
+        return messages
+    first_user = next((i for i, m in enumerate(messages) if m.get("role") == "user"), 0)
+    head = messages[:first_user + 1]
+    rest = messages[first_user + 1:]
+    if len(rest) <= KEEP_RECENT_MSGS:
+        return messages
+    recent = rest[-KEEP_RECENT_MSGS:]
+    middle = rest[:-KEEP_RECENT_MSGS]
+    summary = _summarize_messages(cfg, middle)
+    if summary:
+        compacted = head + [{"role": "user",
+                             "content": "[历史摘要] " + summary}] + recent
+        print("[compact] 压缩 %d 条 → 摘要 %d 字（预算 %d，压缩前 %d 字）"
+              % (len(middle), len(summary), HISTORY_CHAR_BUDGET, total), file=sys.stderr)
+    else:
+        compacted = head + recent
+        print("[compact] 摘要调用失败——退回丢最旧（丢弃 %d 条，预算 %d，压缩前 %d 字）"
+              % (len(middle), HISTORY_CHAR_BUDGET, total), file=sys.stderr)
+    return compacted
 
 
 def trim_history(messages, budget=HISTORY_CHAR_BUDGET):
@@ -300,7 +406,7 @@ def solve(cfg, question, history=None):
     """工具循环；返回 (answer_text, full_messages)。"""
     messages = list(history) if history else []
     messages.append({"role": "user", "content": question})
-    messages = trim_history(messages)
+    messages = compress_history(cfg, messages)
     empty_nudges = 0
     for _ in range(MAX_TOOL_ROUNDS):
         msg = call_model(cfg, messages)
@@ -364,6 +470,18 @@ def main():
             sid = None
         elif sid:
             print("[info] 已加载会话 %s（%d 条历史消息）" % (sid[:8], len(history)), file=sys.stderr)
+        # M5: 断点提示——上次中断时的最后动作，注入为首条追问的前置上下文
+        if history:
+            try:
+                with open(os.path.join(BASE_DIR, ".ember", "last_action.txt"),
+                          "r", encoding="utf-8") as f:
+                    note = f.read().strip()
+                if note:
+                    history.append({"role": "user",
+                                    "content": "[断点提示] 上次中断时的最后动作（供你接着做）: " + note})
+                    print("[resume] 已注入断点提示（%d 字）" % len(note), file=sys.stderr)
+            except OSError:
+                pass
         cfg = load_config()
         try:
             answer, messages = solve(cfg, question, history)
