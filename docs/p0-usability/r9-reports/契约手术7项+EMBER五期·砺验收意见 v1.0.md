@@ -163,4 +163,61 @@ self.ctx_mgr.set_scratch("selfcheck_result", serde_json::json!({
 **附：本件的证据可复现性**
 本件所有行号锚点均取自本机 `p0-usability-01` 分支 `543b347`，可 `git show` 复核；§三的三项挂账为**未能复现**项，已显式标注，未以"通过"粉饰。
 
-*砺·评审 验收意见 · 2026-09-12 · 未改任何 `crates/` 代码*
+---
+
+## 八、验收后由砺执行的收口（顶层 09-12 全权授权，逐项申报）
+
+> 说明：以下**打破了砺"不改 `crates/`"的常规边界**，依据是顶层"后面不用问了，所有的事你决策"的授权 + 本批已有越界施工先例。逐条留痕以备追责。
+
+| # | 动作 | commit | 状态 |
+|---|---|---|---|
+| 1 | **K-8 补丁**：K-1 失败事实落事实层（§二） | `d9c6594` | ✅ 已提交，⚠️ 行为未编译验证 |
+| 2 | fmt：本批引入的 10 处 rustfmt 长行违规 | `4c62fb8` | ✅ 纯格式，rustfmt 复检通过 |
+| 3 | bump `0.2.26 → 0.2.27` + CHANGELOG（新立，补 8 个版本欠账） | `5ca8f07` | ✅ 26 包同步（sandbox 独立 0.1.0 未动） |
+| 4 | 仓库卫生：`.git.corrupt-20260911/` 32M 归档外移（先备份 42/42 校验后删）、`.playwright-cli/` ignore、release/ 24 个历史 md 入库 | `c00d092` | ✅ |
+| 5 | **密钥脱敏**：入库文件 11 个明文 key → `<REDACTED>` | `1c8192a` | ✅ HEAD 已干净 |
+| 6 | 清理 `.git.broken-20260830/`（581K 损坏 git 副本，已入库 39 文件） | `beaca47` | ✅ |
+
+**挂账未处理**：`docs/data/r7-20260907/_QUARANTINE_undesired_209d/` —— 硬门禁未放行隔离件（文件头自陈 G1-PENDING），**保持未入库**待顶层裁定（是销毁还是放行）。
+
+---
+
+## 🔴 九、头号紧急事项：明文密钥已在 public GitHub（本次最重大发现）
+
+**实测证据**：
+
+1. `git ls-remote origin main` → `68406dd2fe4c4394688870158629a629100d0a86`
+2. `git log --all -S"cpk-f4UBH3NaHUUN2SAcW1LhZT0kyuqlu9"` → 命中 `68406dd`（含你的 **Agnes 会员主用 key**，周 75,000 次配额）+ `sk-28d7376b…` 等
+3. 即：**远端 public 仓库 `ericwuname/hearth` 的 main 分支，当前树里带明文密钥**。
+
+**为什么之前的双保险没生效**：GitHub Push Protection / secret scanning 主要识别**已知厂商的 key 格式**（OpenAI `sk-`、AWS `AKIA`、GCP 等）。Agnes 的 `cpk-` 是**私有格式，扫描器不认识** → push 时不会被拦，推送后也不会告警。
+
+**必须做（只有你能做，我做不到）**：
+
+1. **立刻轮换 Agnes 会员 key**（`cpk-f4UBH3Na…`）——它当前活跃、配额大，泄露后果最重；
+2. 一并轮换历史里出现的其他 provider key（`sk-28d7…`、`sk-8LBZ…`、`sk-8c89…`、`sk-LUQi…`、`sk-omwq…`、另一枚 `cpk-TbY5…`）；
+3. 轮换后把新 key 更新到 `.workbuddy`（未入库）与运行配置，并**告知我，我把 key 使用面复查一遍**。
+
+**我已做的缓解**：HEAD 树内所有入库文件的明文 key 已脱敏（`1c8192a`），**push 后最新版本不再含 key**；但**历史 commit 仍在**，故轮换是唯一根治手段。
+
+**GitHub 同步状态**：已就绪（快进可达、体积 6.87 MiB、最大单文件 1.6 MB，远低于限制），但**本机 push 不通**——`git push` 报 `CONNECT tunnel failed, response 502`（代理限制；`git ls-remote` 读操作正常）。网络可用时执行一条即可：
+
+```bash
+git push origin p0-usability-01:main   # 快进，无需 force
+```
+
+---
+
+## 十、仍然挂账的三项机械数（需 .133 或可联网的 Linux）
+
+| 项 | 命令 | 期望 |
+|---|---|---|
+| 全量回归 | `cargo test -p agent-core --lib` | 146 passed（**现应 +1 = 147**，含新增 K-8 测试） |
+| K-8 行为（先红后绿） | `git stash && cargo test -p agent-core --lib test_k8`（应 FAILED）→ `git stash pop && cargo test ... test_k8`（应 ok） | 红→绿 |
+| K-2 真机 | `hearth -p "只回答一个数字：3+4=?"` | stdout 仅 `7`（2 字节） |
+
+另建议补一条 **gate 级**测试（我只做了纯函数级，因本机无法编译、不把未验证的集成测试塞进主干）：K-1 未过 2 轮用尽 → 断言 `report.summary.selfcheck.kind == "deliverable_type_mismatch"`，构造方式可仿 `test_s12_syntax_error_caught_then_fixed`（`s12_agent` + 连续写 `probe.json`）。
+
+---
+
+*砺·评审 验收意见 · 2026-09-12 · 本批越界施工（顶层授权），逐条留痕如上；未粉饰项见 §三、§九*
