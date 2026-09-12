@@ -1,0 +1,26 @@
+{
+  "acceptance_criteria": [],
+  "acceptance_replan_count": 0,
+  "budget": {
+    "allocated_units": null,
+    "deviation_warn_at": [
+      0.5,
+      1.0
+    ],
+    "max_steps": 32,
+    "max_time_secs": 900,
+    "max_tokens": null,
+    "tier": "standard"
+  },
+  "constraints": [],
+  "current_goal": "我叫什么名字？",
+  "goal_revision": 3,
+  "original_goal": "只回答一个数字：3+4=?",
+  "scratch": {},
+  "session_written_files": [],
+  "steps_used": 3,
+  "tokens_used": 0,
+  "updated_at": "2026-09-12T12:22:23.698519333+00:00",
+  "verify_replan_count": 0,
+  "written_files": []
+}

@@ -1,0 +1,26 @@
+{
+  "acceptance_criteria": [],
+  "acceptance_replan_count": 0,
+  "budget": {
+    "allocated_units": 20,
+    "deviation_warn_at": [
+      0.5,
+      1.0
+    ],
+    "max_steps": 40,
+    "max_time_secs": 900,
+    "max_tokens": null,
+    "tier": "economy"
+  },
+  "constraints": [],
+  "current_goal": "我叫什么名字？",
+  "goal_revision": 1,
+  "original_goal": "我叫什么名字？",
+  "scratch": {},
+  "session_written_files": [],
+  "steps_used": 1,
+  "tokens_used": 0,
+  "updated_at": "2026-09-12T12:25:06.908935946+00:00",
+  "verify_replan_count": 0,
+  "written_files": []
+}
