@@ -1,0 +1,119 @@
+# 卡：TUI 打磨-4（N6 弹点条件化）· 单点微卡
+
+- 施工者：EMBER，工作目录 `/home/wutao/hearth-tui-new/`
+- 预算：**≤10 步工具循环**；到限即停，但**证据必须先落盘**（H8 教训：被截停时改对了却零证据）
+- 允许改动的文件：**只有 `src/main.rs`**（一个文件）
+- 前置基线（评审窗 2026-09-13 06:40 实测）：`src/main.rs` md5 `d39899bc71093cef30c89940e53a8828` / 634 行；
+  二进制 `target/release/hearth-tui` md5 `7bb296ae43c16d065196db781dd918d9`
+
+## 硬约束（违一条即本卡失败）
+
+1. 只改 `src/main.rs`。**严禁 `hearth-slim/` 下任何文件**、严禁改 `Cargo.toml`。
+2. 每条 `cargo` 命令前必须 `export PATH=$HOME/.cargo/bin:$PATH`。
+3. **日志只追加**（`>>`）；禁止 `cat >` 覆盖任何既有 `evidence-*` / `run-*` 文件。
+4. tmux 会话名一律以 **`tp4`** 开头；**不得碰既有会话 `ht3`、`t`**。
+5. **证据先落盘**：改完代码后的**第 1 步**就追加写 `evidence-polish4.log`，再去做验收。
+6. 抓屏断言必须**锚控件边框/位置**；断言必须**正反成对、可失败**（恒真断言视为未做）。
+7. **禁止探索**：本卡已给全部行号与完整补丁；**不得** grep 全仓找线索、不得读其它文件、不得读 `hearth-slim`。
+8. 测量界面用**无损口径**：禁用 `cut -c` / `head -1` 之类有损截断当测量仪。
+
+---
+
+## 唯一任务项（P1）N6：任务总结分隔线不该带 `· ` 弹点
+
+**RED 基线（评审窗 06:40:55 实测抓屏，100x24，可复现）**：
+
+```
+│· ═══════════ 任务总结 ═══════════
+│· 【一句话】成功计算并回答了数字 7。
+```
+
+问题：分隔线 `═══` 被当成普通 Proc 行加了 `· ` 弹点，外观毛糙。
+
+**锚点**：`src/main.rs` 的 `Kind::Proc =>` 分支（评测时在 :512 起，**行号可能因你的编辑漂移，一律以代码内容为准**），当前内容为：
+
+```rust
+            Kind::Proc => {
+                // Fix 1: keep "· " prefix, dark gray
+                let lines_iter = text.lines();
+                for (i, ln) in lines_iter.enumerate() {
+                    if i == 0 {
+                        convo_lines.push(Line::from(vec![
+                            Span::styled("· ", Style::default().fg(C_STRUCT)),
+                            Span::styled(ln, Style::default().fg(C_STRUCT)),
+                        ]));
+                    } else {
+                        convo_lines.push(Line::from(Span::styled(ln, Style::default().fg(C_STRUCT))));
+                    }
+                }
+            }
+```
+
+**唯一改动**：把 `if i == 0 {` 这一行替换为下面新增的 `═══` 专项分支 + 原有 `else if i == 0 {`；
+两个原有分支的**代码体原样保留、一字不改**：
+
+```rust
+                    if ln.starts_with('\u{2550}') {
+                        // N6: section rule lines (═══) get no "· " bullet; indent like answer lines
+                        convo_lines.push(Line::from(Span::styled(
+                            format!("  {ln}"),
+                            Style::default().fg(C_STRUCT),
+                        )));
+                    } else if i == 0 {
+                        /* 原文不动 */
+                    } else {
+                        /* 原文不动 */
+                    }
+```
+
+**不要做**：不要改分类逻辑（`is_summary_delim` / `is_proc` / `in_summary_block`）；不要改折叠判定；
+不要改 Answer / User / Warn 分支；不要动 wrap / scroll / 状态栏。
+
+---
+
+## 自测（必须真跑，逐条贴原始输出）
+
+| # | 自测 | 期望 |
+|---|---|---|
+| a | `cargo build --release` | 0 error / 0 warning |
+| b | `md5sum src/main.rs` | 与前置基线**不同** |
+| c | 真交互后抓屏（命令见下） | `dot_eq` = **0** 且 `plain_eq` ≥ **1** |
+| d | 一次真交互 `只回答一个数字：3+4=?` | 抓屏含 `7` 与 `done (`，无 `running` 残留，`turns: 1` |
+| e | `Ctrl+Q` | 会话销毁（`tmux has-session -t tp4a` 返回非 0） |
+
+### c/d 的抓屏命令（照抄，勿改口径）
+
+```
+export PATH=$HOME/.cargo/bin:$PATH
+cd /home/wutao/hearth-tui-new
+cargo build --release
+tmux kill-session -t tp4a 2>/dev/null
+tmux new-session -d -s tp4a -x 100 -y 24 -c /home/wutao/hearth-tui-new /home/wutao/hearth-tui-new/target/release/hearth-tui
+sleep 2
+tmux send-keys -t tp4a '只回答一个数字：3+4=?' Enter
+sleep 45
+tmux capture-pane -p -t tp4a > /tmp/tp4-screen.txt
+cat /tmp/tp4-screen.txt
+printf 'dot_eq=%s\n'  "$(grep -cF $'\u2502\u00b7 \u2550' /tmp/tp4-screen.txt)"
+printf 'plain_eq=%s\n' "$(grep -cF $'\u2502  \u2550' /tmp/tp4-screen.txt)"
+```
+
+- 若 `═══` 行不在当前视口内，改用 `tmux capture-pane -p -S -400 -t tp4a` 取回滚缓冲后再测（**同一命令、同一口径**）。
+- 单轮 2–6 秒属正常；超 90 秒未出 `done (` 视为异常，保留抓屏并如实报告，**不要**重试轰炸。
+- 该 c/d 自测**只允许跑 1 次真交互**（省预算）；不要重复发送问题。
+
+---
+
+## 不在本卡范围（另行裁决，勿顺手做）
+
+- **O4**：`max_off` 按逻辑行、屏上按显示行——评审窗已判定**不是 1 行改动能解**（`start` 切片索引与 `max_off` 单位耦合，需显示行→逻辑行映射），本卡不做。
+- **`7✓` 之间缺空格**：引擎侧输出（`hearth-slim`），本卡不做。
+- **fold 默认 ON**、**引擎「收尾去重 + 答案后置」**、**D17 版本面收敛**：均需顶层授权，本卡不做。
+
+---
+
+## 交活要求
+
+- 追加写 `evidence-polish4.log`：含改动 diff、a–e 逐条原始输出、改动前后 `src/main.rs` md5。
+- 最后一行写 `POLISH4 DONE` 或 `POLISH4 BLOCKED: <原因>`。
+- 如实报告未做到项；**不得**声称未跑过的自测已跑（H2/F2 家族已 6 次实证）。

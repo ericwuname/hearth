@@ -1,0 +1,4 @@
+--- visible-answer check (small window) ---
+hearth answer line NOT VISIBLE (scrolled off)
+user echo NOT VISIBLE
+status: │[fold:off scroll:0/17] done (2s)                                                                  │

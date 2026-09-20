@@ -1,0 +1,237 @@
+23:49:18.43 alive=1 | ┌ model: agnes-3.0-flash | session: -  | turns: 1 ─────────────────────────────────────────────────┐
+23:49:19.09 alive=1 | ┌ model: agnes-3.0-flash | session: -  | turns: 1 ─────────────────────────────────────────────────┐
+23:49:19.75 alive=1 | ┌ model: agnes-3.0-flash | session: -  | turns: 1 ─────────────────────────────────────────────────┐
+23:49:20.41 alive=0
+0 | ┌ model: agnes-3.0-flash | session: -  | turns: 1 ─────────────────────────────────────────────────┐
+23:49:21.07 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:21.72 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:22.38 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:23.04 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:23.70 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:24.35 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:25.01 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:25.67 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:26.33 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:26.99 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:27.65 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:28.31 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:28.96 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:29.62 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:30.28 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:30.94 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:31.60 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:32.26 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:32.91 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:33.57 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:34.23 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:34.89 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:35.55 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:36.21 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:36.86 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:37.52 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:38.18 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:38.84 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:39.49 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:40.15 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:40.80 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:41.46 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:42.11 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:42.77 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:43.43 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:44.08 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:44.74 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:45.39 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:46.05 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:46.70 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:47.36 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:48.02 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:48.68 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:49.33 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:49.99 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:50.65 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:51.30 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:51.96 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:52.62 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:53.27 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:53.93 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:54.59 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:55.24 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:55.91 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:56.56 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:57.22 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:57.88 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:58.54 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:59.20 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:49:59.86 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:00.51 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:01.17 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:01.83 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:02.50 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:03.15 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:03.81 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:04.47 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:05.13 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:05.79 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:06.44 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:07.10 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:07.76 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:08.42 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:09.08 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:09.73 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:10.39 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:11.05 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:11.71 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:12.36 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:13.02 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:13.69 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:14.34 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:15.00 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:15.66 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:16.32 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:16.98 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:17.64 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:18.30 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:18.96 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:19.62 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:20.26 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:20.92 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:21.57 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:22.22 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:22.87 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:23.52 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:24.18 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:24.84 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:25.49 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:26.14 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:26.79 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:27.43 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:28.08 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:28.73 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:29.38 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:30.02 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:30.67 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:31.32 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:31.97 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:32.61 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:33.26 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:33.90 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:34.55 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:35.20 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:35.84 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐
+23:50:36.49 alive=0
+0 | ┌ model: agnes-3.0-flash | session: e54ce9c5  | turns: 1 ──────────────────────────────────────────┐

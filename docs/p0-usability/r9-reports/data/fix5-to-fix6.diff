@@ -1,0 +1,43 @@
+--- main-rs-fix5.rs	2026-09-13 01:01:23.781273100 +0800
++++ main-rs-fix6.rs	2026-09-13 01:24:46.424034100 +0800
+@@ -171,6 +171,7 @@
+     let mut scroll_offset: usize = 0;
+     let mut pinned_bottom = true;
+     let mut fold = false;
++    let mut in_summary_block = false; // Fix6: tracks whether we're inside a ═══-delimited 任务总结 block
+ 
+     let mut convo: Vec<(Kind, String)> = Vec::new();
+ 
+@@ -188,12 +189,26 @@
+             match rx.try_recv() {
+                 Ok(UiMsg::Out(l)) if !l.is_empty() => {
+                     let trimmed = l.trim_start();
+-                    let is_proc = trimmed.starts_with("──")
+-                        || trimmed.starts_with("📄 ")
+-                        || trimmed.starts_with("✓ ")
+-                        || trimmed.starts_with("─────")
+-                        || trimmed.starts_with("· ")
+-                        || l.contains("▸ span");
++                    // Fix6: lines carrying the answer must never be folded
++                    let has_answer = trimmed.contains("◂ span") || trimmed.contains("✓ Done");
++                    // Fix6: ═══ (U+2550) summary-block delimiter detection
++                    let is_summary_delim = trimmed.starts_with('\u{2550}');
++                    let is_proc;
++                    if has_answer {
++                        is_proc = false; // always Answer, never folded
++                    } else if is_summary_delim {
++                        in_summary_block = !in_summary_block;
++                        is_proc = true; // the ═══ delimiter line itself is Proc
++                    } else if in_summary_block {
++                        is_proc = true; // inside summary block → fold
++                    } else {
++                        is_proc = trimmed.starts_with("──")
++                            || trimmed.starts_with("📄 ")
++                            || trimmed.starts_with("✓ ")
++                            || trimmed.starts_with("─────")
++                            || trimmed.starts_with("· ")
++                            || l.contains("▸ span");
++                    }
+                     let is_confirm =
+                         l.contains("需要你确认") || l.contains("❓");
+                     let kind = if is_proc { Kind::Proc } else { Kind::Answer };

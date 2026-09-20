@@ -1,0 +1,93 @@
+--- .workbuddy/tmp/main-rs-polish3-pre.rs	2026-09-13 04:03:14.228669100 +0800
++++ .workbuddy/tmp/main-rs-polish3c-final.rs	2026-09-13 04:30:19.971305100 +0800
+@@ -88,6 +88,31 @@
+     best.map(|(n, _)| n)
+ }
+ 
++/// T1 (polish3): find the rendered-line index of the first answer-marker line
++/// (containing ◂ span or ✓ Done) and the total rendered line count.
++/// Mirrors the render logic in draw() so the main loop can compute a scroll target
++/// without duplicating the full draw path.
++fn find_answer_rendered_index(convo: &[(Kind, String)], fold: bool) -> (Option<usize>, usize) {
++    let mut total: usize = 0;
++    let mut answer_idx: Option<usize> = None;
++    for (kind, text) in convo {
++        if *kind == Kind::Proc && fold {
++            continue;
++        }
++        let is_marker = text.contains("◂ span") || text.contains("✓ Done");
++        let n_lines = text.lines().count().max(1);
++        if is_marker && answer_idx.is_none() {
++            answer_idx = Some(total);
++        }
++        total += n_lines;
++    }
++    // Hint line (added in draw() when convo is short and not running)
++    if !convo.is_empty() && convo.len() <= 4 {
++        total += 1;
++    }
++    (answer_idx, total)
++}
++
+ /// Spawn `hearth <args>` (chat / resume) in a background thread; stream
+ /// stdout/stderr lines to the UI thread via a channel. Never blocks the UI.
+ fn spawn_hearth(args: Vec<String>, tx: Sender<UiMsg>) {
+@@ -172,6 +197,7 @@
+     let mut pinned_bottom = true;
+     let mut fold = false;
+     let mut in_summary_block = false; // Fix6: tracks whether we're inside a ═══-delimited 任务总结 block
++    let mut pending_auto_scroll = false; // T1 polish3: one-shot auto-scroll to answer on Done
+ 
+     let mut convo: Vec<(Kind, String)> = Vec::new();
+ 
+@@ -191,13 +217,17 @@
+                     let trimmed = l.trim_start();
+                     // Fix6: lines carrying the answer must never be folded
+                     let has_answer = trimmed.contains("◂ span") || trimmed.contains("✓ Done");
+-                    // Fix6: ═══ (U+2550) summary-block delimiter detection
++                    // T3 (polish3): explicit open/close pairing instead of odd/even toggle.
++                    //  Opening marker: ═══ line containing "任务总结" → in_summary_block = true
++                    //  Closing marker: ═══ line NOT containing "任务总结" → in_summary_block = false
++                    //  An orphan ═══ (no "任务总结") safely closes / no-ops the block.
+                     let is_summary_delim = trimmed.starts_with('\u{2550}');
+                     let is_proc;
+                     if has_answer {
+                         is_proc = false; // always Answer, never folded
+                     } else if is_summary_delim {
+-                        in_summary_block = !in_summary_block;
++                        let is_open = trimmed.contains("任务总结");
++                        in_summary_block = is_open;
+                         is_proc = true; // the ═══ delimiter line itself is Proc
+                     } else if in_summary_block {
+                         is_proc = true; // inside summary block → fold
+@@ -229,6 +259,7 @@
+                     running = false;
+                     last_secs = Some(s);
+                     session_uuid = latest_report_uuid();
++                    pending_auto_scroll = true; // T1: will auto-scroll on next loop iteration
+                 }
+                 Ok(_) => {}
+                 Err(_) => break,
+@@ -237,6 +268,22 @@
+         if got_msg && pinned_bottom {
+             scroll_offset = 0;
+         }
++        // T1 (polish3): on a real turn's Done, bring the first answer-marker line
++        // to the top of the viewport, exactly once per turn. Subsequent PgUp/PgDn/
++        // wheel are never snapped back (pinned_bottom is released here).
++        if pending_auto_scroll && !running {
++            pending_auto_scroll = false;
++            let (aidx_opt, total) = find_answer_rendered_index(&convo, fold);
++            if let Some(aidx) = aidx_opt {
++                let term_h = terminal.size().map(|s| s.height).unwrap_or(24);
++                // Mirrors draw(): chunks[1] = height - 9, area = chunks[1] - 2.
++                let area_height = term_h.saturating_sub(9).saturating_sub(2) as usize;
++                let max_off = total.saturating_sub(area_height);
++                let desired_off = max_off.saturating_sub(aidx);
++                scroll_offset = desired_off.min(max_off);
++                pinned_bottom = false; // release bottom-pin so user scroll is free
++            }
++        }
+         if running {
+             spin = (spin + 1) % 4;
+         }

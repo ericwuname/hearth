@@ -1,0 +1,4 @@
+23:54:30 alive=1 stat=│[fold:off scroll:0/0] / running... (0s) ⚙ ▸ span [plan] 2026-09-12                                │
+23:54:30 alive=1 stat=│[fold:off scroll:0/0] - running... (0s) ⚙ ── 收尾 | 依据: 完成决策 = accep                        │
+23:54:31 alive=1 stat=│[fold:off scroll:0/0] | running... (1s) ⚙ ── 收尾 | 依据: 完成决策 = accep                        │
+23:54:31 alive=0 stat=│[fold:off scroll:0/16] done (2s)                                                                  │
