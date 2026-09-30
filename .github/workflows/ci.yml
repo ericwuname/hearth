@@ -24,6 +24,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # 门禁作用域（docs/core-revalidation/decision-status.md「测试环境模板」）：
+      # `cargo test` 的作用域要求 **cgroup 可用**且 **不设** HEARTH_ALLOW_NO_CGROUP
+      # —— 后者与 sandbox 的 `test_rt4_cgroup_fail_closed` 互斥（会把 fail-closed 短路）。
+      # GitHub runner 默认 /sys/fs/cgroup 对非 root 不可写 → LinuxSandbox 在 RT4
+      # fail-closed 处 Err → 所有"要真跑 bash"的用例全红（P1-07 实测 4 例）。
+      # 故在此建 delegation 子树并启用 memory/pids/cpu 控制器，复刻 VM 门禁口径。
+      - name: sandbox cgroup delegation (gate scope)
+        run: |
+          set -euxo pipefail
+          base=/sys/fs/cgroup/hearth
+          sudo mkdir -p "$base"
+          sudo chown "$(id -u):$(id -g)" "$base"
+          # 根 cgroup 已由 systemd 启用全部控制器；这里确保 memory/pids/cpu 下发到子树。
+          echo "+memory +pids +cpu" | sudo tee /sys/fs/cgroup/cgroup.subtree_control || true
+          echo "+memory +pids +cpu" | tee "$base/cgroup.subtree_control"
+          echo "HEARTH_CGROUP_BASE=$base" >> "$GITHUB_ENV"
+          echo "--- 诊断：hearth 可用控制器 ---"
+          cat "$base/cgroup.controllers"
+          echo "--- 诊断：hearth 已下发控制器 ---"
+          cat "$base/cgroup.subtree_control"
+
       - name: fmt
         run: cargo fmt --all -- --check
 
