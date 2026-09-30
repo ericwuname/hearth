@@ -6,8 +6,16 @@
 //! - 审计：每次出网记 tracing 日志（url/host/ts）。
 //! - 返回内容带 `source`(URL) + `verifiable` 标签，进 WS7 验证流（默认待验证断言）。
 //!
-//! 注：bash `curl` 后门治理依赖全局代理 env（HTTP(S)_PROXY），本版内核级 netns 隔离
-//! 不可行（VM 无 CAP_SYS_ADMIN）——列为 🟡 遗留（任务书 §8.5 已注）。
+//! ⚠️ **出网治理的真实边界**（2026-10-01 订正，traecode / D-26）：
+//!
+//! 本文件只治理 `web_fetch` **这一条**出网路径。**bash 里的 `curl` 等自带出网手段
+//! 不受此处约束** —— 原注释声称"依赖全局代理 env（HTTP(S)_PROXY）治理 curl 后门"，
+//! 但全仓检索 `HTTP_PROXY / HTTPS_PROXY` **零命中**：**该机制从未被实现**
+//! （与 P0-03 的 "landlock 兜底" 属同一类"注释虚构防护层"缺陷）。
+//!
+//! 现状 = **已知且尚未治理的出网旁路**，已登记为 **D-35**；
+//! 内核级 netns 隔离在本环境不可行（无 CAP_SYS_ADMIN）。
+//! **请勿在别处引用"代理 env 治理"这一说法**——它没有对应代码。
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;

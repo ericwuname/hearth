@@ -63,9 +63,14 @@ impl Tool for EditTool {
 
         // 路径穿越防护 (M1): 拒绝绝对路径与 `..` 穿越，强制留在 cwd 内。
         // CONS-2 (global-audit): 组件级检查，避免误拦 `test..txt`。
-        // SBOX-1 (accepted risk): edit 直接走 tokio::fs 而非 sandbox —— 进程
-        // 本身已被 landlock 限制（workspace 外只读），且此处强制 cwd 相对路径，
-        // 双重防线下保留现状；如需三重防线可改由 sandbox.exec 落盘。
+        // SBOX-1（accepted risk；**平台前提已订正** 2026-10-01 / D-23）：
+        // edit 直接走 tokio::fs 而非 sandbox。原注释称"进程本身已被 landlock 限制
+        // （workspace 外只读）……双重防线"——**该前提只在 Linux 成立**：landlock 是
+        // Linux 专有机制，Windows / macOS 走 NoopSandbox（**无任何真实隔离**）。
+        // 因此真实防线是**本工具自己的路径校验**（下方 `..` 拒绝 + 根路径白名单；
+        // 其中家目录放行已与"有无真实沙箱兜底"绑定，见 lib.rs
+        // `home_allowance_backed_by_sandbox`）。保留现状；若要把写盘也搬进沙箱，
+        // 属改行为语义 —— 单独立卡。
         let p = std::path::Path::new(&path_str);
         if p.components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
@@ -77,7 +82,10 @@ impl Tool for EditTool {
         // outright wasted whole steps. Accept an absolute path *only* when it
         // resolves inside the workspace, and rewrite it to a relative one;
         // anything outside cwd is still denied.
-        // R3 (v0.1.3 B5): 家目录内也放行（landlock 兜底只读，越权写会被拦）。
+        // R3 (v0.1.3 B5) 立项目的：家目录内也放行。**前提已收紧**（2026-10-01 / P0-03）：
+        // 写路径上家目录**仅在"有真实沙箱兜底"（Linux landlock）时**才放行——判定见
+        // 下方 `is_allowed_absolute_roots_for_write`，不再是原来那句无条件的
+        // "landlock 兜底只读，越权写会被拦"。
         // P0 安全修复 2026-09-30：原用 `p.is_absolute()`，在 Windows 上 `/etc/passwd`
         // 被判为"相对路径"跳过白名单 → `cwd.join` 落到 `C:\etc\passwd`（工作区外）。
         // 改判 `is_rooted_path`（含"有根无前缀"与盘符相对两种逃逸形态）。
@@ -100,7 +108,7 @@ impl Tool for EditTool {
                 Ok(rel) => rel
                     .to_str()
                     .ok_or_else(|| anyhow!("non-utf8 path: {}", path_str))?,
-                Err(_) => &path_str, // home 内：保留绝对路径（landlock 兜底）
+                Err(_) => &path_str, // home 内：保留绝对路径（放行前提已由上方守卫核验）
             }
         } else {
             &path_str

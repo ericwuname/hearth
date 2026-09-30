@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**九张卡已收官**（每卡独立 commit + 全量门禁 + 推送）：
+**十张卡已收官**（每卡独立 commit + 全量门禁 + 推送）：
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -23,6 +23,7 @@
 | P0-07 | `e7d94a8` | **子进程/进程树回收**：D-19（fail-closed 留孤儿）/D-20（超时不杀子孙进程，`taskkill /T`）；**两处红→绿实证**；登记 D-31/D-32 |
 | P0-08 | `c1e1816` | **无界读入第 4 落点**：D-31 `open_artifact`（HTTP 请求路径）→ `read_text_capped`(8 MiB) + 留痕 |
 | P0-09 | `0ffd08b` | **冻结区单卡**：D-32 S12 自检命令——超时不收尸（`cargo check`+rustc 后台空转）+ 输出无界；红检中还抓出**自己引入的挂起风险**；登记 D-33 |
+| P0-10 | （见下文） | **D-23 专项收敛**：核验 9 处"注释声称的防护层"，**4 处证伪并订正** + D-26；由此暴露 D-35（bash 出网无治理）/D-36 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**。
 
@@ -171,7 +172,9 @@
 | **D-25** | `service/src/routes.rs` 限流中间件 `lock().unwrap()`——中毒后**每个请求** panic（影响面全站） | P0-04 专项扫描 | **已修**：`recover` | **close** |
 | **D-27** | **限流在途计数在 handler panic 时单调泄漏**（尾部手动 `fetch_sub` 在 unwind 中不执行）→ 同一 IP 泄漏 50 次即该 IP 永久 429、全局泄漏 500 次即**整站永久 429** | P0-05 新发现 | **已修**：改 RAII `InflightGuard`（`Drop` 在 unwind 时仍执行）+ 单测锁定 | **close** |
 | **D-28** | `service/src/user.rs`（**每请求鉴权路径**）与 `webhook.rs` 的 `lock().unwrap()`——同 D-24/D-25 缺陷类，残留即全站级失败通道 | P0-05 新发现 | **已修**：`recover` | **close** |
-| **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | 确证（注释虚构防护层） | 中 · 待修 |
+| **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | **已修**：订正为"出网旁路已知未治理"并指向 D-35 | **close** |
+| **D-35** | **bash 出网无任何治理**：`web_fetch` 有 fail-closed 白名单，但 bash 的 `curl`/`wget` 可直连任意地址（原被 D-26 的虚构机制遮住） | P0-10 专项 | 确证（**真实防护缺口**） | **中高 · 待修** |
+| **D-36** | `service/src/webhook.rs:69` `curl … .output()` 无界输出 + `kill_on_drop` 默认 false（超时不收尸），与 D-18/D-32 同类（在 fire-and-forget 任务里） | P0-10 专项 | 确证 | 低 · 待修 |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | **已修**：`drain_capped_std`——继续排空到 EOF 但只留前 8 MiB + 留痕 | **close** |
 | **D-29** | **NoopSandbox（Windows 运行时路径）`Command::output()` 无界读** → 同 D-18 的 OOM，且落在**本项目主力平台** | P0-06 新发现 | **已修**：spawn + 两路 `drain_capped_async` 并行有界排空 | **close** |
 | **D-30** | （**能力，非债**）**Linux 专用代码的交叉类型检查**：`rustup target add x86_64-unknown-linux-gnu` + `cargo check --target …` 实测可跑通（本次已验证），补上"`cfg(target_os=linux)` 代码本机不参与编译、改了没人验"的缺口 | P0-06 附带产出 | 可用；**是否并入常规门禁待顶层裁定**（会额外拉一份 Linux 依赖图） | **登记待裁** |
@@ -182,7 +185,7 @@
 | **D-33** | 三处各自持有一份"有界排空"实现（`sandbox` / `tools-builtin::read` / `agent-core`）——是否收敛到共享 crate | P0-09 归纳 | 确证（**架构重复**，非缺陷） | **登记待裁**（架构方向抉择） |
 | **D-21** | `read` 无**字节**上限（限的是"2000 行"，单行超大整行入内存） | P0-02 审计 | **已修**：`take(8 MiB + 1)` 有界读取 + UTF-8 边界回退 + 输出末尾留痕 | **close** |
 | **D-22** | **家目录放行依赖 landlock 兜底，而该兜底只在 Linux 存在** —— 复核定级为**条件性真洞**（原生 Windows 因 `HOME` 为空而不显现；**Git Bash 启动时 Git for Windows 设置 `HOME` → 洞出现**） | P0-02 审计 → P0-03 专项复核 | **已修**：改为 `is_allowed_absolute_roots_for_write`（写路径与兜底绑定；读路径不变） | **close** |
-| **D-23** | **"平台假设"专项**：凡注释出现"由 X 兜底/由 Y 保证"，需验证 X/Y 在目标平台是否存在。已命中 3 例（`is_absolute` 语义 / `--` 选项终止 / landlock 兜底），**怀疑仍有** | P0-01~03 归纳 | 待专项扫描 | **高 · 下一卡** |
+| **D-23** | **"平台假设"专项**：凡注释出现"由 X 兜底/由 Y 保证/会被 Z 拦/依赖 W"，需验证 X/Y/Z/W 在目标平台是否存在 | P0-01~03 归纳 | **已收敛**（P0-10）：**逐条核验 9 处**——**4 处证伪并订正**（web.rs 代理 env、edit.rs「landlock 双防线」、edit.rs 两处过期 landlock 表述、loop.rs 三处理由加平台条件），**4 处证实保留**（L3 证据构造器 / `--` 选项终止 / Node 03 禁名单 / dispatcher 一次性消费） | **close**（专项检查项已固化为三条，见 P0-10 战报第六节） |
 
 ---
 

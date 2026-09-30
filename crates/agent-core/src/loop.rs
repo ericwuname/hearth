@@ -280,8 +280,10 @@ pub enum Event {
 ///   `..` traversal component. Ordinary workspace-relative writes are the
 ///   agent's bread and butter; gating every one of them would deadlock
 ///   headless runs (no human to approve) and add no security: the edit tool
-///   itself already rejects absolute/`..` paths, and landlock confines writes
-///   to the workspace. This check is the belt to those suspenders.
+///   itself already rejects absolute/`..` paths **on every platform**, and on
+///   Linux landlock *additionally* confines writes to the workspace
+///   (D-23: landlock is Linux-only — do not cite it as the primary defense on
+///   other platforms). This check is the belt to those suspenders.
 /// - anything else (read, grep, glob, …): no approval needed.
 
 /// E4 v5.0: max agent nesting depth (main=0, sub=1, sub-sub=2; blocked at ≥2).
@@ -1306,7 +1308,8 @@ impl AgentLoop {
     }
 
     /// Node 03: 核验全部 acceptance criteria（确定性）。返回 (全过?, 失败明细)。
-    /// cmd 经 dispatcher（审批/沙箱/landlock 边界完整继承）；file 走 workspace
+    /// cmd 经 dispatcher（审批/沙箱边界完整继承；**landlock 只是 Linux 侧的额外
+    /// 一层**，非 Linux 走 NoopSandbox 无真实隔离 —— D-23）；file 走 workspace
     /// 白名单 + 64KB 上限（增 1：越界判 invalid 不读）。
     async fn verify_acceptance_criteria(
         &mut self,
@@ -6586,7 +6589,8 @@ mod tests {
             std::path::Path::new("/work/ws")
         ));
         // Ordinary workspace-relative writes must NOT block headless runs —
-        // the edit tool + landlock already confine them to the workspace.
+        // the edit tool's own path checks confine them on every platform
+        // (landlock adds a Linux-only second layer; D-23).
         assert!(!tool_call_needs_approval(
             &tc(
                 "edit",
