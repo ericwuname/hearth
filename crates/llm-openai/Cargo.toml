@@ -6,6 +6,7 @@ rust-version.workspace = true
 [dependencies]
 llm-gateway.workspace = true
 agent-types.workspace = true
+bounded-io = { workspace = true, features = ["reqwest"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

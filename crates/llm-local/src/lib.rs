@@ -22,6 +22,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// D-55：SSE 残行缓冲上限——对端若不发换行地狂推字节，`buffer` 会无界增长
+/// （无界读入的流式形态）。超限即判为异常流并中断（参照 `codex-cli` 既有写法）。
+const MAX_SSE_BUF_BYTES: usize = 1024 * 1024;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Ollama native wire types
 // ────────────────────────────────────────────────────────────────────────────
@@ -228,6 +232,18 @@ async fn consume_sse_stream(
                         }
                     }
                 }
+                // D-55：残行缓冲必须有上限（对端若不发换行地狂推字节 → 无界增长）。
+                if buffer.len() > MAX_SSE_BUF_BYTES {
+                    tracing::warn!(
+                        "SSE 残行缓冲超过 {MAX_SSE_BUF_BYTES} 字节上限——疑似异常流，已中断"
+                    );
+                    let _ = tx
+                        .send(Err(anyhow!(
+                            "SSE 残行缓冲超过 {MAX_SSE_BUF_BYTES} 字节上限——疑似异常流，已中断"
+                        )))
+                        .await;
+                    return;
+                }
             }
             Some(Err(e)) => {
                 let _ = tx.send(Err(anyhow!("stream read error: {e}"))).await;
@@ -396,7 +412,12 @@ impl LlmProvider for OllamaProvider {
             .map_err(|e| anyhow!("Ollama request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| anyhow!("read body: {e}"))?;
+        let (text, truncated) = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+            .await
+            .map_err(|e| anyhow!("read body: {e}"))?;
+        if truncated {
+            tracing::warn!("Ollama 响应体超上限已截断（避免整份读入内存）");
+        }
 
         if !status.is_success() {
             return Err(anyhow!("Ollama error {status}: {text}"));
@@ -468,7 +489,11 @@ impl LlmProvider for OllamaProvider {
 
             let status = resp.status();
             if !status.is_success() {
-                let text = resp.text().await.unwrap_or_default();
+                // D-55：错误响应体仅用于拼错误信息，同样必须有界（不得因它 OOM）。
+                let text = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+                    .await
+                    .map(|(t, _)| t)
+                    .unwrap_or_default();
                 let _ = tx
                     .send(Err(anyhow!("Ollama stream error {status}: {text}")))
                     .await;
@@ -499,7 +524,12 @@ impl LlmProvider for OllamaProvider {
             .map_err(|e| anyhow!("Ollama embed request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| anyhow!("read body: {e}"))?;
+        let (text, truncated) = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+            .await
+            .map_err(|e| anyhow!("read body: {e}"))?;
+        if truncated {
+            tracing::warn!("Ollama embed 响应体超上限已截断（避免整份读入内存）");
+        }
 
         if !status.is_success() {
             return Err(anyhow!("Ollama embed error {status}: {text}"));
@@ -861,7 +891,12 @@ impl LlmProvider for VllmProvider {
             .map_err(|e| anyhow!("vLLM request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| anyhow!("read body: {e}"))?;
+        let (text, truncated) = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+            .await
+            .map_err(|e| anyhow!("read body: {e}"))?;
+        if truncated {
+            tracing::warn!("vLLM 响应体超上限已截断（避免整份读入内存）");
+        }
 
         if !status.is_success() {
             return Err(anyhow!("vLLM error {status}: {text}"));
@@ -946,7 +981,11 @@ impl LlmProvider for VllmProvider {
 
             let status = resp.status();
             if !status.is_success() {
-                let text = resp.text().await.unwrap_or_default();
+                // D-55：错误响应体仅用于拼错误信息，同样必须有界（不得因它 OOM）。
+                let text = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+                    .await
+                    .map(|(t, _)| t)
+                    .unwrap_or_default();
                 let _ = tx
                     .send(Err(anyhow!("vLLM stream error {status}: {text}")))
                     .await;
@@ -984,7 +1023,12 @@ impl LlmProvider for VllmProvider {
             .map_err(|e| anyhow!("vLLM embed request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| anyhow!("read body: {e}"))?;
+        let (text, truncated) = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+            .await
+            .map_err(|e| anyhow!("read body: {e}"))?;
+        if truncated {
+            tracing::warn!("vLLM embed 响应体超上限已截断（避免整份读入内存）");
+        }
 
         if !status.is_success() {
             return Err(anyhow!("vLLM embed error {status}: {text}"));

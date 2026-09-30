@@ -7,6 +7,13 @@ rust-version.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["io-util", "fs"] }
 tracing = { workspace = true }
+# HTTP 响应体有界读取（read_body_capped）依赖——可选，默认不启用，
+# 避免 memory 等消费方被动拉入 reqwest。
+anyhow = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+
+[features]
+reqwest = ["dep:reqwest", "dep:anyhow"]
 
 [dev-dependencies]
 tempfile = "3"

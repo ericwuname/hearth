@@ -11,6 +11,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// D-55：SSE 残行缓冲上限——对端若不发换行地狂推字节，`buffer` 会无界增长
+/// （无界读入的流式形态）。超限即判为异常流并中断（参照 `codex-cli` 既有写法）。
+const MAX_SSE_BUF_BYTES: usize = 1024 * 1024;
+
 // ── OpenAI wire types ──
 
 #[derive(Serialize)]
@@ -374,8 +378,18 @@ impl LlmProvider for OpenAiProvider {
             {
                 Ok(resp) => {
                     let status = resp.status();
-                    let text = match resp.text().await {
-                        Ok(t) => t,
+                    let text = match bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+                        .await
+                    {
+                        Ok((t, truncated)) => {
+                            if truncated {
+                                tracing::warn!(
+                                    provider = %self.name,
+                                    "响应体超上限已截断（避免整份读入内存）"
+                                );
+                            }
+                            t
+                        }
                         Err(e) => {
                             body_fail_count += 1;
                             body_err = Some(anyhow!("read body: {e}"));
@@ -531,7 +545,11 @@ impl LlmProvider for OpenAiProvider {
 
             let status = resp.status();
             if !status.is_success() {
-                let text = resp.text().await.unwrap_or_default();
+                // D-55：错误响应体仅用于拼错误信息，同样必须有界（不得因它 OOM）。
+                let text = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+                    .await
+                    .map(|(t, _)| t)
+                    .unwrap_or_default();
                 let _ = tx.send(Err(anyhow!("OpenAI error {status}: {text}"))).await;
                 return;
             }
@@ -552,6 +570,18 @@ impl LlmProvider for OpenAiProvider {
                                     return;
                                 }
                             }
+                        }
+                        // D-55：残行缓冲必须有上限（对端若不发换行地狂推字节 → 无界增长）。
+                        if buffer.len() > MAX_SSE_BUF_BYTES {
+                            tracing::warn!(
+                                "SSE 残行缓冲超过 {MAX_SSE_BUF_BYTES} 字节上限——疑似异常流，已中断"
+                            );
+                            let _ = tx
+                                .send(Err(anyhow!(
+                                    "SSE 残行缓冲超过 {MAX_SSE_BUF_BYTES} 字节上限——疑似异常流，已中断"
+                                )))
+                                .await;
+                            return;
                         }
                     }
                     Some(Err(e)) => {
@@ -586,7 +616,12 @@ impl LlmProvider for OpenAiProvider {
             .map_err(|e| anyhow!("embed request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| anyhow!("read body: {e}"))?;
+        let (text, truncated) = bounded_io::read_body_capped(resp, bounded_io::MAX_BODY_BYTES)
+            .await
+            .map_err(|e| anyhow!("read body: {e}"))?;
+        if truncated {
+            tracing::warn!("OpenAI embed 响应体超上限已截断（避免整份读入内存）");
+        }
 
         if !status.is_success() {
             return Err(anyhow!("OpenAI embed error {status}: {text}"));

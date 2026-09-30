@@ -259,6 +259,8 @@ dependencies = [
 name = "bounded-io"
 version = "0.2.27"
 dependencies = [
+ "anyhow",
+ "reqwest",
  "tempfile",
  "tokio",
  "tracing",
@@ -1080,6 +1082,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "bounded-io",
  "futures",
  "llm-gateway",
  "reqwest",
@@ -1116,6 +1119,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "bounded-io",
  "futures",
  "llm-gateway",
  "reqwest",
@@ -1133,6 +1137,7 @@ dependencies = [
  "agent-types",
  "anyhow",
  "async-trait",
+ "bounded-io",
  "futures",
  "llm-gateway",
  "reqwest",
