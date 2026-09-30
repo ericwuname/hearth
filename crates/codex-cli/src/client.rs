@@ -4,6 +4,31 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
+/// D-58（2026-10-01）：SSE 残行缓冲上限——单个事件不该超过它；超限即判为异常流并中断。
+const MAX_SSE_BUF_BYTES: usize = 1024 * 1024;
+
+/// D-58：**有界**读取远端响应体并解析 JSON。
+///
+/// 此前各调用点直接用 `resp.json()` / `resp.text()`——reqwest 无内建上限，对端（或
+/// 中间人）返回超大响应即可把 CLI 打爆成 OOM。现统一走 `tools_builtin::read_body_capped`
+/// 共享原语（Content-Length 提前拒绝 + 流式硬上限 1 MiB + 截断留痕），**单一实现**。
+async fn json_capped(resp: reqwest::Response, what: &str) -> Result<serde_json::Value> {
+    let (text, truncated) =
+        tools_builtin::read_body_capped(resp, tools_builtin::MAX_BODY_BYTES).await?;
+    if truncated {
+        tracing::warn!(what, "响应体超上限已截断（JSON 可能不完整）");
+    }
+    serde_json::from_str(&text).with_context(|| format!("parse {what}"))
+}
+
+/// D-58：**有界**读取错误响应体（仅用于拼错误信息，绝不能因它 OOM）。
+async fn error_body_capped(resp: reqwest::Response) -> String {
+    tools_builtin::read_body_capped(resp, tools_builtin::MAX_BODY_BYTES)
+        .await
+        .map(|(t, _)| t)
+        .unwrap_or_default()
+}
+
 /// Client for the codex HTTP service.
 pub struct CodexClient {
     base_url: String,
@@ -53,7 +78,7 @@ impl CodexClient {
             .send()
             .await
             .context("create session failed")?;
-        let body: serde_json::Value = resp.json().await.context("parse session response")?;
+        let body = json_capped(resp, "session response").await?;
         // B4-1: service 返回 {session_id, status}（契约对齐——旧读 body["id"] 永远拿不到）
         body["session_id"]
             .as_str()
@@ -80,7 +105,7 @@ impl CodexClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = error_body_capped(resp).await;
             anyhow::bail!("server error {status}: {body}");
         }
 
@@ -94,7 +119,7 @@ impl CodexClient {
             .send()
             .await
             .context("list sessions failed")?;
-        let body: serde_json::Value = resp.json().await.context("parse sessions")?;
+        let body = json_capped(resp, "sessions").await?;
         let sessions: Vec<SessionInfo> =
             serde_json::from_value(body["sessions"].clone()).unwrap_or_default();
         Ok(sessions)
@@ -110,7 +135,7 @@ impl CodexClient {
             .send()
             .await
             .context("get history failed")?;
-        resp.json().await.context("parse history")
+        json_capped(resp, "history").await
     }
 
     /// GET /api/v1/sessions/:id → session status.
@@ -126,10 +151,10 @@ impl CodexClient {
         // P1-6 (audit-fix): 检查状态码——404 应报"会话不存在"而非静默输出错误体。
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = error_body_capped(resp).await;
             anyhow::bail!("server error {status}: {body}");
         }
-        resp.json().await.context("parse status")
+        json_capped(resp, "status").await
     }
 
     /// POST /api/v1/sessions/:id/interaction/:iid → 通用交互响应（WP-0）。
@@ -164,7 +189,7 @@ impl CodexClient {
             .send()
             .await
             .context("submit interaction failed")?;
-        resp.json().await.context("parse interaction response")
+        json_capped(resp, "interaction response").await
     }
 
     /// POST /api/v1/sessions/:id/cancel → cancel session.
@@ -200,7 +225,7 @@ impl CodexClient {
             .send()
             .await
             .context("get_json failed")?;
-        resp.json().await.context("parse json")
+        json_capped(resp, "json").await
     }
 
     /// POST arbitrary JSON to endpoint.
@@ -215,7 +240,7 @@ impl CodexClient {
             .send()
             .await
             .context("post_json failed")?;
-        resp.json().await.context("parse json")
+        json_capped(resp, "json").await
     }
 
     /// Y2: GET /healthz → probe service availability (text body, not JSON).
@@ -253,6 +278,16 @@ fn parse_sse_stream(resp: reqwest::Response) -> impl futures::Stream<Item = Resu
                             }
                         }
                         buf = leftover;
+                        // D-58：残行缓冲必须有上限——对端若不发换行地狂推字节，
+                        // `buf` 会无界增长（无界读入的流式形态）。
+                        if buf.len() > MAX_SSE_BUF_BYTES {
+                            let _ = tx
+                                .send(Err(anyhow::anyhow!(
+                                    "SSE 残行缓冲超过 {MAX_SSE_BUF_BYTES} 字节上限——疑似异常流，已中断"
+                                )))
+                                .await;
+                            return;
+                        }
                     }
                     Err(e) => {
                         let _ = tx.send(Err(anyhow::anyhow!("{e}"))).await;
@@ -421,5 +456,52 @@ mod tests {
         let e = anyhow::anyhow!("some unknown failure happened");
         let (w, _y, _h) = classify_error(&e);
         assert_eq!(w, "执行失败");
+    }
+
+    // ── D-58：远端响应体有界读取 ──
+
+    /// 起一次性本地 HTTP 服务（回固定 body），返回 `http://host:port`。
+    async fn serve_once(content_length: usize, body_len: usize) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {content_length}\r\nConnection: close\r\n\r\n"
+                );
+                let _ = sock.write_all(head.as_bytes()).await;
+                let chunk = vec![b'a'; 64 * 1024];
+                let mut left = body_len;
+                while left > 0 {
+                    let n = left.min(chunk.len());
+                    if sock.write_all(&chunk[..n]).await.is_err() {
+                        break;
+                    }
+                    left -= n;
+                }
+                let _ = sock.flush().await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// 先红后绿（D-58）：CLI 也必须**有界**读远端响应体。修复前走 `resp.json()` →
+    /// 整份入内存（本测只会拿到 "parse json" 的解析错，而非"响应体过大"的拒绝）。
+    #[tokio::test]
+    async fn test_d58_get_json_rejects_oversized_body() {
+        let url = serve_once(5_000_000, 5_000_000).await;
+        let client = CodexClient::new(url, None);
+        let err = client
+            .get_json("/")
+            .await
+            .expect_err("超大响应必须被拒绝（不整份读入）");
+        assert!(
+            err.to_string().contains("响应体过大"),
+            "须为有界拒绝而非解析失败：{err}"
+        );
     }
 }

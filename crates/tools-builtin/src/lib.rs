@@ -26,7 +26,10 @@ pub use web::WebTool;
 /// `resp.text()` 会把**整份响应**读进内存（reqwest 无内建上限），随后才被截到
 /// `MAX_BODY_CHARS`（8000 字符）——超大/恶意响应可致 OOM。1 MiB ≈ 输出上限的 130 倍，
 /// 足以容纳正常文档页的 HTML 标记，同时把"失控响应"从 OOM 退化为"截断 + 留痕"。
-pub(crate) const MAX_BODY_BYTES: usize = 1024 * 1024;
+///
+/// D-58（2026-10-01）：由 `pub(crate)` 提升为 `pub`，供 `codex-cli` 的 HTTP 客户端复用
+/// ——在此之前 CLI 侧 `resp.json()/resp.text()` 同样是无界读入。**单一实现**（D-33 收敛）。
+pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 /// D-55：有界读取 reqwest 响应体（**网络侧**的"无界读入"落点，与已修的 7 处文件/管道
 /// 落点同族）。
@@ -37,7 +40,7 @@ pub(crate) const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// - 截断处退到最后一个合法 UTF-8 边界。本仓 reqwest **未启用 `charset` feature**，
 ///   `.text()` 本就是 UTF-8 lossy → `from_utf8_lossy` 与旧行为等价；
 /// - 截断**留痕**（不静默）。
-pub(crate) async fn read_body_capped(
+pub async fn read_body_capped(
     mut resp: reqwest::Response,
     cap: usize,
 ) -> anyhow::Result<(String, bool)> {
