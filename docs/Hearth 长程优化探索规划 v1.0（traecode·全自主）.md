@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**十四张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60**）：
+**十七张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -31,8 +31,10 @@
 | P1-06 | `9e5db3a` | **门禁口径对齐 CI**：发现 CI clippy 长期红（本地无 `-D warnings`）→ 修 9 处报错（含 3 处我引入）+ 门禁四件套升级 + Linux 交叉检查列入；登记 D-42 flaky |
 | P1-05 | `42ae8a7` | **裁决6 · D-33 收敛**：新建 `bounded-io`，四处"有界读入/树杀"合一（60→62 target） |
 | P1-04 | `ac31cf0` | **裁决4 · 删死接线**：`retriever`/`lsp_bridge` 三层贯通删除 + 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本**；登记 D-40 |
+| P1-07 | `24a48e9` `ea2da1b` | **CI 转绿（D-43 闭环）**：修好 clippy 后 test 步首次真正执行 → 暴露 **4 例 Linux 用例因 cgroup 不可用被 RT4 fail-closed 打死**；按项目自己的门禁口径在 CI 建 cgroup delegation 子树（`/sys/fs/cgroup/hearth` + 递归 chown + 下发 memory/pids/cpu）→ **本仓 CI 19 天来首次全绿**（fmt/clippy/test/xray wiring/xray scan 七步全过） |
+| P1-08 | 本卡 | **裁决5 · 追认 2 条退役能力**：xray spec 两处 claim「待顶层追认」→「顶层已追认」+ 门禁提示文案 + 同步重锁 FNV（`0x3854ddaf16e6dd1d`→`0xfa4df73ba26cd516`）；**纯文案，条数/severity/锚点零变化**；顺带删掉债队列中重复过期的 D-16 行 |
 
-**基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**。
+**基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
 ### 方法论修正（**本文档最重要的一节**）
 
@@ -181,8 +183,8 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | ~~**D-16**~~ | `retriever`/`lsp_bridge` 只写不读死接线 | P1 体检 | **已删除**（顶层裁决「删除」，P1-04）：三层贯通（agent-core/agent-runtime/service）+ 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本** | **close** |
 | **D-41** | `project-sync` 整 crate 死亡 | P1 体检 | **已删除**（顶层裁决「删除」，P1-03）：12 文件 / ~90 KB，工作区 62→60 target | **close** |
 | **D-40** | `Event::LspDiagnostics` / `Event::Retrieval` 事件变体**全仓无生产者**（`loop.rs:2625` 仍有消费它们的提示词格式化） | P1-04 执行中发现 | 确证（**事件流形状变更，需另立卡**） | 中 · 待修 |
-| **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 | 确证（单跑通过 / 全量偶发失败） | **中高（门禁可信度）· 待修** |
-| **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错，但**须推一次观察 CI 转绿**才算闭环 | P1-06 发现 | 已修；**待 CI 实测确认** | 高 · 观察项 |
+| **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 | 确证（单跑通过 / 全量偶发失败）。**P1-07 后加重**：CI 的 test 步现已在 Linux 上真实执行 → 该 flake 会**直接表现为 CI 偶发红**（"有时绿"≠"绿"） | **中高（CI 可信度）· 待修（下一张卡）** |
+| **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
 | **D-6** | 无入库前密钥扫描门禁 | 安全事故根因 | **已建**：`crates/codex-cli/tests/secret_scan_gate.rs`——扫 `git ls-files`、三轮红→绿、白名单 3 项、文件头自报盲区；门禁目标数 61→62 | **close** |
 | **D-38** | `code-index` `parse_rust_file` 无界读入（第 5 个"无界读入"落点；遍历的是会话 workspace） | P0-12 扫描 | **已修**：先 `metadata().len()` 再看要不要读（8 MiB 上限），超限**跳过并留痕** | **close** |
 | **D-39** | `code-index` 索引路径**二次方膨胀**：`for i in 0..child_count() { node.child(i) }`（O(n²)）+ 每 chunk `source.lines().skip(row)`（O(L·k)）——**不给大小守卫就永远看不到**（症状被守卫掩盖） | P0-12 红检实测 | **已修**：`children(&mut cursor)` + 预切行；红侧实测 **>2 分钟 → 2.40s** | **close** |
@@ -191,10 +193,9 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | D-8 | 执行窗复验 5 项（PC-1/2/3、回归、S12 等） | 战报第九节 | **属执行窗/用户** | 不代办，仅备件 |
 | **D-9** | **`tools-builtin` 四工具路径守卫在 Windows 失效 → 越界写文件（真实安全漏洞）** | **本卡新发现** | **已修**（`is_rooted_path`，5 处） | **close** |
 | **D-10** | **xray 剥离器 UTF-8 缺陷：`u8 as char` 使所有非 ASCII 锚点静默失效** | **本卡新发现** | **已修** + 回归测试 | **close** |
-| **D-11** | **xray 3 条能力锁定 vs 已被手术删除的能力冲突**（`all-done-requires-write`/`sub-budget-not-halved`/`no-toolcalls-requires-write`） | 本卡新发现（**《线C手术验收报告》当年已"呈顶层裁"，未销账**） | **已处置**：1 条收窄到存活防线（转绿）、2 条登记退役（yellow 留痕、不阻断） | **close**（2 条子项 `待顶层追认`） |
+| **D-11** | **xray 3 条能力锁定 vs 已被手术删除的能力冲突**（`all-done-requires-write`/`sub-budget-not-halved`/`no-toolcalls-requires-write`） | 本卡新发现（**《线C手术验收报告》当年已"呈顶层裁"，未销账**） | **已处置**：1 条收窄到存活防线（转绿）、2 条登记退役（yellow 留痕、不阻断）。**顶层已追认「退役」（2026-10-01，裁决5）**：spec 两处 claim 的「待顶层追认」改为「顶层已追认」，并同步重锁 spec FNV 哈希（`0x3854ddaf16e6dd1d` → `0xfa4df73ba26cd516`；**纯文案，条数/severity/锚点零变化**） | **close** |
 | **D-12** | **xray 剥离器不跟踪字符串状态：字符串中的 `/*` 被误判为块注释 → 整文件 79% 被吞，锚点假阴性（`bash.rs` 实测 43132→9081 字节）** | 本卡新发现 | **已修**：引入字符串/原始字符串/字符字面量词法状态 + 2 条回归测试；**bash.rs 环重挂并通过 = 端到端验证** | **close** |
 | **D-15** | xray 集成测试与引擎 `has_red_break()` **口径不一致**（前者无条件要 `broken.is_empty()`，后者仅 red 阻断） | 本卡新发现 | **已修**：对齐为"仅 red 失败"，yellow 断裂**打印留痕**（不静默） | **close** |
-| **D-16** | `retriever`/`lsp_bridge` **只写不读**死接线 | P1 体检 | **已加锁**：字段 ⚠️ 注释 + `known_dead_wiring_marker` 测试钉住（**未改产品语义**） | **close（接线/删除仍待裁决）** |
 | **D-13** | 仓库提交态非 fmt-clean（`cargo fmt --all` 改动了未触碰的 `codex-cli/src/session_store.rs`） | 本卡发现 | 既有 | P1 立卡 |
 | **D-14** | `SPEC` 顶部注释亦为旧口径（写"15 能力/24 链"，实测 16 / 27） | 本卡发现 | **已订正**（commit `1729646`） | **close** |
 | **D-17** | **会话泄漏 → 无界内存 + 磁盘**（从未 `send_message` 的会话 `finished_at` 恒 `None` → 落入"Active: always keep" → 永不回收；工作区目录同泄漏） | P0-02 审计 → P0-04 | **已修**：`Session` 加 `created_at`，`None` 分支按 idle TTL 回收非运行中者（`running=true` 永不触碰）；回归测试已重写 | **close** |
@@ -207,12 +208,12 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-36** | `service/src/webhook.rs:69` `curl … .output()` 无界输出 + `kill_on_drop` 默认 false（超时不收尸），与 D-18/D-32 同类（在 fire-and-forget 任务里） | P0-10 专项 | 确证 | 低 · 待修 |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | **已修**：`drain_capped_std`——继续排空到 EOF 但只留前 8 MiB + 留痕 | **close** |
 | **D-29** | **NoopSandbox（Windows 运行时路径）`Command::output()` 无界读** → 同 D-18 的 OOM，且落在**本项目主力平台** | P0-06 新发现 | **已修**：spawn + 两路 `drain_capped_async` 并行有界排空 | **close** |
-| **D-30** | （**能力，非债**）**Linux 专用代码的交叉类型检查**：`rustup target add x86_64-unknown-linux-gnu` + `cargo check --target …` 实测可跑通（本次已验证），补上"`cfg(target_os=linux)` 代码本机不参与编译、改了没人验"的缺口 | P0-06 附带产出 | 可用；**是否并入常规门禁待顶层裁定**（会额外拉一份 Linux 依赖图） | **登记待裁** |
+| **D-30** | （**能力，非债**）**Linux 专用代码的交叉类型检查**：`rustup target add x86_64-unknown-linux-gnu` + `cargo check --target …` 实测可跑通（本次已验证），补上"`cfg(target_os=linux)` 代码本机不参与编译、改了没人验"的缺口 | P0-06 附带产出 | 可用；**顶层裁决7「列入」** → 已并入门禁四件套（P1-06 起，见本档第二节） | **close · 已入常规门禁** |
 | **D-19** | **cgroup 失败路径泄漏子进程**（`Child` 被 drop，Rust 不 kill 不 wait） | P0-02 审计 | **已修**：失败分支组杀 + `wait()` 收割 + 清理 cgroup 再上抛；Linux-only 测试已补（本机交叉类型检查） | **close** |
 | **D-20** | **NoopSandbox 超时不杀进程组**（Windows 走此路径，孙进程成孤儿） | P0-02 审计 | **已修**：`taskkill /T /F` 树杀（无新依赖）；**本机实测红→绿**（孙进程哨兵法） | **close** |
 | **D-31** | `agent-runtime/src/session.rs` `open_artifact`（**HTTP 请求路径**）`read_to_string` 无字节上限 | P0-07 扫描 | **已修**：`read_text_capped`（8 MiB）+ UTF-8 边界回退 + 响应体末尾留痕；3 条边界测试 | **close** |
 | **D-32** | `agent-core/src/loop.rs` `run_check_cmd`（S12 自检）`Command::output()` 无上限且**超时不收尸/不树杀** | P0-07 扫描 | **已修**：spawn + 有界并行排空 + 超时树杀（taskkill /T）+ **有界**收割；先红后绿实证 | **close** |
-| **D-33** | 三处各自持有一份"有界排空"实现（`sandbox` / `tools-builtin::read` / `agent-core`）——是否收敛到共享 crate | P0-09 归纳 | 确证（**架构重复**，非缺陷） | **登记待裁**（架构方向抉择） |
+| **D-33** | 三处各自持有一份"有界排空"实现（`sandbox` / `tools-builtin::read` / `agent-core`）——是否收敛到共享 crate | P0-09 归纳 | 确证（**架构重复**，非缺陷） | **close**（顶层裁决6「收敛」，P1-05：新建 `bounded-io`，四处合一，60→62 target） |
 | **D-21** | `read` 无**字节**上限（限的是"2000 行"，单行超大整行入内存） | P0-02 审计 | **已修**：`take(8 MiB + 1)` 有界读取 + UTF-8 边界回退 + 输出末尾留痕 | **close** |
 | **D-22** | **家目录放行依赖 landlock 兜底，而该兜底只在 Linux 存在** —— 复核定级为**条件性真洞**（原生 Windows 因 `HOME` 为空而不显现；**Git Bash 启动时 Git for Windows 设置 `HOME` → 洞出现**） | P0-02 审计 → P0-03 专项复核 | **已修**：改为 `is_allowed_absolute_roots_for_write`（写路径与兜底绑定；读路径不变） | **close** |
 | **D-23** | **"平台假设"专项**：凡注释出现"由 X 兜底/由 Y 保证/会被 Z 拦/依赖 W"，需验证 X/Y/Z/W 在目标平台是否存在 | P0-01~03 归纳 | **已收敛**（P0-10）：**逐条核验 9 处**——**4 处证伪并订正**（web.rs 代理 env、edit.rs「landlock 双防线」、edit.rs 两处过期 landlock 表述、loop.rs 三处理由加平台条件），**4 处证实保留**（L3 证据构造器 / `--` 选项终止 / Node 03 禁名单 / dispatcher 一次性消费） | **close**（专项检查项已固化为三条，见 P0-10 战报第六节） |

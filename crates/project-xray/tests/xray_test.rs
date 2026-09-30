@@ -62,7 +62,10 @@ fn real_workspace_wiring_all_green() {
         // **该改动是有意的、可追溯的**，故按本断言自述的约定（"若是有意改动 spec，请更新此锁"）
         // 更新哈希；能力条数断言（==16）仍独立把关，防删条。
         // 注：26d760e 提交信息自述"待编译验证"，本锁因此长期未更新 → 门禁常红 19 天。
-        spec_hash == 0x3854ddaf16e6dd1d, // 2026-09-30 复算（FNV-1a 64；头部口径订正后重锁）
+        // 2026-10-01 复算（顶层裁决5「追认」）：把 sub-budget-not-halved /
+        // no-toolcalls-requires-write 两条的「待顶层追认」文案改为「顶层已追认」。
+        // **纯文案**——能力条数（仍是 16）、severity（仍是 yellow）、各链锚点均零变化。
+        spec_hash == 0xfa4df73ba26cd516, // 2026-10-01 复算（FNV-1a 64；裁决5 追认文案）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 
@@ -90,7 +93,7 @@ fn real_workspace_wiring_all_green() {
         .collect();
     if !yellow.is_empty() {
         eprintln!(
-            "[wiring] {} 条**非阻断**断裂（非 red，已登记退役/待顶层追认）——列此留痕，不阻断门禁：{yellow:#?}",
+            "[wiring] {} 条**非阻断**断裂（非 red，已登记退役·顶层已追认 2026-10-01）——列此留痕，不阻断门禁：{yellow:#?}",
             yellow.len()
         );
     }

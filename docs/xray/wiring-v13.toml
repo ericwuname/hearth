@@ -2,7 +2,8 @@
 # v22 加 replay-provider-wired 后为 15，v0.2.2 天赋增 talent-style-injected 后为 16。
 # 2026-09-30 订正（traecode）：原头部写"15 / 24"为旧口径漏更新，实测为 16 / 27。）
 # 注：其中 2 条（sub-budget-not-halved / no-toolcalls-requires-write）已于 2026-09-30 登记为
-# severity=yellow（能力随 R9 线C手术 D-4/D-8 退役，**留痕不阻断**，待顶层追认）——见各自条目注释。
+# severity=yellow（能力随 R9 线C手术 D-4/D-8 退役，**留痕不阻断**）——**顶层已于 2026-10-01
+# 追认「退役」（裁决5）**，即"这 2 项保证正式作废、不再作为缺口追踪"；见各自条目注释。
 #
 # 语义：每条 capability 是一条调用链；每环指向一个文件，
 #   all = 全部子串必须命中（AND）；any = 至少一个子串命中（OR）。
@@ -224,10 +225,10 @@ meaning = "组合根 observer 任务真实调用遗忘函数"
 #
 # 处置：保留条目**留痕**（不删——`==16` 条数断言正是为"防删条"而设），
 # `severity` 降为 `yellow`（引擎仅对 `red` 阻断，见 `has_red_break`）**不阻断门禁**，
-# claim 如实登记退役。**待顶层追认**。若该写法日后回归，本项将自动转绿。
+# claim 如实登记退役。**顶层已追认（2026-10-01，裁决5）**。若该写法日后回归，本项将自动转绿。
 [[capability]]
 id = "sub-budget-not-halved"
-claim = "【已退役·待顶层追认】子代理委派路径随 D-4 删除，原 `(parent-2).max(8)` 预算公式已消失；`spawn_sub_agent` 仅存 API 且无调用者"
+claim = "【已退役·顶层已追认】子代理委派路径随 D-4 删除，原 `(parent-2).max(8)` 预算公式已消失；`spawn_sub_agent` 仅存 API 且无调用者"
 severity = "yellow"
 
 [[capability.chain]]
@@ -243,10 +244,10 @@ meaning = "（历史锚点，已失效——保留留痕：该写法一旦回归
 # **本项无存活锚点可收窄**（现役分支的语义与本项**相反**，绝不可改锚到它）。
 #
 # 处置同 `sub-budget-not-halved`：保留条目留痕、`severity` 降 `yellow` 不阻断、
-# claim 如实登记退役。**待顶层追认**。
+# claim 如实登记退役。**顶层已追认（2026-10-01，裁决5）**。
 [[capability]]
 id = "no-toolcalls-requires-write"
-claim = "【已退役·待顶层追认】no tool_calls 出口的写盘门控已随 D-8 删除；该分支现直接 Done（loop.rs:3311-3314）"
+claim = "【已退役·顶层已追认】no tool_calls 出口的写盘门控已随 D-8 删除；该分支现直接 Done（loop.rs:3311-3314）"
 severity = "yellow"
 
 [[capability.chain]]
