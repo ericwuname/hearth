@@ -147,6 +147,207 @@ pub fn create_sandbox(config: SandboxConfig) -> Box<dyn Sandbox> {
     }
 }
 
+// ── P0-06（2026-10-01, traecode）：有界输出排空 ──
+//
+// 病灶：**两条后端路径都把子进程 stdout/stderr 全量塞进内存**——LinuxSandbox 的读
+// 线程用 `Read::read_to_end`，NoopSandbox（含 Windows 运行时）用 `Command::output()`。
+// 任何失控输出（`yes`、`cat /dev/zero`、死循环打印）都能把 hearth 自身 OOM；
+// 而"截断"若发生在其后，根本救不了这一步（内存已经吃满）。
+//
+// 修法要点：**必须继续排空**——否则子进程会因管道写满而永久阻塞（那样会把 OOM
+// 换成死锁）。所以不能简单用 `Read::take`；正确做法是持续 read，但只保留前
+// `cap` 字节，并回报"是否截断"（不静默丢内容）。
+//
+// 这两个辅助函数刻意放在 **crate 顶层**（而非 `cfg(target_os = "linux")` 模块内）：
+// 它们在 Windows 上也能编译并被单测覆盖，本机即可验证边界行为。
+
+/// 单条流（stdout 或 stderr）保留的字节上限。
+///
+/// 8 MiB 远大于任何正常命令输出（`cargo test` 全量日志通常也在数百 KiB 量级），
+/// 同时把"失控输出"从"OOM 整个进程"退化为"截断 + 明确留痕"。
+pub const MAX_CAPTURED_BYTES: usize = 8 * 1024 * 1024;
+
+/// 排空一个**同步**读端（LinuxSandbox 的阻塞读线程用），最多保留 `cap` 字节。
+///
+/// 返回 `(保留数据, 是否发生截断)`。读错误按"拿到多少算多少"处理（与原先
+/// `let _ = read_to_end(..)` 的宽容语义一致）——不因排空失败丢掉整段输出。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn drain_capped_std<R: std::io::Read>(mut r: R, cap: usize) -> (Vec<u8>, bool) {
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    let mut truncated = false;
+    loop {
+        match r.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let room = cap.saturating_sub(kept.len());
+                if n > room {
+                    truncated = true;
+                }
+                kept.extend_from_slice(&chunk[..room.min(n)]);
+            }
+            Err(_) => break,
+        }
+    }
+    (kept, truncated)
+}
+
+/// 排空一个**异步**读端（NoopSandbox 用），语义同 [`drain_capped_std`]。
+pub async fn drain_capped_async<R: tokio::io::AsyncRead + Unpin>(
+    mut r: R,
+    cap: usize,
+) -> (Vec<u8>, bool) {
+    use tokio::io::AsyncReadExt;
+    let mut kept = Vec::new();
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut truncated = false;
+    loop {
+        match r.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => {
+                let room = cap.saturating_sub(kept.len());
+                if n > room {
+                    truncated = true;
+                }
+                kept.extend_from_slice(&chunk[..room.min(n)]);
+            }
+            Err(_) => break,
+        }
+    }
+    (kept, truncated)
+}
+
+#[cfg(test)]
+mod p0_06_tests {
+    use super::*;
+
+    /// 先红后绿（红侧）：修复前这里是 `Read::read_to_end`——**无上限**，
+    /// 10 GiB 输出就吃 10 GiB 内存。绿侧要求：保留量被 `cap` 钳住。
+    #[test]
+    fn test_p0_06_drain_capped_std_bounds_kept_bytes() {
+        let data = vec![b'a'; 100 * 1024];
+        let mut cursor = std::io::Cursor::new(data.clone());
+        let (kept, truncated) = drain_capped_std(&mut cursor, 4096);
+        assert_eq!(kept.len(), 4096, "保留量必须被上限钳住（修复前等于全长）");
+        assert!(truncated, "超限必须报告截断（不静默）");
+        assert_eq!(
+            cursor.position(),
+            data.len() as u64,
+            "必须**继续排空到 EOF**——若图省事用 `take(cap)` 提前停读，\
+             子进程会因管道写满而永久阻塞（把 OOM 换成死锁）"
+        );
+    }
+
+    #[test]
+    fn test_p0_06_drain_capped_std_exact_fit_not_truncated() {
+        let data = vec![b'x'; 4096];
+        let (kept, truncated) = drain_capped_std(&data[..], 4096);
+        assert_eq!(kept.len(), 4096);
+        assert!(!truncated, "恰好等于上限不算截断");
+    }
+
+    #[test]
+    fn test_p0_06_drain_capped_std_empty_and_small_input() {
+        let (kept, truncated) = drain_capped_std(&b""[..], 4096);
+        assert!(kept.is_empty());
+        assert!(!truncated);
+
+        let (kept, truncated) = drain_capped_std(&b"hi"[..], 4096);
+        assert_eq!(kept, b"hi");
+        assert!(!truncated);
+    }
+
+    /// 异步版（NoopSandbox 走这条）：语义必须与同步版一致。
+    #[tokio::test]
+    async fn test_p0_06_drain_capped_async_bounds_kept_bytes() {
+        use tokio::io::AsyncWriteExt;
+        let (mut w, r) = tokio::io::duplex(64 * 1024);
+        let payload = vec![b'z'; 100 * 1024];
+        let writer = tokio::spawn(async move {
+            let _ = w.write_all(&payload).await;
+            drop(w); // 关写端 → 读者才能命中 EOF
+        });
+        let (kept, truncated) = drain_capped_async(r, 8192).await;
+        writer.await.unwrap();
+        assert_eq!(kept.len(), 8192, "异步版同样必须有界");
+        assert!(truncated);
+    }
+
+    /// 端到端：NoopSandbox 由 `.output()` 改成"有界并行排空"后，
+    /// **正常命令的行为必须一字不变**（退出码 / stdout / timed_out）。
+    /// Windows 上真跑 `cmd /C echo`，Unix 上跑 `echo`——本机即可验证。
+    #[tokio::test]
+    async fn test_p0_06_noop_sandbox_normal_output_semantics_preserved() {
+        #[cfg(windows)]
+        let (cmd, args): (&str, Vec<&str>) = ("cmd", vec!["/C", "echo hello-p0-06"]);
+        #[cfg(unix)]
+        let (cmd, args): (&str, Vec<&str>) = ("echo", vec!["hello-p0-06"]);
+
+        let sandbox = NoopSandbox::new(SandboxConfig::default());
+        let out = sandbox
+            .spawn(
+                cmd,
+                &args,
+                &PathBuf::from("."),
+                &[],
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("spawn 应当成功");
+        assert_eq!(out.exit_code, 0, "退出码语义不变：{:?}", out);
+        assert!(
+            out.stdout.contains("hello-p0-06"),
+            "stdout 语义不变：{:?}",
+            out.stdout
+        );
+        assert!(!out.timed_out);
+        assert!(
+            !out.stderr.contains("上限"),
+            "正常输出不应出现截断留痕：{:?}",
+            out.stderr
+        );
+    }
+
+    /// 端到端（D-29）**先红后绿**：Windows 上真跑一条**超上限输出**的命令。
+    ///
+    /// 红侧：旧实现 `.output()` 会把 8 MiB + 4 KiB 全量收进 `stdout`
+    /// → `matches('B').count()` = MAX + 4096 ≠ MAX，断言失败。
+    /// 绿侧：保留量被钳在 `MAX_CAPTURED_BYTES`，且 stderr 有截断留痕。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_p0_06_noop_sandbox_truncates_overflow_end_to_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.txt");
+        std::fs::write(&big, "B".repeat(MAX_CAPTURED_BYTES + 4096)).unwrap();
+
+        let sandbox = NoopSandbox::new(SandboxConfig::default());
+        // 用**相对文件名** + `cwd` 指向临时目录：绕开 `cmd /C` 的引号解析地狱
+        // （`type "C:\..."` 会被 cmd 的 `/C` 前置引号剥离规则吃掉）。
+        let out = sandbox
+            .spawn(
+                "cmd",
+                &["/C", "type big.txt"],
+                &dir.path().to_path_buf(),
+                &[],
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("spawn 应当成功");
+
+        assert_eq!(out.exit_code, 0, "stderr={:?}", out.stderr);
+        assert_eq!(
+            out.stdout.matches('B').count(),
+            MAX_CAPTURED_BYTES,
+            "stdout 必须被钳在字节上限（修复前等于整个文件的 8 MiB + 4 KiB）"
+        );
+        assert!(
+            out.stderr.contains("上限"),
+            "超限必须留痕（不静默）：{:?}",
+            out.stderr
+        );
+    }
+}
+
 // ── NoopSandbox (non-Linux fallback) ──
 
 pub struct NoopSandbox {
@@ -178,8 +379,15 @@ impl Sandbox for NoopSandbox {
             );
         }
 
-        let output = tokio::time::timeout(timeout, async {
-            tokio::process::Command::new(cmd)
+        // P0-06（2026-10-01, traecode）：`Command::output()` → 有界并行排空。
+        //
+        // 原实现用 `.output()`，它把 stdout/stderr **全量**读进内存（无上限）——
+        // Windows 运行时走的正是这条路径，一条失控输出命令即可 OOM hearth 自身。
+        // 现改为：spawn → 两路 `drain_capped_async` 并行排空（有界）→ wait（§
+        // 并行是必须的：只读一路会让另一路管道写满而互锁）。
+        // 其余语义（kill_on_drop、超时、退出码、timed_out=false）保持不变。
+        let (stdout, out_trunc, stderr, err_trunc, status) = tokio::time::timeout(timeout, async {
+            let mut child = tokio::process::Command::new(cmd)
                 .args(args)
                 .current_dir(cwd)
                 .env_clear()
@@ -188,16 +396,50 @@ impl Sandbox for NoopSandbox {
                 .stderr(std::process::Stdio::piped())
                 .stdin(std::process::Stdio::null())
                 .kill_on_drop(true)
-                .output()
-                .await
+                .spawn()?;
+
+            let stdout_pipe = child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("child stdout is not piped"))?;
+            let stderr_pipe = child
+                .stderr
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("child stderr is not piped"))?;
+
+            let (out_res, err_res, status_res) = tokio::join!(
+                drain_capped_async(stdout_pipe, MAX_CAPTURED_BYTES),
+                drain_capped_async(stderr_pipe, MAX_CAPTURED_BYTES),
+                child.wait(),
+            );
+            let status = status_res?;
+            let (out, out_trunc) = out_res;
+            let (err, err_trunc) = err_res;
+            Ok::<_, anyhow::Error>((out, out_trunc, err, err_trunc, status))
         })
         .await
         .map_err(|_| anyhow::anyhow!("command timed out after {:?}", timeout))??;
 
+        // P0-06：截断**不静默**——把"输出被截"如实写进 stderr，调用方/模型可见。
+        let mut stderr = String::from_utf8_lossy(&stderr).to_string();
+        if out_trunc {
+            stderr.push_str(&format!(
+                "\n[hearth sandbox] stdout 超过 {} MiB 上限，仅保留前 {} MiB。\n",
+                MAX_CAPTURED_BYTES / (1024 * 1024),
+                MAX_CAPTURED_BYTES / (1024 * 1024)
+            ));
+        }
+        if err_trunc {
+            stderr.push_str(&format!(
+                "\n[hearth sandbox] stderr 超过 {} MiB 上限，仅保留前 {} MiB。\n",
+                MAX_CAPTURED_BYTES / (1024 * 1024),
+                MAX_CAPTURED_BYTES / (1024 * 1024)
+            ));
+        }
         Ok(SandboxOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&stdout).to_string(),
+            stderr,
+            exit_code: status.code().unwrap_or(-1),
             timed_out: false,
         })
     }
@@ -1201,19 +1443,19 @@ mod linux_impl {
                     // 死锁）；②wait() 第一时刻收割直接子进程（无僵尸）；③组杀
                     // （setsid 保证 child 是组长）——滞留孙进程死亡 → 管道写端
                     // 关闭 → 读线程命中 EOF；④join 读线程（SIGKILL 投递后有界）。
-                    let mut stdout_pipe = child.stdout.take().expect("stdout is piped");
-                    let mut stderr_pipe = child.stderr.take().expect("stderr is piped");
+                    let stdout_pipe = child.stdout.take().expect("stdout is piped");
+                    let stderr_pipe = child.stderr.take().expect("stderr is piped");
+                    // P0-06（2026-10-01, traecode）：读线程原用 `read_to_end` **无上限**
+                    // —— 失控输出（`yes` / 死循环打印）会把 hearth 自身 OOM。改用
+                    // `drain_capped_std`：**继续排空**（否则孙进程携管道写端时读不到
+                    // EOF，见下方 B5 病理）但只保留前 MAX_CAPTURED_BYTES 字节。
                     let out_reader = std::thread::spawn(move || {
-                        let mut buf = Vec::new();
                         // 读错误（含 kill 后的管道异常）按"拿到多少算多少"处理——
                         // 不因排空失败丢掉整段输出。
-                        let _ = std::io::Read::read_to_end(&mut stdout_pipe, &mut buf);
-                        buf
+                        drain_capped_std(stdout_pipe, MAX_CAPTURED_BYTES)
                     });
                     let err_reader = std::thread::spawn(move || {
-                        let mut buf = Vec::new();
-                        let _ = std::io::Read::read_to_end(&mut stderr_pipe, &mut buf);
-                        buf
+                        drain_capped_std(stderr_pipe, MAX_CAPTURED_BYTES)
                     });
                     // 组杀前置校验：child 在世时确认 pgid == pid（setsid 不变式），
                     // 避免 pid 复用等极端情形下误杀无关组。
@@ -1227,22 +1469,47 @@ mod linux_impl {
                             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
                         }
                     }
+                    let (stdout_buf, out_trunc) =
+                        out_reader.join().unwrap_or_default();
+                    let (stderr_buf, err_trunc) =
+                        err_reader.join().unwrap_or_default();
                     let output = std::process::Output {
                         status,
-                        stdout: out_reader.join().unwrap_or_default(),
-                        stderr: err_reader.join().unwrap_or_default(),
+                        stdout: stdout_buf,
+                        stderr: stderr_buf,
                     };
-                    Ok::<_, anyhow::Error>((pid, output))
+                    Ok::<_, anyhow::Error>((pid, output, out_trunc, err_trunc))
                 }),
             )
             .await;
 
             match result {
-                Ok(Ok(Ok((pid, output)))) => {
+                Ok(Ok(Ok((pid, output, out_trunc, err_trunc)))) => {
                     cleanup_cgroup(pid, &cfg_for_cgroups);
                     // P5 可观测性：被信号终止时给出结构化说明（SIGSYS = seccomp 拒绝），
                     // 取代原先只有一个 -1 退出码 + shell 的「核心已转储」。
                     let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    // P0-06：截断**不静默**（同 NoopSandbox）。
+                    if out_trunc {
+                        if !stderr.is_empty() && !stderr.ends_with('\n') {
+                            stderr.push('\n');
+                        }
+                        stderr.push_str(&format!(
+                            "[hearth sandbox] stdout 超过 {} MiB 上限，仅保留前 {} MiB。\n",
+                            MAX_CAPTURED_BYTES / (1024 * 1024),
+                            MAX_CAPTURED_BYTES / (1024 * 1024)
+                        ));
+                    }
+                    if err_trunc {
+                        if !stderr.is_empty() && !stderr.ends_with('\n') {
+                            stderr.push('\n');
+                        }
+                        stderr.push_str(&format!(
+                            "[hearth sandbox] stderr 超过 {} MiB 上限，仅保留前 {} MiB。\n",
+                            MAX_CAPTURED_BYTES / (1024 * 1024),
+                            MAX_CAPTURED_BYTES / (1024 * 1024)
+                        ));
+                    }
                     if let Some(sig) = output.status.signal() {
                         let note = sandbox_signal_note(sig)
                             .unwrap_or("[hearth sandbox] 进程被信号终止（非正常退出）。");

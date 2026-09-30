@@ -21,6 +21,16 @@ impl Default for ReadTool {
 /// 字符截断死结，引擎亲口承认过；中段丢弃后模型不知有截断）。
 const DEFAULT_LINE_CAP: usize = 2000;
 
+/// P0-06（2026-10-01, traecode）：单次 `read` 读取的**字节**上限。
+///
+/// 病灶（D-21）：原实现用 `tokio::fs::read_to_string` 把**整个文件**读进内存，
+/// 再在内存里分页——`limit` 限的只是"返回多少行"，**完全不限制读入量**。
+/// 一个 10 GiB 的巨型文件（尤其单行文件）即可把 hearth OOM。
+///
+/// 取 8 MiB：远大于 `DEFAULT_LINE_CAP` 行正常源码的体积（2000 行 × 数百字节），
+/// **正常用法零影响**；只有病态文件才命中，且会**明确留痕**（不静默）。
+const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
+
 #[async_trait]
 impl Tool for ReadTool {
     fn name(&self) -> &str {
@@ -35,7 +45,8 @@ impl Tool for ReadTool {
                  何时不用: 只是找文件位置（用 grep/glob）；找内容片段（用 grep 直接命中行号）。\n\
                  示例: read(\"src/main.rs\") 读前 2000 行；read(\"src/main.rs\", offset=2001, limit=500) 续读。\n\
                  边界: 输出每行带行号（行号可引用）；默认最多 2000 行，超出会截断并给出续读 offset；\n\
-                 越出 EOF 返回空窗口提示；拒绝 workspace/home 之外的绝对路径与 .. 穿越。\n\
+                 越出 EOF 返回空窗口提示；拒绝 workspace/home 之外的绝对路径与 .. 穿越；\n\
+                 单次最多读取文件前 8 MiB（防巨型文件 OOM），命中会在输出末尾注明。\n\
                  错误解读: \"path traversal denied\"=路径含 ..；\"path outside allowed roots\"=越界路径；\n\
                  \"read failed\"=文件不存在或无权限——确认路径后重试或用 glob 找正确文件。"
                 .into(),
@@ -102,9 +113,46 @@ impl Tool for ReadTool {
         };
 
         let path = ctx.cwd.join(path_str);
-        let content = tokio::fs::read_to_string(&path)
+        // P0-06（2026-10-01, traecode）：原为 `tokio::fs::read_to_string`——**整文件入内存**，
+        // `limit` 管不住读入量（D-21）。改为有界读取：最多读 MAX_READ_BYTES（+1 字节
+        // 用于探测"后面还有没有"），超限则截断并在输出末尾明确留痕。
+        let mut file = tokio::fs::File::open(&path)
             .await
             .map_err(|e| anyhow!("read failed for {}: {e}", path.display()))?;
+        let mut raw = Vec::new();
+        {
+            use tokio::io::AsyncReadExt;
+            (&mut file)
+                .take(MAX_READ_BYTES + 1)
+                .read_to_end(&mut raw)
+                .await
+                .map_err(|e| anyhow!("read failed for {}: {e}", path.display()))?;
+        }
+        let byte_truncated = raw.len() as u64 > MAX_READ_BYTES;
+        if byte_truncated {
+            raw.truncate(MAX_READ_BYTES as usize);
+        }
+        let content = if byte_truncated {
+            // 截断点可能切断多字节字符：退到最后一个合法 UTF-8 边界（不引入替换符，
+            // 也不因此报错——原文件本身是合法 UTF-8，只是我们主动只读了一段）。
+            match String::from_utf8(raw) {
+                Ok(s) => s,
+                Err(e) => {
+                    let valid = e.utf8_error().valid_up_to();
+                    let bytes = e.into_bytes();
+                    String::from_utf8(bytes[..valid].to_vec())
+                        .expect("valid_up_to 之前必为合法 UTF-8")
+                }
+            }
+        } else {
+            // 未截断时保持原语义：非 UTF-8 一律报错（不静默 lossy）。
+            String::from_utf8(raw).map_err(|_| {
+                anyhow!(
+                    "read failed for {}: stream did not contain valid UTF-8",
+                    path.display()
+                )
+            })?
+        };
 
         // ── R5-5: 分页 + 行号（cat -n 格式）——大文件可分页读取，截断必带
         // "如何读剩余部分"提示。offset/limit 均为 1-based 行号（对 LLM 直观）。
@@ -141,6 +189,15 @@ impl Tool for ReadTool {
         } else if offset > 1 && start + limit >= total {
             // 有前窗且已到 EOF——告知读到了文件尾，防模型再翻页
             out.push_str(&format!("[end of file — {total} lines total]\n"));
+        }
+        // P0-06：字节上限命中时**明确留痕**——否则上面那句"共 N 行/续读提示"
+        // 会让人误以为已看到文件全貌（不静默）。
+        if byte_truncated {
+            out.push_str(&format!(
+                "[note: 文件超过 {} MiB，本次只读取前 {} MiB 以防水位过大；上面的总行数与续读提示仅覆盖已读部分]\n",
+                MAX_READ_BYTES / (1024 * 1024),
+                MAX_READ_BYTES / (1024 * 1024)
+            ));
         }
         Ok(out)
     }
@@ -224,6 +281,39 @@ mod tests {
         assert!(result.contains("     3\tgamma"));
         // 读完整个文件（3 行 < 2000 cap）——无截断提示
         assert!(!result.contains("truncated"));
+    }
+
+    /// P0-06（D-21）判据：`read` 必须有**字节**上限，而不只是"行数"上限。
+    ///
+    /// 先红后绿：构造一个**单行、超过字节上限**的文件——行数只有 1（远低于
+    /// 2000 行上限），旧实现 `read_to_string` 会把整份内容读进内存；新实现必须
+    /// 把保留量钳在 `MAX_READ_BYTES`，且**明确留痕**（不静默）。
+    #[tokio::test]
+    async fn test_p0_06_read_is_bounded_by_bytes_not_only_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("huge_single_line.txt");
+        let big = "A".repeat(MAX_READ_BYTES as usize + 1024);
+        std::fs::write(&file_path, &big).unwrap();
+
+        let tool = ReadTool::new();
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let out = tool
+            .execute(serde_json::json!({"path": "huge_single_line.txt"}), &ctx)
+            .await
+            .expect("大文件应被**有界**读取，而不是整份吃进内存");
+
+        assert_eq!(
+            out.matches('A').count(),
+            MAX_READ_BYTES as usize,
+            "保留内容必须恰好等于字节上限（修复前等于整个文件长度）"
+        );
+        assert!(
+            out.contains("只读取前"),
+            "命中字节上限必须明确留痕，不得静默截断"
+        );
     }
 
     /// R5-5 判据：offset/limit 分页——大文件可读指定窗口。
