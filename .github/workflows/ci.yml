@@ -35,7 +35,10 @@ jobs:
           set -euxo pipefail
           base=/sys/fs/cgroup/hearth
           sudo mkdir -p "$base"
-          sudo chown "$(id -u):$(id -g)" "$base"
+          # 必须 **递归** chown：cgroup 目录在创建时就已生成 cgroup.subtree_control /
+          # cgroup.procs 等伪文件，其 inode 属主是 root；只 chown 目录本身改不动它们
+          # （实测非递归 → 写 subtree_control 报 Permission denied）。
+          sudo chown -R "$(id -u):$(id -g)" "$base"
           # 根 cgroup 已由 systemd 启用全部控制器；这里确保 memory/pids/cpu 下发到子树。
           echo "+memory +pids +cpu" | sudo tee /sys/fs/cgroup/cgroup.subtree_control || true
           echo "+memory +pids +cpu" | tee "$base/cgroup.subtree_control"
