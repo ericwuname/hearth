@@ -348,7 +348,140 @@ mod p0_06_tests {
     }
 }
 
+#[cfg(test)]
+mod p0_07_tests {
+    use super::*;
+
+    /// P0-07（D-20）**先红后绿**：超时必须杀掉**孙进程**，而不只是直接子进程。
+    ///
+    /// 探测设计（避免 `cmd /C` 的嵌套引号地狱——改用 .bat 文件承载脚本）：
+    /// - 直接子进程 = `cmd /C probe.bat`：先用 `start /B` 派生一个**孙进程**，
+    ///   然后自己 `ping -n 60` 保持存活（所以一定会超时）；
+    /// - 孙进程 = 一个脱离于"直接子进程被 kill"的 `cmd`，它 ping 约 2 秒后写
+    ///   `marker.txt`。
+    ///
+    /// 红侧（修复前）：`kill_on_drop` 只杀直接子进程 → 孙进程活下来 → 2 秒后
+    /// 写出 marker.txt → 断言失败。
+    /// 绿侧：`taskkill /T /F` 整树杀 → marker.txt 永不出现。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_p0_07_noop_timeout_kills_grandchildren() {
+        let dir = tempfile::tempdir().unwrap();
+        let bat = dir.path().join("probe.bat");
+        std::fs::write(
+            &bat,
+            "@echo off\r\n\
+             start /B \"\" cmd /C \"ping -n 3 127.0.0.1 > nul & echo done> marker.txt\"\r\n\
+             ping -n 60 127.0.0.1 > nul\r\n",
+        )
+        .unwrap();
+
+        // NoopSandbox 会 `env_clear()`；`ping` 是外部 exe（不是 cmd 内建），
+        // 不显式给 PATH 就会 "not recognized" 立刻结束 → 根本不会超时。
+        let path = std::env::var("PATH").unwrap_or_default();
+        let sandbox = NoopSandbox::new(SandboxConfig::default());
+        let r = sandbox
+            .spawn(
+                "cmd",
+                &["/C", "probe.bat"],
+                &dir.path().to_path_buf(),
+                &[("PATH", path.as_str())],
+                Duration::from_millis(500),
+            )
+            .await;
+        assert!(r.is_err(), "超时必须返回错误（既有语义不变）");
+
+        // 孙进程若存活，会在 ~2 秒后写出 marker.txt。
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(
+            !dir.path().join("marker.txt").exists(),
+            "孙进程必须随超时被一起杀掉（修复前它会活下来并写出 marker.txt）"
+        );
+    }
+
+    /// P0-07（D-19）**先红后绿**：cgroup fail-closed 时**不能留孤儿**。
+    ///
+    /// 红侧：`apply_cgroups_impl(…)?` 直接上抛，`child` 被 drop（Rust 的 `Child`
+    /// drop 既不 kill 也不 wait）→ `sh` 活满 5 秒并写出 marker.txt。
+    /// 绿侧：组杀 + `wait()` 收割 → marker.txt 永不出现。
+    ///
+    /// 注：本机（Windows）只做**交叉类型检查**
+    /// （`cargo check --target x86_64-unknown-linux-gnu --all-targets`），执行在 Linux 上。
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn test_p0_07_cgroup_fail_closed_reaps_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = SandboxConfig {
+            // 不存在的 base → apply_cgroups_impl 必然 Err（RT4 fail-closed）
+            cgroup_base_override: Some(std::path::PathBuf::from("/sys/fs/cgroup/root-only")),
+            // landlock 只放行 writable_paths——不放开这里，子进程写 marker 会被拦，
+            // 红侧就"因为写不进去"而假绿。
+            writable_paths: vec![dir.path().to_path_buf()],
+            ..Default::default()
+        };
+        let sandbox = LinuxSandbox::new(config);
+        let result = sandbox
+            .spawn(
+                "sh",
+                &["-c", "sleep 5; echo done > marker.txt"],
+                &dir.path().to_path_buf(),
+                &[],
+                Duration::from_secs(20),
+            )
+            .await;
+        assert!(result.is_err(), "cgroup fail-closed 必须上抛错误");
+
+        tokio::time::sleep(Duration::from_secs(8)).await;
+        assert!(
+            !dir.path().join("marker.txt").exists(),
+            "fail-closed 路径必须组杀并收割子进程（修复前它会活下来并写出 marker.txt）"
+        );
+    }
+}
+
 // ── NoopSandbox (non-Linux fallback) ──
+
+/// P0-07（2026-10-01, traecode）：杀掉以 `pid` 为根的**整棵进程树**。
+///
+/// 为什么需要：`Child::kill` 与 `kill_on_drop` 都只终止**直接子进程**。Windows 上
+/// `cmd /C start …`、`bash -c "… &"` 派生出的**孙进程**不在其列 —— 超时后它变成
+/// 孤儿继续跑（占 CPU / 端口 / 文件锁），而父进程已经报"超时"走人（D-20）。
+///
+/// - Windows：`taskkill /T /F /PID`（系统自带，**不引入新依赖**）。
+/// - 其他平台：无等价系统工具 → 返回 `false`，调用方退化为只杀直接子进程。
+///   （Linux **生产**路径不经过这里：LinuxSandbox 用 setsid + `kill(-pgid)` 组杀。）
+///
+/// 返回 `true` = 已执行树杀（taskkill 退出码 0）。
+fn kill_process_tree(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        match std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .output()
+        {
+            Ok(o) if o.status.success() => true,
+            Ok(o) => {
+                tracing::warn!(
+                    "NoopSandbox: taskkill 失败 (pid {pid}): {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+                false
+            }
+            Err(e) => {
+                tracing::warn!("NoopSandbox: 无法执行 taskkill (pid {pid}): {e}");
+                false
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
 
 pub struct NoopSandbox {
     config: SandboxConfig,
@@ -386,39 +519,65 @@ impl Sandbox for NoopSandbox {
         // 现改为：spawn → 两路 `drain_capped_async` 并行排空（有界）→ wait（§
         // 并行是必须的：只读一路会让另一路管道写满而互锁）。
         // 其余语义（kill_on_drop、超时、退出码、timed_out=false）保持不变。
-        let (stdout, out_trunc, stderr, err_trunc, status) = tokio::time::timeout(timeout, async {
-            let mut child = tokio::process::Command::new(cmd)
-                .args(args)
-                .current_dir(cwd)
-                .env_clear()
-                .envs(env.iter().map(|(k, v)| (k.to_string(), v.to_string())))
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .stdin(std::process::Stdio::null())
-                .kill_on_drop(true)
-                .spawn()?;
+        //
+        // P0-07（2026-10-01, traecode）：child 提到 `timeout` **之外**——超时分支要
+        // 用它做"整树杀 + 收尸"。原写法把 child 藏在被 drop 的内层 future 里，
+        // 超时只能靠 `kill_on_drop`，而它**只杀直接子进程**：`cmd /C start …` /
+        // `bash -c "… &"` 派生的**孙进程**会变成孤儿继续跑（D-20）。
+        let mut child = tokio::process::Command::new(cmd)
+            .args(args)
+            .current_dir(cwd)
+            .env_clear()
+            .envs(env.iter().map(|(k, v)| (k.to_string(), v.to_string())))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true) // 兜底：任务被 abort 时仍会杀直接子进程
+            .spawn()?;
+        let pid = child.id().unwrap_or(0);
+        let stdout_pipe = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("child stdout is not piped"))?;
+        let stderr_pipe = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("child stderr is not piped"))?;
 
-            let stdout_pipe = child
-                .stdout
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("child stdout is not piped"))?;
-            let stderr_pipe = child
-                .stderr
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("child stderr is not piped"))?;
-
+        // 注意：先 `let timed = ….await;` 再 match——否则 `match timeout(timeout, fut).await`
+        // 里的临时 future 会存活到整个 match 结束，`child` 的可变借用无法在超时分支复用。
+        let timed = tokio::time::timeout(timeout, async {
             let (out_res, err_res, status_res) = tokio::join!(
                 drain_capped_async(stdout_pipe, MAX_CAPTURED_BYTES),
                 drain_capped_async(stderr_pipe, MAX_CAPTURED_BYTES),
                 child.wait(),
             );
-            let status = status_res?;
-            let (out, out_trunc) = out_res;
-            let (err, err_trunc) = err_res;
-            Ok::<_, anyhow::Error>((out, out_trunc, err, err_trunc, status))
+            (out_res, err_res, status_res)
         })
-        .await
-        .map_err(|_| anyhow::anyhow!("command timed out after {:?}", timeout))??;
+        .await;
+
+        let ((stdout, out_trunc), (stderr, err_trunc), status) = match timed {
+            Ok(v) => {
+                let ((out, out_trunc), (err, err_trunc), status_res) = v;
+                ((out, out_trunc), (err, err_trunc), status_res?)
+            }
+            Err(_) => {
+                // P0-07：超时 —— **杀整棵进程树**（不止直接子进程），再收割。
+                if kill_process_tree(pid) {
+                    tracing::warn!(
+                        "NoopSandbox: command timed out (pid {pid}) — killed whole process tree"
+                    );
+                } else {
+                    tracing::warn!(
+                        "NoopSandbox: command timed out (pid {pid}) — tree-kill 不可用，退化为只杀直接子进程"
+                    );
+                    let _ = child.start_kill();
+                }
+                // 收割直接子进程（避免僵尸）。树杀后管道写端关闭，wait 不会挂住。
+                let _ = child.wait().await;
+                return Err(anyhow::anyhow!("command timed out after {:?}", timeout));
+            }
+        };
 
         // P0-06：截断**不静默**——把"输出被截"如实写进 stderr，调用方/模型可见。
         let mut stderr = String::from_utf8_lossy(&stderr).to_string();
@@ -1431,7 +1590,29 @@ mod linux_impl {
 
                     // Apply cgroups resource limits in parent——RT4: fail-closed
                     // （cgroup 不可用 → spawn 失败报原因；HEARTH_ALLOW_NO_CGROUP=1 显式降级）
-                    apply_cgroups_impl(pid, &cfg_for_cgroups_inner)?;
+                    //
+                    // P0-07（2026-10-01, traecode）：**fail-closed 必须连带"收尸"**。
+                    // 原为 `apply_cgroups_impl(pid, …)?` —— 失败时 `?` 直接把 `child`
+                    // 丢出作用域，而 Rust 的 `Child` **drop 既不 kill 也不 wait**
+                    // （std 与 tokio 皆然）：子进程继续跑成**孤儿**（还带着 pre_exec
+                    // 刚建立的进程组与两条管道），而调用方只看到一句 "command failed"。
+                    // 现改为：组杀 → wait 收割 → 清理 cgroup → 再上抛错误。
+                    if let Err(e) = apply_cgroups_impl(pid, &cfg_for_cgroups_inner) {
+                        unsafe {
+                            // child 是组长（pre_exec setsid，fail-closed），getpgid 校验
+                            // 防 pid 复用误伤无关组；非组长则退化为单杀。
+                            if libc::getpgid(pid as libc::pid_t) == pid as libc::pid_t {
+                                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                            }
+                            let _ = libc::kill(pid as libc::pid_t, libc::SIGKILL);
+                        }
+                        let _ = child.wait();
+                        cleanup_cgroup(pid, &cfg_for_cgroups_inner);
+                        tracing::warn!(
+                            "LinuxSandbox: cgroup 应用失败，已组杀并收割子进程 (pid {pid}) —— 不留孤儿"
+                        );
+                        return Err(e);
+                    }
 
                     // R7-2（P1 僵尸收割）收割路径重构——
                     // B5 病理：cargo/rustc 孙进程继承 stdout/stderr 管道写端，
