@@ -1268,9 +1268,6 @@ dependencies = [
 name = "nervous-system"
 version = "0.2.27"
 dependencies = [
- "chrono",
- "resource-monitor",
- "serde",
  "serde_json",
 ]
 

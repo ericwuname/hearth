@@ -7,7 +7,6 @@ use llm_gateway::types::ChatRequest;
 use llm_gateway::ProviderRegistry;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// Helper: build a system/user message with text content.
@@ -29,14 +28,6 @@ pub struct Turn {
     pub provider_key: String,
     pub model: String,
     pub content: String,
-    pub vote: Option<Vote>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Vote {
-    Agree,
-    Disagree(String),
-    Abstain,
 }
 
 /// Discussion strategy.
@@ -63,14 +54,6 @@ pub struct BridgeSession {
     pub turns: Vec<Turn>,
     pub participants: Vec<String>,
     pub registry: Arc<ProviderRegistry>,
-    pub event_tx: broadcast::Sender<BridgeEvent>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BridgeEvent {
-    Turn(Turn),
-    Consensus { agreed: bool, summary: String },
-    Error(String),
 }
 
 impl BridgeSession {
@@ -80,7 +63,6 @@ impl BridgeSession {
         strategy: BridgeStrategy,
         registry: Arc<ProviderRegistry>,
     ) -> Self {
-        let (event_tx, _) = broadcast::channel(64);
         Self {
             id: Uuid::new_v4().to_string(),
             topic,
@@ -88,7 +70,6 @@ impl BridgeSession {
             turns: Vec::new(),
             participants,
             registry,
-            event_tx,
         }
     }
 
@@ -127,9 +108,7 @@ impl BridgeSession {
                     provider_key: participant.clone(),
                     model: provider.model().to_string(),
                     content: content.clone(),
-                    vote: None,
                 };
-                let _ = self.event_tx.send(BridgeEvent::Turn(turn.clone()));
                 self.turns.push(turn);
                 summaries.push(content);
             }
@@ -139,10 +118,6 @@ impl BridgeSession {
             self.turns.len(),
             summaries.join("\n\n---\n\n")
         );
-        let _ = self.event_tx.send(BridgeEvent::Consensus {
-            agreed: true,
-            summary: result.clone(),
-        });
         Ok(result)
     }
 
@@ -167,30 +142,21 @@ impl BridgeSession {
                 };
                 let resp = provider.chat(req).await?;
                 let content = resp.content.unwrap_or_default();
-                let vote = if content.to_lowercase().contains("agree") {
+                if content.to_lowercase().contains("agree") {
                     votes_for += 1;
-                    Vote::Agree
                 } else {
                     votes_against += 1;
-                    Vote::Disagree(content.clone())
-                };
+                }
                 let turn = Turn {
                     index: self.turns.len() as u32,
                     provider_key: participant.clone(),
                     model: provider.model().to_string(),
                     content,
-                    vote: Some(vote),
                 };
-                let _ = self.event_tx.send(BridgeEvent::Turn(turn.clone()));
                 self.turns.push(turn);
             }
             if votes_for > votes_against || round >= max_rounds - 1 {
-                let agreed = votes_for > votes_against;
                 let result = format!("Majority: {votes_for} agree, {votes_against} disagree");
-                let _ = self.event_tx.send(BridgeEvent::Consensus {
-                    agreed,
-                    summary: result.clone(),
-                });
                 return Ok(result);
             }
         }
@@ -220,17 +186,11 @@ impl BridgeSession {
                     provider_key: participant.clone(),
                     model: provider.model().to_string(),
                     content,
-                    vote: None,
                 };
-                let _ = self.event_tx.send(BridgeEvent::Turn(turn.clone()));
                 self.turns.push(turn);
             }
         }
         let result = format!("Debate complete — {} turns.", self.turns.len());
-        let _ = self.event_tx.send(BridgeEvent::Consensus {
-            agreed: true,
-            summary: result.clone(),
-        });
         Ok(result)
     }
 
@@ -258,14 +218,8 @@ impl BridgeSession {
             provider_key: speaker.clone(),
             model: provider.model().to_string(),
             content: content.clone(),
-            vote: None,
         };
-        let _ = self.event_tx.send(BridgeEvent::Turn(turn.clone()));
-        self.turns.push(turn.clone());
-        let _ = self.event_tx.send(BridgeEvent::Consensus {
-            agreed: true,
-            summary: content.clone(),
-        });
+        self.turns.push(turn);
         Ok(content)
     }
 

@@ -1,7 +1,7 @@
 //! Observer OS —— 第三权（零执行权）。
 //!
 //! v23 §7 铁律：
-//! - **独立 crate**：禁塞进 nervous-system（后者 `NerveAction` 有干预执行权）。
+//! - **独立 crate**：禁塞进 nervous-system（后者有干预执行权）。
 //! - **零执行权**：只消费事件流（`Vec<EnvelopedEvent>`），产出 Finding / 报告 /
 //!   熔断事件。不调用任何工具、不修改计划、不尝试修复。
 //! - **L2 fail-closed —— ⚠️ 声称 ≠ 实现（P1-12 核验，2026-10-01）**：
@@ -24,14 +24,11 @@ use std::path::Path;
 
 /// Observer 主体——零业务状态（纯函数式消费事件流）。
 #[derive(Debug, Default)]
-pub struct Observer {
-    /// 熔断是否已触发（熔断后不再产出新 Finding——只停）。
-    tripped: bool,
-}
+pub struct Observer;
 
 impl Observer {
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
     /// L1: 消费一段事件流 → 产出 Finding + 熔断事件。
@@ -59,11 +56,6 @@ impl Observer {
         let findings = rules::evaluate(&metrics, events)?;
         let breaks = circuit::evaluate(&metrics, events)?;
         Ok((findings, breaks))
-    }
-
-    /// 熔断状态查询（service 决定是否停机）。
-    pub fn is_tripped(&self) -> bool {
-        self.tripped
     }
 
     /// Q3 (v24-post): run + 报告持久化——评估事件流后把 report.md/json 落盘到

@@ -1699,43 +1699,6 @@ impl AgentLoop {
         self.civ_writer = Some(writer);
     }
 
-    /// v13 S3-b: Append an auto entry to the civ line if a writer is wired.
-    fn civ_note(&self, category: &str, content: String, tags: Vec<String>) {
-        if let Some(ref w) = self.civ_writer {
-            w.append_civ(category, &content, &self.session_id, tags);
-        } else {
-            // P1-4 (audit-fix): writer 未接线时告警不得无声消失——
-            // debug + 本地 fallback 落盘（MEMORY_DIR/civ-fallback.jsonl）。
-            // R5 (v0.1.4): warn→debug——这是正常降级路径（fallback 已落盘），
-            // 每步刷 1-2 条 WARN 是 REPL 提示符污染的第一大噪音源（真机日志 271-282）。
-            tracing::debug!(
-                session_id = %self.session_id,
-                category = %category,
-                "civ_writer not wired — falling back to local civ-fallback.jsonl"
-            );
-            if let Ok(mdir) = std::env::var("MEMORY_DIR") {
-                if !mdir.is_empty() {
-                    let line = serde_json::json!({
-                        "ts": chrono::Utc::now().to_rfc3339(),
-                        "session_id": self.session_id,
-                        "category": category,
-                        "content": content,
-                        "tags": tags,
-                    });
-                    let path = std::path::Path::new(&mdir).join("civ-fallback.jsonl");
-                    use std::io::Write;
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&path)
-                    {
-                        let _ = writeln!(f, "{line}");
-                    }
-                }
-            }
-        }
-    }
-
     /// M2: Set the session id that scopes approval state.
     /// S3：挂 turn 级 checkpoint 回调（见字段注释）。幂等可覆盖。
     pub fn set_on_turn_checkpoint(&mut self, cb: TurnCheckpointFn) {
@@ -2889,7 +2852,6 @@ impl AgentLoop {
                         tracing::warn!(reason = %signal.reason, "subconscious: simplify");
                         // Signal logged; execution continues with simplified approach
                     }
-                    _ => {}
                 }
             }
         }
@@ -5490,12 +5452,6 @@ impl Agent for AgentLoop {
             if counted_step {
                 steps += 1;
             }
-            // P1-4 (audit-fix): 每个消息步结束都 drain 神经系统告警（原只在
-            // do_reflect 调用，未走到 reflect 的告警全部丢失的修复沿袭）。
-            let civ_alerts = self.nervous.drain_civ_alerts();
-            for a in &civ_alerts {
-                self.civ_note("nervous", a.clone(), Vec::new());
-            }
             // v11.5: Track for subconscious signals
             self.last_action = Some(step_label.to_string());
             self.last_success = !matches!(outcome.next, StepNext::Error(_));
@@ -5542,11 +5498,6 @@ impl Agent for AgentLoop {
                 effectiveness: if report.ok { 0.7 } else { 0.3 },
                 reference_count: 0,
                 created_at: Utc::now().to_rfc3339(),
-                context: experience::ContextRef {
-                    os: std::env::consts::OS.to_string(),
-                    toolchain_version: env!("CARGO_PKG_VERSION").to_string(),
-                },
-                embedding: vec![],
             };
             let store_clone = store.clone();
             tokio::spawn(async move {
@@ -6825,62 +6776,6 @@ mod tests {
     // ── P1-4 gate (acceptance-gatekeeper-v22 §四-1): civ 告警无 writer 不得静默 ──
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    #[test]
-    fn test_p14_civ_fallback_written_when_no_writer() {
-        // 守门员点名：P1-4 须有动态红绿。路径：不接线 civ_writer →
-        // civ_note 必须 warn + 落盘 MEMORY_DIR/civ-fallback.jsonl（而非静默丢弃）。
-        let _g = ENV_LOCK.lock().unwrap();
-        let tmp = tempfile::tempdir().unwrap();
-        unsafe {
-            std::env::set_var("MEMORY_DIR", tmp.path());
-        }
-
-        let provider: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner: Arc<dyn Planner> = Arc::new(MockPlanner::new(vec![]));
-        let dispatcher = Arc::new(ToolDispatcher::new());
-        let agent = AgentLoop::new(
-            provider,
-            planner,
-            dispatcher,
-            tool_runtime::ToolContext::default(),
-            Goal::new("civ gate"),
-        );
-
-        // 前提：无 writer 接线（new 默认 None）
-        assert!(
-            agent.civ_writer.is_none(),
-            "test precondition: no civ writer"
-        );
-
-        agent.civ_note(
-            "test-alert",
-            "suspicious escalation detected".into(),
-            vec!["p1-4".into()],
-        );
-
-        let fb = tmp.path().join("civ-fallback.jsonl");
-        let content = std::fs::read_to_string(&fb)
-            .unwrap_or_else(|_| panic!("civ-fallback.jsonl 必须落盘: {}", fb.display()));
-        assert!(
-            content.contains("test-alert"),
-            "fallback 必须含 category，got: {content}"
-        );
-        assert!(
-            content.contains("suspicious escalation detected"),
-            "fallback 必须含原文，got: {content}"
-        );
-        assert!(
-            content.contains("p1-4"),
-            "fallback 必须含 tags，got: {content}"
-        );
-
-        // 恢复环境，避免污染并行测试
-        unsafe {
-            std::env::remove_var("MEMORY_DIR");
-        }
-        eprintln!("P1-4 PASS: no-writer civ alert falls back to civ-fallback.jsonl");
-    }
 
     // ── v0.1.2 验证层回归（hearth-harness-review-supplement 补充3：先红后绿）──
 
