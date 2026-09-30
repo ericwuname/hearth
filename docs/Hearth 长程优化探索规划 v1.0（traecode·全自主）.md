@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**三十六张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
+**三十七张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -50,6 +50,7 @@
 | P1-23 | `24a3556` | **D-54 收口（注释订正）**：`check_egress` 的 doc 写「白名单为空 = 全拒」「提取不到主机 → fail-closed」，与实现（`if allow.is_empty() { return Ok(()) }`）**直接矛盾**——真相是 hearth-slim S2 的**语义反转**（空/未设 = 默认放开，用户 2026-09-09 拍板）。会让安全审计把"默认放开"误读成"默认拒绝"（同 D-45 型文档错误）。**纯注释订正、零行为变更** |
 | P1-24 | `fa04e01` | **D-56 收口（删死 crate，净 −748/+1 行）**：`code-index`（tree-sitter 增量解析）**零生产消费者**——`agent-core` 的依赖声明是死的（同 D-41 型）。裁决：**接线属"能力扩展"（本规划未授权）→ 删除**。一并清掉仅服务于它的 `tree-sitter`/`tree-sitter-rust` 与**早已孤儿化**的 `tantivy`（P1-10 遗留）→ 三族重型外部依赖退出构建闭包；顺带消除 `walk_and_parse` 的 symlink 无限递归栈溢出隐患 |
 | P1-25 | `fa77394` | **D-55 收口（网络侧无界读入，第 8/9 落点）**：`web.rs`/`search.rs` 的 `resp.text()`（整份响应入内存后才截 8000 字符）→ 新增 `read_body_capped`：**Content-Length 超限提前拒绝**（不下载）+ `Response::chunk()` 流式累加**硬上限 1 MiB** + 截断 UTF-8 边界 + **留痕**；**先红后绿**（禁用守卫即拿到 Ok+截断体 → 红）+ 不误伤小响应，共 2 条测试（本地一次性 TCP 服务） |
+| P1-26 | `f9d820a` | **D-57 收口（删死 pub 项）**：`tools-builtin` 两个**零调用方**项删除——① `is_allowed_absolute`（全仓零调用；且**直读 `std::env`** 绕过 `ctx.env`，与注入纪律相悖）② `coerce_args`（零生产调用；其"防 raw string 降级"意图**已由真实在位的 `extract_str_arg` 覆盖**，被删的是并行且从未接线的旧机制）+ 其 3 条专属测试；原位留注释说明去留理由。**glob.rs 的 `sandbox` 字段经核实后保留**（源码已注明是 `with_sandbox` 测试脚手架，删除需连带改 3 处测试构造，收益不抵改动面） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -213,7 +214,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-54** | **`check_egress` 注释与实现矛盾（会误导安全审计）**：doc 写"白名单为空 = 全拒""提取不到主机 → fail-closed"，实现是 `if allow.is_empty() { return Ok(()) }`——hearth-slim S2 **语义反转**（空/未设 = 默认放开，用户 2026-09-09 拍板）；紧邻内联注释已如实记录，唯 doc 头部未同步 | tools-builtin 体检发现 | **已修**（P1-23）：doc 按 S2 现状订正（含订正说明），与实现/内联注释三者一致；**纯注释、零行为变更** | **close** |
 | **D-55** | **HTTP 响应体无界读入**：`tools-builtin/src/web.rs`（`resp.text()`）与 `src/search.rs`（同）——reqwest 把**整份响应**读进内存后才截到 8000 字符；恶意/超大响应可致 OOM（与已修的 7 处"读入无界"同族，但落在**网络**侧） | tools-builtin 体检发现 | **已修**（P1-25）：新增 `read_body_capped`（Content-Length 提前拒绝 + 流式硬上限 1 MiB + 截断留痕），两处调用点改走它 | **close** |
 | **D-56** | **`code-index` 整 crate 无生产消费者**：`agent-core/Cargo.toml:11` 声明依赖，但全仓 `TreeSitterIndex`/`code_index::` **零使用**（仅 crate 自身与测试）→ 依赖声明是死的（同 D-41 `project-sync` 型）。附带隐患：`walk_and_parse`（lib.rs:322）用 `path.is_dir()` **跟随 symlink** 递归且无深度/visited 守卫 → symlink 成环即栈溢出；死字段 `Symbol.parent`、零构造枚举变体 `SymbolKind::{Method,Variable,Other}` | tools-builtin/code-index 体检发现 | 确证（**整 crate 死**）。注意：**接线属"能力扩展"（本规划未授权）** → 默认处置为**删除**（同 D-41） | **close**（已删除，P1-24：整 crate + `tree-sitter`/`tree-sitter-rust`/`tantivy` 一并清除，净 −748/+1） |
-| **D-57** | **`tools-builtin` 死 pub 项**：`lib.rs` `is_allowed_absolute`（全仓仅定义处；且**直读 `std::env`** 绕过 `ctx.env`，属遗留）、`coerce_args`（仅定义+同文件测试）、`glob.rs` 的 `sandbox` 字段（`#[allow(dead_code)]`，只写不读） | tools-builtin 体检发现 | 确证（"定义了但无人用"；`is_allowed_absolute` 另有"绕过注入 env"隐患） | **P1 立卡** |
+| **D-57** | **`tools-builtin` 死 pub 项**：`lib.rs` `is_allowed_absolute`（全仓仅定义处；且**直读 `std::env`** 绕过 `ctx.env`，属遗留）、`coerce_args`（仅定义+同文件测试）、`glob.rs` 的 `sandbox` 字段（`#[allow(dead_code)]`，只写不读） | tools-builtin 体检发现 | 确证（"定义了但无人用"；`is_allowed_absolute` 另有"绕过注入 env"隐患） | **已修**（P1-26）：删 `is_allowed_absolute` + `coerce_args`（零生产调用；后者的防线已由 `extract_str_arg` 真实覆盖）及 3 条专属测试；`glob.rs` 的 `sandbox` 字段**核实后保留**（已注明为测试脚手架） | **close** |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
 | **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
 | **D-6** | 无入库前密钥扫描门禁 | 安全事故根因 | **已建**：`crates/codex-cli/tests/secret_scan_gate.rs`——扫 `git ls-files`、三轮红→绿、白名单 3 项、文件头自报盲区；门禁目标数 61→62 | **close** |
