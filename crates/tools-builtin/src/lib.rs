@@ -52,12 +52,51 @@ pub fn is_rooted_path(p: &std::path::Path) -> bool {
     p.has_root() || matches!(p.components().next(), Some(std::path::Component::Prefix(_)))
 }
 
+/// **家目录放行是否有真实沙箱兜底？**（2026-10-01 修复，traecode）
+///
+/// 立项理由（R3 / v0.1.3）：landlock 把 workspace 之外置为**只读**，
+/// 因此工具层放行家目录也无妨——"越权写会被拦"由 landlock 负责。
+///
+/// **但这个理由只在 Linux 成立**：landlock 是 Linux 专有机制；Windows / macOS 走
+/// `NoopSandbox`（README 明示"仅开发模式，无真实隔离"）——**兜底是空的**。
+/// 此时放行家目录 = **真的能写家目录**（`~/.ssh/authorized_keys`、shell 配置等持久化点）。
+///
+/// 实测（本机 Windows）：`HOME` 环境变量为空 → 该分支**空转**，风险不显现；
+/// **但从 Git Bash 启动时 Git for Windows 会设置 `HOME`** → 分支生效 → 洞出现。
+/// 故这是**条件性真洞**：代码声称的防护层在非 Linux 上不存在。
+///
+/// 处置：**无真实沙箱时，家目录只放行读、不放行写**（见 `is_allowed_absolute_roots_for_write`）。
+pub fn home_allowance_backed_by_sandbox() -> bool {
+    cfg!(target_os = "linux")
+}
+
 /// RC25: 带 root 清单的路径校验。roots 语义：None = 默认（cwd + HOME，不回归）；
 /// Some(list) = 显式白名单**替换**默认（逗号分隔绝对路径）。
 pub fn is_allowed_absolute_roots(
     raw: &str,
     cwd: &std::path::Path,
     read_roots: Option<&str>,
+) -> bool {
+    is_allowed_inner(raw, cwd, read_roots, true)
+}
+
+/// **写路径专用**：家目录仅在**有真实沙箱兜底**时才放行。
+///
+/// 修复前 `write_file` / `apply_patch` 在无 landlock 的平台上同样放行家目录，
+/// 与代码自述的"越权写会被拦"不符（见 `home_allowance_backed_by_sandbox`）。
+pub fn is_allowed_absolute_roots_for_write(
+    raw: &str,
+    cwd: &std::path::Path,
+    read_roots: Option<&str>,
+) -> bool {
+    is_allowed_inner(raw, cwd, read_roots, home_allowance_backed_by_sandbox())
+}
+
+fn is_allowed_inner(
+    raw: &str,
+    cwd: &std::path::Path,
+    read_roots: Option<&str>,
+    allow_home: bool,
 ) -> bool {
     let p = std::path::Path::new(raw);
     if !is_rooted_path(p) {
@@ -72,6 +111,9 @@ pub fn is_allowed_absolute_roots(
             !r.is_empty() && p.starts_with(r)
         }),
         None => {
+            if !allow_home {
+                return false;
+            }
             let home = std::env::var("HOME").unwrap_or_default();
             !home.is_empty() && p.starts_with(&home)
         }
@@ -256,5 +298,35 @@ mod p3_tests {
             cwd,
             Some("/data")
         ));
+    }
+
+    /// 2026-10-01 修复回归（**先红后绿**）：家目录放行必须与"有无真实沙箱兜底"绑定。
+    ///
+    /// 修复前 `is_allowed_absolute_roots` **无条件**放行家目录，而立项理由（landlock
+    /// 把 workspace 外置为只读）**只在 Linux 成立** → 非 Linux 上"放行家目录"
+    /// 等于**真的能写家目录**。本测试直接验证 `allow_home` 两种取值的行为差异
+    /// （用 inner 参数注入，不依赖宿主平台，测试确定性）。
+    #[test]
+    fn test_home_allowance_gated_by_real_sandbox() {
+        let cwd = std::path::Path::new("/home/u/ws");
+        // ① allow_home=false（= 无兜底的平台）：家目录内、cwd 外的路径**必须被拒**
+        assert!(
+            !is_allowed_inner("/home/u/other/x.txt", cwd, None, false),
+            "无沙箱兜底时，家目录内的路径不得放行（修复前此处会放行）"
+        );
+        // ② 显式白名单不受 allow_home 影响（白名单是用户显式收敛，始终生效）
+        assert!(is_allowed_inner("/data/x.txt", cwd, Some("/data"), false));
+        // ③ cwd 内的绝对路径两种取值都放行（不受本修复影响）
+        assert!(is_allowed_inner("/home/u/ws/a.txt", cwd, None, false));
+        assert!(is_allowed_inner("/home/u/ws/a.txt", cwd, None, true));
+        // ④ 相对路径永远放行（不受本修复影响）
+        assert!(is_allowed_inner("rel.txt", cwd, None, false));
+
+        // ⑤ 平台门控断言：兜底判定必须与"landlock 是否可用"一致
+        assert_eq!(
+            home_allowance_backed_by_sandbox(),
+            cfg!(target_os = "linux"),
+            "家目录放行的兜底前提只能是 Linux（landlock）"
+        );
     }
 }

@@ -165,7 +165,8 @@
 | **D-19** | **cgroup 失败路径泄漏子进程**（`Child` 被 drop，Rust 不 kill 不 wait） | P0-02 审计 | 确证（`sandbox/src/lib.rs:1185-1192`） | 中 · 待修 |
 | **D-20** | **NoopSandbox 超时不杀进程组**（Windows 走此路径，孙进程成孤儿） | P0-02 审计 | 确证（`sandbox/src/lib.rs:190-193`） | 中 · 待修 |
 | **D-21** | `read` 无**字节**上限（限的是"2000 行"，单行超大整行入内存） | P0-02 审计 | 确证（`read.rs:105`） | 中 · 待修 |
-| **D-22** | **`is_allowed_absolute_roots` 放行 HOME 下任意绝对路径，安全性依赖 landlock 兜底；而 Windows 走 NoopSandbox 无 landlock** —— **与 P0-01 修掉的路径逃逸同根因（Windows 双重防线失效）** | P0-02 审计（可疑，待验证） | 待专项复核 | **高优先级专项** |
+| **D-22** | **家目录放行依赖 landlock 兜底，而该兜底只在 Linux 存在** —— 复核定级为**条件性真洞**（原生 Windows 因 `HOME` 为空而不显现；**Git Bash 启动时 Git for Windows 设置 `HOME` → 洞出现**） | P0-02 审计 → P0-03 专项复核 | **已修**：改为 `is_allowed_absolute_roots_for_write`（写路径与兜底绑定；读路径不变） | **close** |
+| **D-23** | **"平台假设"专项**：凡注释出现"由 X 兜底/由 Y 保证"，需验证 X/Y 在目标平台是否存在。已命中 3 例（`is_absolute` 语义 / `--` 选项终止 / landlock 兜底），**怀疑仍有** | P0-01~03 归纳 | 待专项扫描 | **高 · 下一卡** |
 
 ---
 

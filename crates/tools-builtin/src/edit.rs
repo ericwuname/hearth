@@ -82,7 +82,10 @@ impl Tool for EditTool {
         // 被判为"相对路径"跳过白名单 → `cwd.join` 落到 `C:\etc\passwd`（工作区外）。
         // 改判 `is_rooted_path`（含"有根无前缀"与盘符相对两种逃逸形态）。
         let path_str: &str = if crate::is_rooted_path(p) {
-            if !crate::is_allowed_absolute_roots(
+            // 2026-10-01（traecode）：**写路径**专用判定——家目录仅在"有真实沙箱兜底"
+            // （Linux landlock）时才放行。无兜底的平台上原来也放行，与上面自述的
+            // "越权写会被拦"不符（详见 `home_allowance_backed_by_sandbox` 文档）。
+            if !crate::is_allowed_absolute_roots_for_write(
                 &path_str,
                 &ctx.cwd,
                 ctx.env.get("HEARTH_READ_ROOTS").map(|s| s.as_str()),

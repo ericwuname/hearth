@@ -82,7 +82,9 @@ impl Tool for PatchTool {
         // P0 安全修复 2026-09-30：`is_absolute()` 在 Windows 漏判"有根无前缀"路径
         // （`/etc/passwd`）→ 越界。改判 `is_rooted_path`（详见 lib.rs 该函数文档）。
         let rel: &str = if crate::is_rooted_path(p) {
-            if !crate::is_allowed_absolute_roots(
+            // 2026-10-01（traecode）：**写路径**专用判定——家目录仅在"有真实沙箱兜底"
+            // （Linux landlock）时才放行（详见 lib.rs `home_allowance_backed_by_sandbox`）。
+            if !crate::is_allowed_absolute_roots_for_write(
                 &path_str,
                 &ctx.cwd,
                 ctx.env.get("HEARTH_READ_ROOTS").map(|s| s.as_str()),
