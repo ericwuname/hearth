@@ -1,4 +1,3 @@
-#![allow(clippy::all, unused_mut)]
 //! memory: Session persistence for agent sessions + 6C Civilization store.
 
 use agent_types::{CivEntry, WorkNode};
@@ -285,6 +284,159 @@ impl MemoryStore for JsonlMemoryStore {
     }
 }
 
+// ── 6C v6.0: Civilization Store ──
+
+/// Append-only JSONL store for civilization line entries.
+pub struct CivilizationStore {
+    path: PathBuf,
+    entries: Mutex<Vec<CivEntry>>,
+}
+
+impl CivilizationStore {
+    pub fn new(dir: &Path, filename: &str) -> Result<Self> {
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(filename);
+        let mut entries = Vec::new();
+        if path.exists() {
+            let f = std::fs::File::open(&path)?;
+            for line in BufReader::new(f).lines().map_while(Result::ok) {
+                if let Ok(entry) = serde_json::from_str::<CivEntry>(&line) {
+                    entries.push(entry);
+                }
+            }
+        }
+        if entries.len() > 1000 {
+            entries = entries.split_off(entries.len() - 1000);
+        }
+        Ok(Self {
+            path,
+            entries: Mutex::new(entries),
+        })
+    }
+
+    pub fn append(&self, entry: CivEntry) -> Result<()> {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        let line = serde_json::to_string(&entry)?;
+        writeln!(f, "{line}")?;
+        self.entries.lock().unwrap().push(entry);
+        Ok(())
+    }
+
+    pub fn recent(&self, limit: usize) -> Vec<CivEntry> {
+        self.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    pub fn search(&self, query: &str, limit: usize) -> Vec<CivEntry> {
+        let q = query.to_lowercase();
+        self.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .filter(|e| {
+                e.content.to_lowercase().contains(&q)
+                    || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
+            })
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+}
+
+// ── 6D v6.0: Work Line Store ──
+
+/// JSONL-backed task/work board store.
+pub struct WorkLineStore {
+    path: PathBuf,
+    nodes: Mutex<Vec<WorkNode>>,
+}
+
+impl WorkLineStore {
+    pub fn new(dir: &Path, filename: &str) -> Result<Self> {
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(filename);
+        let mut nodes = Vec::new();
+        if path.exists() {
+            let f = std::fs::File::open(&path)?;
+            for line in BufReader::new(f).lines().map_while(Result::ok) {
+                if let Ok(node) = serde_json::from_str::<WorkNode>(&line) {
+                    nodes.push(node);
+                }
+            }
+        }
+        Ok(Self {
+            path,
+            nodes: Mutex::new(nodes),
+        })
+    }
+
+    fn flush(&self) -> Result<()> {
+        let nodes = self.nodes.lock().unwrap();
+        let mut f = std::fs::File::create(&self.path)?;
+        for n in nodes.iter() {
+            writeln!(f, "{}", serde_json::to_string(n)?)?;
+        }
+        Ok(())
+    }
+
+    pub fn add(&self, node: WorkNode) -> Result<()> {
+        self.nodes.lock().unwrap().push(node.clone());
+        self.flush()?;
+        Ok(())
+    }
+
+    pub fn list(&self, category: Option<&str>) -> Vec<WorkNode> {
+        let nodes = self.nodes.lock().unwrap();
+        nodes
+            .iter()
+            .filter(|n| match category {
+                Some("completed") => n.status == agent_types::WorkStatus::Completed,
+                Some("pending") => n.status == agent_types::WorkStatus::Pending,
+                _ => true,
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub fn update(
+        &self,
+        id: &str,
+        progress: f32,
+        status: Option<agent_types::WorkStatus>,
+    ) -> Result<()> {
+        let mut nodes = self.nodes.lock().unwrap();
+        if let Some(n) = nodes.iter_mut().find(|n| n.id == id) {
+            n.progress = progress;
+            if let Some(s) = status {
+                if s == agent_types::WorkStatus::Completed {
+                    n.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                }
+                n.status = s;
+            }
+            n.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        drop(nodes);
+        self.flush()
+    }
+
+    pub fn delete(&self, id: &str) -> Result<()> {
+        let mut nodes = self.nodes.lock().unwrap();
+        nodes.retain(|n| n.id != id);
+        drop(nodes);
+        self.flush()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,162 +590,5 @@ mod tests {
         assert_eq!(loaded.events.len(), 2);
         assert_eq!(loaded.events[0].event_type, "phase");
         assert_eq!(loaded.events[1].event_type, "done");
-    }
-}
-
-// ── 6C v6.0: Civilization Store ──
-
-/// Append-only JSONL store for civilization line entries.
-pub struct CivilizationStore {
-    path: PathBuf,
-    entries: Mutex<Vec<CivEntry>>,
-}
-
-impl CivilizationStore {
-    pub fn new(dir: &Path, filename: &str) -> Result<Self> {
-        std::fs::create_dir_all(dir)?;
-        let path = dir.join(filename);
-        let mut entries = Vec::new();
-        if path.exists() {
-            let f = std::fs::File::open(&path)?;
-            for line in BufReader::new(f).lines() {
-                if let Ok(line) = line {
-                    if let Ok(entry) = serde_json::from_str::<CivEntry>(&line) {
-                        entries.push(entry);
-                    }
-                }
-            }
-        }
-        if entries.len() > 1000 {
-            entries = entries.split_off(entries.len() - 1000);
-        }
-        Ok(Self {
-            path,
-            entries: Mutex::new(entries),
-        })
-    }
-
-    pub fn append(&self, entry: CivEntry) -> Result<()> {
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
-        let line = serde_json::to_string(&entry)?;
-        writeln!(f, "{line}")?;
-        self.entries.lock().unwrap().push(entry);
-        Ok(())
-    }
-
-    pub fn recent(&self, limit: usize) -> Vec<CivEntry> {
-        self.entries
-            .lock()
-            .unwrap()
-            .iter()
-            .rev()
-            .take(limit)
-            .cloned()
-            .collect()
-    }
-
-    pub fn search(&self, query: &str, limit: usize) -> Vec<CivEntry> {
-        let q = query.to_lowercase();
-        self.entries
-            .lock()
-            .unwrap()
-            .iter()
-            .rev()
-            .filter(|e| {
-                e.content.to_lowercase().contains(&q)
-                    || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
-            })
-            .take(limit)
-            .cloned()
-            .collect()
-    }
-}
-
-// ── 6D v6.0: Work Line Store ──
-
-/// JSONL-backed task/work board store.
-pub struct WorkLineStore {
-    path: PathBuf,
-    nodes: Mutex<Vec<WorkNode>>,
-}
-
-impl WorkLineStore {
-    pub fn new(dir: &Path, filename: &str) -> Result<Self> {
-        std::fs::create_dir_all(dir)?;
-        let path = dir.join(filename);
-        let mut nodes = Vec::new();
-        if path.exists() {
-            let f = std::fs::File::open(&path)?;
-            for line in BufReader::new(f).lines() {
-                if let Ok(line) = line {
-                    if let Ok(node) = serde_json::from_str::<WorkNode>(&line) {
-                        nodes.push(node);
-                    }
-                }
-            }
-        }
-        Ok(Self {
-            path,
-            nodes: Mutex::new(nodes),
-        })
-    }
-
-    fn flush(&self) -> Result<()> {
-        let nodes = self.nodes.lock().unwrap();
-        let mut f = std::fs::File::create(&self.path)?;
-        for n in nodes.iter() {
-            writeln!(f, "{}", serde_json::to_string(n)?)?;
-        }
-        Ok(())
-    }
-
-    pub fn add(&self, mut node: WorkNode) -> Result<()> {
-        self.nodes.lock().unwrap().push(node.clone());
-        self.flush()?;
-        Ok(())
-    }
-
-    pub fn list(&self, category: Option<&str>) -> Vec<WorkNode> {
-        let nodes = self.nodes.lock().unwrap();
-        nodes
-            .iter()
-            .filter(|n| match category {
-                Some("completed") => n.status == agent_types::WorkStatus::Completed,
-                Some("pending") => n.status == agent_types::WorkStatus::Pending,
-                _ => true,
-            })
-            .cloned()
-            .collect()
-    }
-
-    pub fn update(
-        &self,
-        id: &str,
-        progress: f32,
-        status: Option<agent_types::WorkStatus>,
-    ) -> Result<()> {
-        let mut nodes = self.nodes.lock().unwrap();
-        if let Some(n) = nodes.iter_mut().find(|n| n.id == id) {
-            n.progress = progress;
-            if let Some(s) = status {
-                if s == agent_types::WorkStatus::Completed {
-                    n.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                }
-                n.status = s;
-            }
-            n.updated_at = chrono::Utc::now().to_rfc3339();
-        }
-        drop(nodes);
-        self.flush()
-    }
-
-    pub fn delete(&self, id: &str) -> Result<()> {
-        let mut nodes = self.nodes.lock().unwrap();
-        nodes.retain(|n| n.id != id);
-        drop(nodes);
-        self.flush()
     }
 }
