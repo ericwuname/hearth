@@ -8,13 +8,7 @@ use tracing::info;
 
 use agent_types::{Budget, Message, MessageContent, Role, ToolCall, ToolResult, Turn};
 use llm_gateway::{ChatRequest, LlmProvider};
-// P1-04：`LspBridge` trait 曾用于已删除的 `lsp_bridge` 字段；`Diagnostic` 仍被
-// `Event::LspDiagnostics` 使用，保留。
-use lsp_bridge::Diagnostic;
 use planner::Planner;
-// P1-04：`Retriever` trait 曾用于已删除的 `retriever` 字段；`SearchResult` 仍被
-// `Event::Retrieval` 使用，保留。
-use retriever::SearchResult;
 use tool_runtime::ToolDispatcher;
 
 use crate::context::ContextManager;
@@ -243,10 +237,6 @@ pub enum Event {
         on_timeout: Option<String>,
         payload: serde_json::Value,
     },
-    /// A4: LSP diagnostics produced during observe phase.
-    LspDiagnostics(Vec<Diagnostic>),
-    /// A5: Retrieval results injected into context.
-    Retrieval(Vec<SearchResult>),
     /// B2 (backend taskbook #01): 规划草案——do_plan 完成时 emit。
     PlanDraft {
         steps: serde_json::Value,
@@ -934,8 +924,11 @@ pub struct AgentLoop {
     // **已删除**。顶层裁决：删除（原为"接线 or 删除"二选一）。
     // 依据：P1-01 体检实证两字段"只被赋值、从未被读取"——service 注入后永不生效，
     // 而 service 侧还要为此**在启动时真的建索引 / 起 rust-analyzer**。
-    // 注：`Event::LspDiagnostics` / `Event::Retrieval` 两个事件变体**仍在**
-    // （全仓无生产者），属另一笔账，已登记 D-40，不在本卡内夹带。
+    // P1-10（2026-10-01, traecode）D-40 收口：残链一并删除——
+    // `Event::LspDiagnostics`/`Event::Retrieval` 两个变体（全仓无生产者）、
+    // `build_messages` 里对应的两个 scratch 注入块（同样无写入方）、
+    // Planner 侧 `PlanContext.retrieval_context`/`lsp_diagnostics` 两字段与注入，
+    // 以及仅剩"类型宿主"作用的 `retriever` / `lsp-bridge` 两个 crate。
     /// WS5 (v0.1.5): 项目记忆 Hearth.md（等价 AGENTS.md/CLAUDE.md）——
     /// 启动时读一次 {cwd}/Hearth.md（家目录兜底），内容注入系统提示。
     hearth_md: Option<String>,
@@ -2525,32 +2518,16 @@ impl AgentLoop {
         // R2-C ContextBuilder（施工单 §七，批准书 L4 固定顺序）:
         // history → retrieval → LSP → experience（方案 X）→ Task Continuity（最终语义锚点，必须最后）。
         // 全部 Role::System 标签消息注入 dynamic suffix 区——stable prefix 不受污染。
-        if let Some(retrieval_text) = self.ctx_mgr.state().scratch.get("retrieval_context") {
-            if let Some(text) = retrieval_text.as_str() {
-                if !text.is_empty() {
-                    msgs.push(Message::new(
-                        "ctx-retrieval".into(),
-                        Role::System,
-                        MessageContent::Text(format!(
-                            "[System Context / Relevant code (semantic search, 本轮证据)]\n{text}"
-                        )),
-                    ));
-                }
-            }
-        }
-        if let Some(diag_text) = self.ctx_mgr.state().scratch.get("lsp_diagnostics") {
-            if let Some(text) = diag_text.as_str() {
-                if !text.is_empty() {
-                    msgs.push(Message::new(
-                        "ctx-lsp".into(),
-                        Role::System,
-                        MessageContent::Text(format!(
-                            "[System Context / LSP Diagnostics (fix these issues)]\n{text}"
-                        )),
-                    ));
-                }
-            }
-        }
+        //
+        // P1-10（2026-10-01, traecode）：原 `retrieval_context`（语义检索）与
+        // `lsp_diagnostics` 两个注入块**已删除**——D-40 收口。
+        // 依据：两块的唯一写入方是 `do_observe` 里的 `retriever.search()` /
+        // `lsp_bridge.diagnostics()`；这两个字段已随 P1-04（裁决4）删除，全仓
+        // **再无任何 `set_scratch("retrieval_context"/"lsp_diagnostics")`**，
+        // 故这两个 System 块此前恒不触发（"读方还在、生产方已无"的死代码）。
+        // 保留 L4 顺序语义的其余部分：history → experience → Task Continuity。
+        // 若日后重启检索/诊断能力：写入方与这里一并恢复，或改造为 tool result 通道
+        // （R6-5 已确立"事实不绕行 scratch 中转"的范式，勿复活旧通道）。
         // R6-5（判定权归还长程任务书 v1.0）：R5-1 的"scratch 中转注入块"已删除
         // ——失败事实不再绕行 scratch/独立 System 块，改为**直接附着在工具结果
         // 消息上**（class 内联于 ERROR 行=R5-2；strategy/suggestion 由 Reflect

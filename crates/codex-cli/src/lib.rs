@@ -334,8 +334,10 @@ pub async fn hearth_main() -> Result<()> {
             crate::render::set_verbosity(2);
         }
     }
-    // R4 (v0.1.1): 日志分级——默认过滤开发期噪音（lsp_bridge: NoopLspBridge 等）；
-    // 需要时 RUST_LOG=lsp_bridge=debug 打开。WARN/ERROR 由渲染层醒目展示。
+    // R4 (v0.1.1): 日志分级——默认过滤开发期噪音；需要时 RUST_LOG=...=debug 打开。
+    // P1-10（D-40 收口）：原 `lsp_bridge=off` 条目随 `lsp-bridge` crate 删除一并移除
+    // （crate 已不存在，过滤目标名失效；EnvFilter 对未知 target 静默忽略，但仍应清理）。
+    // WARN/ERROR 由渲染层醒目展示。
     // R5 (v0.1.3 B7): 日志统一走 stderr——REPL 提示符（stdout）不再混入 WARN 日志
     // （真机：`hearth> 〉2026-...WARN...` 行污染）。
     // R5 (v0.1.4): REPL 交互模式默认砍 WARN 只留 ERROR——reedline 读行时 stderr
@@ -343,9 +345,9 @@ pub async fn hearth_main() -> Result<()> {
     // 用户显式设 RUST_LOG 时尊重其配置（可用 RUST_LOG=hearth=warn 找回 WARN）。
     let is_repl = std::env::args().any(|a| a == "repl");
     let default_filter = if is_repl {
-        "hearth=info,error,lsp_bridge=off"
+        "hearth=info,error"
     } else {
-        "hearth=info,warn,lsp_bridge=off"
+        "hearth=info,warn"
     };
     // RC51-A (P4 Node 05): tracing **不再直灌用户终端**（P0-A 系统性隔离违约修复）。
     // 默认写诊断文件 ~/.config/hearth/diagnostics.log（append）；

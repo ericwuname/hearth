@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**二十张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62**）：
+**二十一张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -33,7 +33,8 @@
 | P1-04 | `ac31cf0` | **裁决4 · 删死接线**：`retriever`/`lsp_bridge` 三层贯通删除 + 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本**；登记 D-40 |
 | P1-07 | `24a48e9` `ea2da1b` | **CI 转绿（D-43 闭环）**：修好 clippy 后 test 步首次真正执行 → 暴露 **4 例 Linux 用例因 cgroup 不可用被 RT4 fail-closed 打死**；按项目自己的门禁口径在 CI 建 cgroup delegation 子树（`/sys/fs/cgroup/hearth` + 递归 chown + 下发 memory/pids/cpu）→ **本仓 CI 19 天来首次全绿**（fmt/clippy/test/xray wiring/xray scan 七步全过） |
 | P1-08 | `cc01df3` | **裁决5 · 追认 2 条退役能力**：xray spec 两处 claim「待顶层追认」→「顶层已追认」+ 门禁提示文案 + 同步重锁 FNV（`0x3854ddaf16e6dd1d`→`0xfa4df73ba26cd516`）；**纯文案，条数/severity/锚点零变化**；顺带删掉债队列中重复过期的 D-16 行 |
-| P1-09 | 本卡 | **D-42 收口（flaky 门禁）**：定位到真因 = `test_maybe_compact_folds_old_turns` 触发压缩却不持 env 锁 → 把 8 轮追加进并行测试的归档文件 → 对侧 `archive_digest(max_turns=8)` 按行序截断挤掉自己的 turn#102。**确定性复现 → 修复 → 5× 全跑 0 失败**；顺带修掉"该测试污染真实 HOME" |
+| P1-09 | `cd8e00a` | **D-42 收口（flaky 门禁）**：定位到真因 = `test_maybe_compact_folds_old_turns` 触发压缩却不持 env 锁 → 把 8 轮追加进并行测试的归档文件 → 对侧 `archive_digest(max_turns=8)` 按行序截断挤掉自己的 turn#102。**确定性复现 → 修复 → 5× 全跑 0 失败**；顺带修掉"该测试污染真实 HOME" |
+| P1-10 | 本卡 | **D-40 收口（LSP/检索残链）**：两个无生产者事件变体 + 其唯一消费方（`agent-runtime` 映射 + 两个恒不触发的 scratch 注入块）+ `PlanContext` 的两个死字段与 planner 注入 + **只剩类型宿主作用的 `retriever`/`lsp-bridge` 两 crate** 一并删除（27→25 包，摘掉 tantivy 与 rust-analyzer JSON-RPC 依赖）；新登记 D-44 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -183,7 +184,8 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-5** | `.hearth-diag/` 入库卫生 | 本次发现 | **已修**：`.gitignore` + `git rm -r --cached` 40 个文件（**内容留盘**）；`git status` 恢复干净 | **close**（删盘上文件/清历史仍待裁决） |
 | ~~**D-16**~~ | `retriever`/`lsp_bridge` 只写不读死接线 | P1 体检 | **已删除**（顶层裁决「删除」，P1-04）：三层贯通（agent-core/agent-runtime/service）+ 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本** | **close** |
 | **D-41** | `project-sync` 整 crate 死亡 | P1 体检 | **已删除**（顶层裁决「删除」，P1-03）：12 文件 / ~90 KB，工作区 62→60 target | **close** |
-| **D-40** | `Event::LspDiagnostics` / `Event::Retrieval` 事件变体**全仓无生产者**（`loop.rs:2625` 仍有消费它们的提示词格式化） | P1-04 执行中发现 | 确证（**事件流形状变更，需另立卡**） | 中 · 待修 |
+| **D-40** | `Event::LspDiagnostics` / `Event::Retrieval` 事件变体**全仓无生产者**（提示词格式化仍有消费方） | P1-04 执行中发现 → P1-10 收口 | **已修**：整条残链一并删除——两个事件变体 + `agent-runtime` 的两条映射臂 + `build_messages` 两个 scratch 注入块（**同样无写入方**，属"读方还在、生产方已无"）+ `PlanContext.retrieval_context`/`lsp_diagnostics` 两字段与 planner 注入 + **仅剩"类型宿主"作用的 `retriever`/`lsp-bridge` 两个 crate**（裁决4 收尾）。工作区 27→25 包，顺带摘掉 tantivy / rust-analyzer JSON-RPC 客户端依赖 | **close** |
+| **D-44** | `service/src/routes.rs` `GET /api/v1/tools` **硬编码**列出 `lsp_diagnostics` / `lsp_hover` / `code_index_search` 三个**全仓从未注册**的工具名（真正注册的只有 bash/read_file/write_file/edit_file/grep/glob/web_search/…）——API 对外"声称可用"而实际不可调用（与 D-23「注释声称的防护层」同型：声称 ≠ 存在） | P1-10 体检发现 | 确证 | 低 · 待修 |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
 | **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
 | **D-6** | 无入库前密钥扫描门禁 | 安全事故根因 | **已建**：`crates/codex-cli/tests/secret_scan_gate.rs`——扫 `git ls-files`、三轮红→绿、白名单 3 项、文件头自报盲区；门禁目标数 61→62 | **close** |

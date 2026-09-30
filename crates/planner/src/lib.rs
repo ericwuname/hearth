@@ -352,18 +352,6 @@ impl Planner for DefaultPlanner {
             ctx.available_tools.join(", ")
         );
 
-        // R1: Inject P2 intelligence into decomposition prompt
-        if let Some(ref retrieval) = ctx.retrieval_context {
-            if !retrieval.is_empty() {
-                prompt.push_str(&format!("\nRelevant code context:\n{}\n", retrieval));
-            }
-        }
-        if let Some(ref diags) = ctx.lsp_diagnostics {
-            if !diags.is_empty() {
-                prompt.push_str(&format!("\nLSP diagnostics (issues to fix):\n{}\n", diags));
-            }
-        }
-
         prompt.push_str("\nOutput ONLY the JSON array, no other text. Example: [{\"id\":\"setup\",\"description\":\"Set up project\",\"deps\":[],\"delegable\":false}]");
 
         let resp = self
@@ -561,12 +549,10 @@ mod tests {
     }
 
     fn make_plan_ctx() -> PlanContext {
+        // P1-10（D-40 收口）：retrieval_context / lsp_diagnostics 两字段已删除
+        // （无生产方）。此处 fixture 同步收窄。
         PlanContext {
             goal: "write a Rust function to parse JSON".into(),
-            retrieval_context: Some(
-                "// src/parser.rs\npub fn parse(input: &str) -> Result<Value> { ... }".into(),
-            ),
-            lsp_diagnostics: Some("src/parser.rs:10:5: ERROR: unused variable `x`".into()),
             available_tools: vec!["bash".into(), "read".into(), "edit".into()],
         }
     }

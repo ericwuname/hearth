@@ -1112,14 +1112,6 @@ pub fn map_event(evt: Event) -> AgentEvent {
         },
         Event::Done(report) => AgentEvent::Done { report },
         Event::Error(message) => AgentEvent::Error { message },
-        // A4: LSP diagnostics → map to Phase event for now (can be expanded later)
-        Event::LspDiagnostics(diags) => AgentEvent::Phase {
-            phase: format!("lsp_diagnostics: {} issues", diags.len()),
-        },
-        // A5: Retrieval results → map to Phase event (can be expanded later)
-        Event::Retrieval(results) => AgentEvent::Phase {
-            phase: format!("retrieval: {} chunks", results.len()),
-        },
     }
 }
 

@@ -46,13 +46,14 @@ pub struct TaskGraph {
 }
 
 /// Context passed into planner.decompose().
+///
+/// P1-10（2026-10-01, traecode）D-40 收口：`retrieval_context`（语义检索）与
+/// `lsp_diagnostics`（LSP 诊断）两字段**已删除**——其生产方（`retriever` /
+/// `lsp_bridge` 接线）随 P1-04（裁决4）删除后全仓再无写入方，属"读方还在、
+/// 生产方已无"的死字段。若日后重启该能力，随之恢复。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanContext {
     pub goal: String,
-    /// P2: retrieval_context from semantic search (may be empty).
-    pub retrieval_context: Option<String>,
-    /// P2: lsp_diagnostics from LSP bridge (may be empty).
-    pub lsp_diagnostics: Option<String>,
     /// Available tools for the agent.
     pub available_tools: Vec<String>,
 }

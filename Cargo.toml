@@ -11,8 +11,6 @@ members = [
   "crates/api",
   "crates/service",
   "crates/code-index",
-  "crates/retriever",
-  "crates/lsp-bridge",
   "crates/planner",
   "crates/llm-local",
   "crates/experience",
@@ -71,8 +69,6 @@ subconscious = { path = "crates/subconscious" }
 api = { path = "crates/api" }
 sandbox = { path = "crates/sandbox" }
 code-index = { path = "crates/code-index" }
-retriever = { path = "crates/retriever" }
-lsp-bridge = { path = "crates/lsp-bridge" }
 planner = { path = "crates/planner" }
 bridge = { path = "crates/bridge" }
 agent-runtime = { path = "crates/agent-runtime" }
