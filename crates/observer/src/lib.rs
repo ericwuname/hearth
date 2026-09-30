@@ -4,13 +4,17 @@
 //! - **独立 crate**：禁塞进 nervous-system（后者有干预执行权）。
 //! - **零执行权**：只消费事件流（`Vec<EnvelopedEvent>`），产出 Finding / 报告 /
 //!   熔断事件。不调用任何工具、不修改计划、不尝试修复。
-//! - **L2 fail-closed —— ⚠️ 声称 ≠ 实现（P1-12 核验，2026-10-01）**：
-//!   `Observer::run()` 在 seq 断档时确实返回 `Err`，但**协调者并没有拒绝继续**——
-//!   `agent-runtime/src/session.rs:785-790` 收到 `Err` 后只 `tracing::warn!`，
-//!   会话照常跑完。故本项目**当前不存在** L2 fail-closed 保证
-//!   （原注释写"由 service 层拒绝继续"不成立）。另：`Observer::new()` 无失败路径，
-//!   故"构造失败 → 拒启"同样恒不触发（见 main.rs:652 自述）。
-//!   是否升级为真 fail-closed（`Err` → 中止会话/拒启）＝**产品方向抉择**，已登记 D-45 待顶层裁。
+//! - **审计失败 = fail-open（有意设计；2026-10-01 裁决 D-45）**：`Observer::run()`
+//!   在 seq 断档时返回 `Err`，调用方（`agent-runtime/src/session.rs:785-790`）
+//!   只 `tracing::warn!` 留痕、**不中止会话**。这是**有意为之**，依据业界通行的
+//!   故障模式划分：fail-closed 属于**策略执行点**（本项目的执行点另在：沙箱
+//!   fail-closed / 审批门 / `ConstitutionGuard` + `CostGuard`），而 Observer 是
+//!   **零执行权的只读审计 / 可观测组件**——"审计报告写不出来"不构成中止用户会话的
+//!   理由，那只会把可用性白送给一个与安全无关的故障（且审计降级本身已 warn 留痕，
+//!   不是静默丢弃）。
+//!   ⚠️ **不要**把"`run()` 返回 `Err`"理解为"协调者会拒启 / 中止"——旧注释曾如此
+//!   声称，那是**文档错误**（已订正；详见债务 D-45）。`Observer::new()` 亦无失败路径，
+//!   故"构造失败 → 拒启"恒不触发（main.rs:652 自述承认）。
 //!   （内核 agent-core 不 import observer——独立 crate 铁律不变。）
 //! - 事件流是唯一事实源（事实产生权：BE 产生事实，FE/Observer 投影）。
 
@@ -34,9 +38,8 @@ impl Observer {
     /// L1: 消费一段事件流 → 产出 Finding + 熔断事件。
     /// seq 断档（不可信的流）→ `Err`。
     ///
-    /// ⚠️ 注意（P1-12 核验）：`Err` 只表示"这份事件流不可信 / 没算成"，
-    /// **不是 fail-closed 保证**——当前调用方 `agent-runtime/src/session.rs:785-790`
-    /// 拿到 `Err` 后仅 warn 留痕，会话继续。见 D-45。
+    /// `Err` 表示"这份事件流不可信 / 没算成"；调用方只 warn 留痕并继续跑完会话
+    /// （**有意 fail-open**：审计组件不握"中止会话"的权力，见模块头与 D-45）。
     ///
     /// 返回 (findings, circuit_breaks)。
     pub fn run(&self, events: &[EnvelopedEvent]) -> Result<(Vec<Finding>, Vec<CircuitBreak>)> {
