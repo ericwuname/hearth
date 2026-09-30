@@ -158,10 +158,11 @@ allowlist denies everything).\n\
         if !resp.status().is_success() {
             return Err(anyhow!("HTTP {} for {url}", resp.status()));
         }
-        let raw = resp
-            .text()
-            .await
-            .map_err(|e| anyhow!("读 body 失败: {e}"))?;
+        // D-55：有界读取响应体（此前 `resp.text()` 全量入内存后才截 8000 字符）。
+        let (raw, body_truncated) = crate::read_body_capped(resp, crate::MAX_BODY_BYTES).await?;
+        if body_truncated {
+            tracing::warn!(url, "web_fetch 响应体超上限已截断（HTML 标记可能不完整）");
+        }
         let text = strip_html(&raw);
         let raw_chars = text.chars().count();
         let truncated: String = text.chars().take(MAX_BODY_CHARS).collect();

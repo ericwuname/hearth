@@ -67,7 +67,12 @@ async fn fetch_html(client: &reqwest::Client, url: &str) -> Result<String> {
     if !resp.status().is_success() {
         return Err(anyhow!("HTTP {}", resp.status()));
     }
-    resp.text().await.map_err(|e| anyhow!("读 body 失败: {e}"))
+    // D-55：有界读取响应体（此前 `resp.text()` 全量入内存）。
+    let (body, truncated) = crate::read_body_capped(resp, crate::MAX_BODY_BYTES).await?;
+    if truncated {
+        tracing::warn!(url, "web_search 响应体超上限已截断");
+    }
+    Ok(body)
 }
 
 /// S2 口径的出网判定：allowlist 为空 = 默认放开；非空 = 只放行命中项

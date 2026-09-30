@@ -21,6 +21,69 @@ pub use status::IntrospectTool;
 pub use todo::TodoWriteTool;
 pub use web::WebTool;
 
+/// D-55（2026-10-01）：**有界读取 HTTP 响应体**的字节上限。
+///
+/// `resp.text()` 会把**整份响应**读进内存（reqwest 无内建上限），随后才被截到
+/// `MAX_BODY_CHARS`（8000 字符）——超大/恶意响应可致 OOM。1 MiB ≈ 输出上限的 130 倍，
+/// 足以容纳正常文档页的 HTML 标记，同时把"失控响应"从 OOM 退化为"截断 + 留痕"。
+pub(crate) const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+/// D-55：有界读取 reqwest 响应体（**网络侧**的"无界读入"落点，与已修的 7 处文件/管道
+/// 落点同族）。
+///
+/// - 先用 `Content-Length`（若有）**提前拒绝**超大响应——不必下载就知道超限；
+/// - 否则用 `Response::chunk()` 流式累加，**最多保留 `cap` 字节**；超出即停读并丢弃余量
+///   （HTTP 与管道不同：丢弃后续字节不会让写端死锁，只是关闭连接）；
+/// - 截断处退到最后一个合法 UTF-8 边界。本仓 reqwest **未启用 `charset` feature**，
+///   `.text()` 本就是 UTF-8 lossy → `from_utf8_lossy` 与旧行为等价；
+/// - 截断**留痕**（不静默）。
+pub(crate) async fn read_body_capped(
+    mut resp: reqwest::Response,
+    cap: usize,
+) -> anyhow::Result<(String, bool)> {
+    if let Some(len) = resp.content_length() {
+        if len > cap as u64 {
+            anyhow::bail!(
+                "响应体过大：Content-Length {len} 字节 > 上限 {cap} 字节——已拒绝（避免整份读入内存）"
+            );
+        }
+    }
+
+    let mut buf: Vec<u8> = Vec::with_capacity(cap.min(64 * 1024));
+    let mut truncated = false;
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| anyhow::anyhow!("读 body 失败: {e}"))?
+    {
+        let room = cap.saturating_sub(buf.len());
+        if chunk.len() > room {
+            buf.extend_from_slice(&chunk[..room]);
+            truncated = true;
+            break;
+        }
+        buf.extend_from_slice(&chunk);
+    }
+
+    let text = if truncated {
+        match String::from_utf8(buf) {
+            Ok(s) => s,
+            Err(e) => {
+                let valid = e.utf8_error().valid_up_to();
+                let bytes = e.into_bytes();
+                String::from_utf8_lossy(&bytes[..valid]).into_owned()
+            }
+        }
+    } else {
+        String::from_utf8_lossy(&buf).into_owned()
+    };
+
+    if truncated {
+        tracing::warn!(cap, "HTTP 响应体超过上限，已截断（丢弃余量）");
+    }
+    Ok((text, truncated))
+}
+
 /// R3 (v0.1.3 任务书 B5): 绝对路径放行判定——落在允许根（cwd 项目目录或用户家目录）
 /// 内则放行（真机日志 grep /home/wutao/codex_6d 被误拒）；越权系统目录（/etc /usr）
 /// 仍拒绝。相对路径由各工具自行查 `..` 穿越（此处不判）。
@@ -328,5 +391,61 @@ mod p3_tests {
             cfg!(target_os = "linux"),
             "家目录放行的兜底前提只能是 Linux（landlock）"
         );
+    }
+
+    // ── D-55：HTTP 响应体有界读取 ──
+
+    /// 起一个一次性本地 HTTP 服务（回固定 body），返回 URL。
+    async fn serve_once(content_length: Option<usize>, body_len: usize) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let cl = match content_length {
+                    Some(n) => format!("Content-Length: {n}\r\n"),
+                    None => String::new(),
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n{cl}Connection: close\r\n\r\n"
+                );
+                let _ = sock.write_all(head.as_bytes()).await;
+                let chunk = vec![b'a'; 64 * 1024];
+                let mut left = body_len;
+                while left > 0 {
+                    let n = left.min(chunk.len());
+                    if sock.write_all(&chunk[..n]).await.is_err() {
+                        break;
+                    }
+                    left -= n;
+                }
+                let _ = sock.flush().await;
+            }
+        });
+        format!("http://{addr}/")
+    }
+
+    /// 先红后绿（D-55）：`Content-Length` 超限必须**提前拒绝**（不下载整份）。
+    /// 修复前走 `resp.text()` → 整份入内存（本测会拿到 Ok 而非 Err）。
+    #[tokio::test]
+    async fn test_d55_body_capped_rejects_oversized_content_length() {
+        let url = serve_once(Some(5_000_000), 5_000_000).await;
+        let resp = reqwest::get(&url).await.unwrap();
+        let err = read_body_capped(resp, 1024)
+            .await
+            .expect_err("Content-Length 超限必须被提前拒绝（不整份读入）");
+        assert!(err.to_string().contains("响应体过大"), "got: {err}");
+    }
+
+    /// 正常小响应原样返回、不标截断（保证修复不误伤）。
+    #[tokio::test]
+    async fn test_d55_body_capped_small_body_ok() {
+        let url = serve_once(Some(5), 5).await;
+        let resp = reqwest::get(&url).await.unwrap();
+        let (body, truncated) = read_body_capped(resp, 1024).await.unwrap();
+        assert_eq!(body, "aaaaa");
+        assert!(!truncated, "未超限不得标截断");
     }
 }
