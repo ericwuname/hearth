@@ -2830,7 +2830,7 @@ impl AgentLoop {
             .enumerate()
             .map(|(seq, (index, name, args, first_id))| {
                 let parsed = serde_json::from_str::<serde_json::Value>(&args)
-                    .unwrap_or_else(|_| serde_json::Value::String(args));
+                    .unwrap_or(serde_json::Value::String(args));
                 // call_id：首片非空 id 优先；仍空 → 合成（tool 结果回填报
                 // missing field tool_call_id 的上游 400 由这里根治）。
                 let call_id = match first_id {
@@ -5539,9 +5539,9 @@ impl Agent for AgentLoop {
                     if matches!(self.self_check_gate().await?, SelfCheckGate::Replan) {
                         continue;
                     }
-                    match self.finalize_done(&goal.text, steps).await? {
-                        Some(r) => break r,
-                        None => {} // verify/acceptance 回喂 replan → 继续循环
+                    // verify/acceptance 未过 → 回喂 replan，None 时继续循环。
+                    if let Some(r) = self.finalize_done(&goal.text, steps).await? {
+                        break r;
                     }
                 }
                 StepNext::Error(msg) => {
@@ -5762,9 +5762,11 @@ mod tests {
         }
     }
 
-    #[test]
     /// K-1（契约手术，2026-09-11）：交付物类型核对——M0 v1 病灶场景必须被拦。
     /// 红（禁用核对）形态：probe.json 场景返回 None → 断言 Some 必失败。
+    ///
+    /// P1-06：原先此处有**两个** `#[test]`（一个在文档注释之前）——CI 的
+    /// `-D warnings` 下 `duplicated_attributes` 直接报错；本地宽松口径测不出来。
     #[test]
     fn test_k1_deliverable_type_contract() {
         let wf = |p: &str| WrittenFile {
@@ -5968,6 +5970,9 @@ mod tests {
         );
     }
 
+    // P1-06：本函数原先漏了 `#[test]`（`fn` 而非测试）——CI `-D warnings` 下
+    // `dead_code` 直接报错，而它也**从未真正跑过**（等于一条无效断言）。
+    #[test]
     fn test_v12_approval_bash_destructive_detected() {
         // Classic and no-space variants must both be flagged.
         assert!(tool_call_needs_approval(
@@ -8689,7 +8694,10 @@ mod tests {
         );
     }
 
-    /// R5-10 判据：死流程指令清除 + 安全边界保留 + 问答类零写盘压力。
+    // R5-10 判据：死流程指令清除 + 安全边界保留 + 问答类零写盘压力。
+    // P1-06：原先这里是 `///`（文档注释）且**下面跟着空行**——文档注释是"外层属性"，
+    // 悬空即触发 clippy `empty_line_after_outer_attr`（CI `-D warnings` 下报错）。
+    // 该判据对应的测试不在此处（注释是历史残留），故降为普通注释。
 
     /// R5-8 判据（预注册·机器断言）：失败验证命令不得点亮 VERIFIED——
     /// bash `exit 1` 类命令（非零退出码 → is_error=true）后 verification_evidence

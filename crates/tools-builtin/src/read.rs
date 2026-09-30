@@ -259,7 +259,7 @@ mod tests {
     async fn test_p0_06_read_is_bounded_by_bytes_not_only_lines() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("huge_single_line.txt");
-        let big = "A".repeat(MAX_READ_BYTES as usize + 1024);
+        let big = "A".repeat(MAX_READ_BYTES + 1024);
         std::fs::write(&file_path, &big).unwrap();
 
         let tool = ReadTool::new();
@@ -274,7 +274,7 @@ mod tests {
 
         assert_eq!(
             out.matches('A').count(),
-            MAX_READ_BYTES as usize,
+            MAX_READ_BYTES,
             "保留内容必须恰好等于字节上限（修复前等于整个文件长度）"
         );
         assert!(

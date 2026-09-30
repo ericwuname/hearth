@@ -16,16 +16,17 @@ fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-/// P0-08 / D-33：产物预览的**字节**上限与有界读取。
-///
-/// 病灶（D-31）：`open_artifact` 原用 `tokio::fs::read_to_string` —— 把文件**整份**
-/// 读进内存，再作为 HTTP 响应体原样返回，**没有任何上限**。而该文件就在会话
-/// workspace 内、由 agent 自己产出（`cargo build 2>&1 | tee build.log`、一次大数据
-/// 导出、一次网页抓取落盘……）——一个多 GB 的产物即可把**服务端** OOM。
-/// 触发成本：一次 `GET /api/v1/sessions/:id/artifact/open?path=…`。
-///
-/// D-33 收敛（2026-10-01，顶层裁决「收敛」）：实现与上限都已改用共享 crate
-/// `bounded_io`（语义：读到上限、退合法 UTF-8 边界、未截断时严格拒绝非 UTF-8）。
+// P0-08 / D-33：产物预览的**字节**上限与有界读取。
+//
+// 病灶（D-31）：`open_artifact` 原用 `tokio::fs::read_to_string` —— 把文件**整份**
+// 读进内存，再作为 HTTP 响应体原样返回，**没有任何上限**。而该文件就在会话
+// workspace 内、由 agent 自己产出（`cargo build 2>&1 | tee build.log`、一次大数据
+// 导出、一次网页抓取落盘……）——一个多 GB 的产物即可把**服务端** OOM。
+// 触发成本：一次 `GET /api/v1/sessions/:id/artifact/open?path=…`。
+//
+// D-33 收敛（2026-10-01，顶层裁决「收敛」）：实现与上限都已改用共享 crate
+// `bounded_io`（语义：读到上限、退合法 UTF-8 边界、未截断时严格拒绝非 UTF-8）。
+// P1-06：原为 `///` 且下方有空行 —— clippy `empty_line_after_outer_attr` 会报错。
 
 /// 2026-10-01 安全修复（traecode）：`open_external` 的 target 来自请求参数
 /// （`GET /api/v1/sessions/:id/artifact/open-external?path=…`），**原先直接交给 shell**

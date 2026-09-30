@@ -366,8 +366,12 @@ mod tests {
     fn test_s9_resolve_providers_chain() {
         let _env_ser = p3_tests::ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("HEARTH_PROVIDERS");
-        let mut cfg = Config::default();
-        cfg.providers = Some(vec!["agnes".into(), "zhipu".into(), "gemini".into()]);
+        // P1-06：原为 `let mut cfg = Config::default(); cfg.providers = …` ——
+        // clippy `field_reassign_with_default`（CI `-D warnings` 下报错），改为结构体更新语法。
+        let cfg = Config {
+            providers: Some(vec!["agnes".into(), "zhipu".into(), "gemini".into()]),
+            ..Config::default()
+        };
         let r = cfg.resolve(None, None, None, None, None);
         assert_eq!(
             r.providers,

@@ -251,87 +251,6 @@ async fn test_a3_dual_provider_switch() {
     eprintln!("A3 PASS: dual provider switch works");
 }
 
-// ── P1: A1 — Real tool set (read/edit/glob/grep + bash via sandbox) ──
-
-fn build_script_tool_test() -> MockScript {
-    MockScript {
-        chat_responses: vec![
-            // P3: planner.decompose() — LLM response for task planning
-            ChatResponse {
-                content: Some("[{\"id\":\"create_file\",\"description\":\"Create a test file\",\"deps\":[],\"delegable\":false}]".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // First: write a file
-            ChatResponse {
-                content: Some("I will create a test file.".into()),
-                tool_calls: vec![agent_types::ToolCall {
-                    call_id: "c1".into(),
-                    name: "write_file".into(),
-                    args: serde_json::json!({"path": "p1_test.txt", "content": "hello from p1"}),
-                }],
-                finish_reason: Some("tool_calls".into()),
-                usage: Some(Usage { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // P3: planner.reflect() → continue
-            ChatResponse {
-                content: Some("continue".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // P3: planner.decompose() second call
-            ChatResponse {
-                content: Some("[{\"id\":\"read_file\",\"description\":\"Read back the test file\",\"deps\":[],\"delegable\":false}]".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // Second: read it back
-            ChatResponse {
-                content: Some("Now I will read it back.".into()),
-                tool_calls: vec![agent_types::ToolCall {
-                    call_id: "c2".into(),
-                    name: "read".into(),
-                    args: serde_json::json!({"path": "p1_test.txt"}),
-                }],
-                finish_reason: Some("tool_calls".into()),
-                usage: Some(Usage { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // P3: planner.reflect() second call → continue
-            ChatResponse {
-                content: Some("continue".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // P3: planner.decompose() third call
-            ChatResponse {
-                content: Some("[{\"id\":\"done\",\"description\":\"All tasks complete\",\"deps\":[],\"delegable\":false}]".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-            // Third: DONE
-            ChatResponse {
-                content: Some("DONE".into()),
-                tool_calls: vec![],
-                finish_reason: Some("stop".into()),
-                usage: Some(Usage { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
-            reasoning_content: None,
-            },
-        ],
-    }
-}
-
 #[tokio::test]
 async fn test_p1_budget_exhausted_error() {
     let mut registry = ProviderRegistry::new();
@@ -1370,6 +1289,9 @@ async fn test_epic_b_readyz_probe_semantics() {
         r_err.is_err(),
         "unreadable dir should be Err (503), got {r_err:?}"
     );
+    // P1-06：非 Unix 上该断言不适用（目录权限语义不同）→ r_err 未被使用。
+    // 显式消费以免 CI `-D warnings` 下 unused_variables 报错。
+    let _ = &r_err;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

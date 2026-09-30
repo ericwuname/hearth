@@ -230,7 +230,7 @@ mod p0_06_tests {
             .spawn(
                 "cmd",
                 &["/C", "type big.txt"],
-                &dir.path().to_path_buf(),
+                dir.path(),
                 &[],
                 Duration::from_secs(60),
             )
@@ -287,7 +287,7 @@ mod p0_07_tests {
             .spawn(
                 "cmd",
                 &["/C", "probe.bat"],
-                &dir.path().to_path_buf(),
+                dir.path(),
                 &[("PATH", path.as_str())],
                 Duration::from_millis(500),
             )
@@ -327,7 +327,7 @@ mod p0_07_tests {
             .spawn(
                 "sh",
                 &["-c", "sleep 5; echo done > marker.txt"],
-                &dir.path().to_path_buf(),
+                dir.path(),
                 &[],
                 Duration::from_secs(20),
             )
@@ -2545,6 +2545,9 @@ print('ALLOC_OK')",
 /// S4（P5-FOUNDATION-01 N15, FZ-RFC-1）：子进程最小环境白名单。
 /// 仅 HOME/LANG/LC_ALL/TMPDIR（存在才带）；显式注入（env_vars）在调用侧
 /// 后置覆盖。父进程其余变量（含任何 *KEY*/*TOKEN*）一律不透传。
+// P1-06：本函数只被 `cfg(target_os = "linux")` 的 LinuxSandbox 使用——
+// 非 Linux 上会触发 `dead_code`，而 CI 是 `-D warnings`（本地宽松口径测不出来）。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn minimal_child_env() -> Vec<(String, String)> {
     ["HOME", "LANG", "LC_ALL", "TMPDIR"]
         .iter()

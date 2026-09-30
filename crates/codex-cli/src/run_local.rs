@@ -235,10 +235,13 @@ pub(crate) fn rebuild_agent(
     Ok(fresh)
 }
 
-/// PC-2 修复（P0/P1 修复任务书 v1.0）：resume **预算追加**——总预算 = 断点已用
-/// + 追加额度。语义：steps 接着数（agent 侧 resume_keep_steps 恢复旧计数），
+/// PC-2 修复（P0/P1 修复任务书 v1.0）：resume **预算追加**——总预算等于断点已用
+/// 加上追加额度。语义：steps 接着数（agent 侧 resume_keep_steps 恢复旧计数），
 /// 追加的部分是净余量（`hearth resume <id> --budget N` 的 N 默认 = REPL_BUDGET）。
 /// 纯函数（CLI resume 分支调用；无副作用可单测）。
+///
+/// P1-06：原第二行以 `+` 开头——Markdown 会当成列表项，clippy
+/// `doc_lazy_continuation` 在 CI `-D warnings` 下报错，故改写掉该行首字符。
 pub(crate) fn resume_budget(steps_used: u64, extra: u64) -> u64 {
     steps_used.saturating_add(extra)
 }
