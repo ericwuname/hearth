@@ -10,7 +10,6 @@ members = [
   "crates/agent-core",
   "crates/api",
   "crates/service",
-  "crates/code-index",
   "crates/planner",
   "crates/llm-local",
   "crates/experience",
@@ -68,7 +67,6 @@ experience = { path = "crates/experience" }
 subconscious = { path = "crates/subconscious" }
 api = { path = "crates/api" }
 sandbox = { path = "crates/sandbox" }
-code-index = { path = "crates/code-index" }
 planner = { path = "crates/planner" }
 bridge = { path = "crates/bridge" }
 agent-runtime = { path = "crates/agent-runtime" }
@@ -82,10 +80,6 @@ llm-replay = { path = "crates/llm-replay" }
 observer = { path = "crates/observer" }
 memory = { path = "crates/memory" }
 service = { path = "crates/service" }
-# P2 external dependencies (locked at workspace level)
-tree-sitter = "0.24"
-tree-sitter-rust = "0.23"
-tantivy = "0.22"
 
 # D2 (hearth-cli): 发布优化——strip + lto（R1 门禁：Cargo.toml 含 [profile.release]）。
 [profile.release]
