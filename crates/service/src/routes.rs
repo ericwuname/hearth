@@ -695,13 +695,32 @@ mod p0_05_tests {
 
 use agent_types::{CivAuthor, CivCategory, CivEntry};
 
-/// GET /api/v1/civilization — recent civ entries.
+/// D-49（2026-10-01）：civ 检索的**唯一事实源**——`GET /api/v1/civilization` 的
+/// 选择逻辑抽为纯函数以便单测（`AppState` 有 13 字段、仅 `main.rs` 可构造，无法
+/// 在测试里起真路由；处置同 D-44）。
+///
+/// 带非空 `?search=` 时按关键词过滤，否则回退最近 50 条。此前 handler **硬编码**
+/// `store.recent(50)`、完全忽略查询参数 → CLI `hearth civ search <q>` 实为
+/// `civ feed`（返回最近条目，与关键词无关），且 `CivilizationStore::search`
+/// 全仓零调用方（与 D-44「声称 ≠ 实现」同型）。
+pub fn civ_feed_entries(
+    store: &memory::CivilizationStore,
+    search: Option<&str>,
+) -> Vec<agent_types::CivEntry> {
+    match search.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(q) => store.search(q, 50),
+        None => store.recent(50),
+    }
+}
+
+/// GET /api/v1/civilization — recent civ entries（`?search=` 时按关键词过滤）。
 ///
 /// P0-05：`civ_for` 失败改为 500（**不再**在请求路径 panic —— 那会毒掉 civ 锁，
 /// 把一次 I/O 错误放大成该接口全站永久不可用）。
 pub async fn get_civ_feed(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let uid = get_user_id(&headers, &state.user_store);
     let store = state.per_user.civ_for(&uid).map_err(|e| {
@@ -711,7 +730,7 @@ pub async fn get_civ_feed(
             StatusCode::INTERNAL_SERVER_ERROR,
         )
     })?;
-    let entries = store.recent(50);
+    let entries = civ_feed_entries(&store, params.get("search").map(|s| s.as_str()));
     Ok(Json(serde_json::json!({ "entries": entries })))
 }
 
@@ -1052,6 +1071,59 @@ mod d44_tests {
                 "真实注册的 `{n}` 未出现在 /api/v1/tools"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod d49_tests {
+    use super::*;
+
+    fn store_with(contents: &[&str]) -> (tempfile::TempDir, memory::CivilizationStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = memory::CivilizationStore::new(dir.path(), "civ.jsonl").unwrap();
+        for (i, c) in contents.iter().enumerate() {
+            store
+                .append(agent_types::CivEntry {
+                    id: format!("e{i}"),
+                    author: agent_types::CivAuthor {
+                        provider_model: "test".into(),
+                        session_id: "s".into(),
+                        bridge_id: None,
+                    },
+                    content: (*c).to_string(),
+                    category: agent_types::CivCategory::Insight,
+                    context: None,
+                    created_at: "t".into(),
+                    tags: vec![],
+                })
+                .unwrap();
+        }
+        (dir, store)
+    }
+
+    /// 先红后绿（D-49）：`?search=` 必须按关键词过滤。修复前 handler 硬编码
+    /// `store.recent(50)` → 非匹配条目也返回（CLI `hearth civ search` 形同 `civ feed`）。
+    #[test]
+    fn test_d49_civ_feed_search_filters() {
+        let (_dir, store) = store_with(&["alpha needle", "beta unrelated"]);
+        // 无 search（或缺省）→ 全部返回。
+        assert_eq!(civ_feed_entries(&store, None).len(), 2);
+        assert_eq!(
+            civ_feed_entries(&store, Some("")).len(),
+            2,
+            "空串视为未检索"
+        );
+        assert_eq!(
+            civ_feed_entries(&store, Some("   ")).len(),
+            2,
+            "纯空白视为未检索"
+        );
+        // 有 search → 只返回匹配（修复前会返回 2 条）。
+        let hits = civ_feed_entries(&store, Some("needle"));
+        assert_eq!(hits.len(), 1, "检索必须过滤掉不匹配条目：{hits:?}");
+        assert!(hits[0].content.contains("needle"));
+        // 大小写不敏感（沿用 CivilizationStore::search 语义）。
+        assert_eq!(civ_feed_entries(&store, Some("NEEDLE")).len(), 1);
     }
 }
 
