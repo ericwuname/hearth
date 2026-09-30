@@ -65,7 +65,10 @@ fn real_workspace_wiring_all_green() {
         // 2026-10-01 复算（顶层裁决5「追认」）：把 sub-budget-not-halved /
         // no-toolcalls-requires-write 两条的「待顶层追认」文案改为「顶层已追认」。
         // **纯文案**——能力条数（仍是 16）、severity（仍是 yellow）、各链锚点均零变化。
-        spec_hash == 0xfa4df73ba26cd516, // 2026-10-01 复算（FNV-1a 64；裁决5 追认文案）
+        // 2026-10-01 复算（D-48 重接线）：`civ-auto-written` 的 claim 与链锚点改为
+        // 锚定**真实唯一生产接线点**（run() 收尾 `note_civ_outcome`），修掉"锚点命中
+        // 赋值语句"造成的假绿。**纯锚点/文案**——能力条数（仍 16）、severity（仍 red）不变。
+        spec_hash == 0x237a4ecf1a0244cf, // 2026-10-01 复算（FNV-1a 64；D-48 civ 重接线）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

@@ -118,15 +118,24 @@ any = ["pub fn constitution_prompt() -> String {"]
 meaning = "运行时读文件函数本体仍在（constitution.rs:35）；注入 prompt 的调用点已删"
 
 # ── v13 S3-b：civ 自动写入（清掉'从未接线'的五版旧债） ───────────
+# D-48（2026-10-01 重接线）：原 claim 引用的 do_reflect/do_observe 相位已随线C手术
+# 删除；旧锚点 `self.civ_writer` 命中的是**赋值语句**（`self.civ_writer = Some(...)`）
+# → 字段"只写不读"，门禁假绿。现改为锚定真实的唯一生产接线点：run() 收尾单点经
+# `note_civ_outcome` **读取** civ_writer 字段并 append。
 [[capability]]
 id = "civ-auto-written"
-claim = "do_reflect/do_observe 自动写文明线（CivWriter 全链接通）"
+claim = "run() 收尾自动写文明线（CivWriter 全链接通；D-48 重接线）"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
-all = ["pub trait CivWriter", "self.civ_writer"]
-meaning = "trait 定义 + loop 内调用点"
+all = ["pub trait CivWriter", "fn note_civ_outcome", "self.civ_writer.as_ref()"]
+meaning = "trait 定义 + 唯一消费方法（真读字段，非赋值）"
+
+[[capability.chain]]
+file = "crates/agent-core/src/loop.rs"
+any = ["self.note_civ_outcome(&goal_text, &report)"]
+meaning = "run() 收尾单点调用（删此行 = 能力再次断线）"
 
 [[capability.chain]]
 file = "crates/agent-runtime/src/session.rs"

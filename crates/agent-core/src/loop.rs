@@ -819,6 +819,9 @@ pub trait Agent: Send + Sync {
 /// `memory` crate. The composition root (service/main.rs) adapts
 /// `CivilizationStore` to this trait. Locked by wiring assertion
 /// `civ-auto-written` (docs/xray/wiring-v13.toml).
+///
+/// **当前生产接线点（D-48，2026-10-01）**：`run()` 收尾单点经 `note_civ_outcome`
+/// 调用；旧的 do_reflect/do_observe 相位消费已随线C手术删除（见 `civ_writer` 字段注释）。
 pub trait CivWriter: Send + Sync {
     /// Append an auto-generated entry. `category` is a lowercase hint:
     /// "milestone" | "lesson" | "reflection" | anything else maps to insight.
@@ -1085,9 +1088,9 @@ pub struct AgentLoop {
     session_id: String,
     /// v10.2: Nervous system — bridges brain and body, enables self-awareness.
     nervous: NervousSystem,
-    /// v13 S3-b: Optional civilization writer — loop 路径 append（原
-    /// do_reflect/do_observe 相位消费已随 D-6 相位删除）
-    /// auto entries (replan lessons, give-up reflections, sub-agent milestones).
+    /// v13 S3-b: Optional civilization writer。唯一消费方 = `note_civ_outcome`，
+    /// 由 `run()` 收尾单点调用（D-48，2026-10-01 重接线）——原 do_reflect/do_observe
+    /// 相位消费已随线C手术 D-6 删除，故此前该字段只写不读（wiring 锁假绿）。
     civ_writer: Option<Arc<dyn CivWriter>>,
     /// RC24-B/C: 审批策略（会话级，跨 run 保持——REPL trust on 后续轮仍生效）。
     approval_policy: ApprovalPolicy,
@@ -1723,6 +1726,43 @@ impl AgentLoop {
     /// v13 S3-b: Inject the civilization writer (wired by the composition root).
     pub fn set_civ_writer(&mut self, writer: Arc<dyn CivWriter>) {
         self.civ_writer = Some(writer);
+    }
+
+    /// D-48（2026-10-01）：**civ 自动写入的唯一生产接线点**（由 `run()` 收尾单点调用）。
+    /// 把本轮结果投影成 1 条文明线条目：成功 = `milestone`，失败/暂停/超时/打断 =
+    /// `reflection`（内容含收尾 reason）。内容 = 目标（截断 200 字符）+ 步数 + 产物数，
+    /// 便于 `hearth civ feed` / `GET /api/v1/civilization` 呈现 agent 活动时间线。
+    ///
+    /// 注入器由组合根提供：`service` 经 `CivWriterAdapter` 注入 `CivilizationStore`；
+    /// CLI/TUI 本地运行不注入（civ 线是 service 侧能力）→ 本方法 no-op。
+    /// **写文明线永不阻断任务**：注入器落盘失败自行 warn + 计数（暴露到 /readyz）。
+    fn note_civ_outcome(&self, goal_text: &str, report: &RunReport) {
+        let Some(writer) = self.civ_writer.as_ref() else {
+            return;
+        };
+        let (category, outcome) = if report.ok {
+            ("milestone", "完成".to_string())
+        } else {
+            let reason = report
+                .summary
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("未完成");
+            ("reflection", format!("未完成（{reason}）"))
+        };
+        // 目标可能很长（多行/超长 prompt）——截断到 200 字符，避免文明线条目膨胀。
+        let goal: String = goal_text.chars().take(200).collect();
+        let content = format!(
+            "{outcome}：{goal}（{} 步，{} 个文件改动）",
+            report.steps,
+            report.files_changed.len()
+        );
+        writer.append_civ(
+            category,
+            &content,
+            &self.session_id,
+            vec!["auto".to_string(), "run-summary".to_string()],
+        );
     }
 
     /// M2: Set the session id that scopes approval state.
@@ -5576,6 +5616,12 @@ impl Agent for AgentLoop {
             .unwrap_or(true);
         let report = self.attach_run_summary(report, allow_llm).await;
 
+        // ── D-48（2026-10-01）：civ 自动写入——run 收尾**唯一挂载点**（同
+        // S14 任务总结：完成/暂停/失败/预算耗尽/超时/打断都经此 exit）。把本轮
+        // 结果投影 1 条文明线条目（成功=Milestone，其余=Reflection）。writer 未
+        // 注入（CLI/TUI 本地运行）→ no-op；落盘失败不影响交付（注入器已自行留痕）。
+        self.note_civ_outcome(&goal_text, &report);
+
         Ok(report)
     }
 }
@@ -8623,6 +8669,81 @@ mod tests {
             report.files_changed.is_empty(),
             "R5-11: 完成路径零写盘（不得被压去写文件）"
         );
+    }
+
+    /// D-48（2026-10-01）：civ 自动写入——run 收尾**必须**把本轮结果投影 1 条文明线
+    /// 条目（成功 = milestone）。本测试锁住接线：此前 `civ_writer` 只被赋值、从无读者
+    /// （旧 do_reflect/do_observe 相位已随线C手术删除）→ 任何 run 都不产生文明线条目，
+    /// 而 wiring 锁 `civ-auto-written` 仍为绿（假绿）→ `hearth civ feed` 永远空。
+    #[tokio::test]
+    async fn test_d48_civ_auto_written_on_run_exit() {
+        use std::sync::Mutex;
+
+        // (category, content, session_id, tags)
+        type RecordedEntry = (String, String, String, Vec<String>);
+        struct RecordingCiv {
+            entries: Mutex<Vec<RecordedEntry>>,
+        }
+        impl CivWriter for RecordingCiv {
+            fn append_civ(
+                &self,
+                category: &str,
+                content: &str,
+                session_id: &str,
+                tags: Vec<String>,
+            ) {
+                self.entries.lock().unwrap().push((
+                    category.to_string(),
+                    content.to_string(),
+                    session_id.to_string(),
+                    tags,
+                ));
+            }
+        }
+
+        let rec = Arc::new(RecordingCiv {
+            entries: Mutex::new(Vec::new()),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
+        let mut agent = AgentLoop::new(
+            llm,
+            Arc::new(MockPlanner::new(vec![])),
+            Arc::new(ToolDispatcher::new()),
+            tool_runtime::ToolContext {
+                cwd: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            Goal::new("D48 civ 接线"),
+        );
+        agent.set_session_id("d48-civ".into());
+        agent.set_civ_writer(rec.clone());
+
+        let report = agent
+            .run(Goal::with_budget(
+                "D48 civ 接线",
+                Budget {
+                    max_steps: 6,
+                    max_time_secs: None,
+                    ..Budget::default()
+                },
+            ))
+            .await
+            .expect("run 必须返回");
+        assert!(
+            report.ok,
+            "MockLlm 直接 DONE → 成功路径，实际 {}",
+            report.summary
+        );
+
+        let entries = rec.entries.lock().unwrap();
+        assert_eq!(entries.len(), 1, "run 收尾必须恰好写 1 条文明线条目");
+        let (category, content, sid, tags) = &entries[0];
+        assert_eq!(category, "milestone", "成功路径应写 milestone");
+        assert_eq!(sid, "d48-civ", "session_id 必须透传");
+        assert!(content.contains("完成"), "内容须标注完成：{content}");
+        assert!(content.contains("D48 civ 接线"), "内容须含目标：{content}");
+        assert!(tags.iter().any(|t| t == "auto"), "tags 须含 auto：{tags:?}");
     }
 
     // R5-10 判据：死流程指令清除 + 安全边界保留 + 问答类零写盘压力。
