@@ -86,6 +86,26 @@ impl JsonlMemoryStore {
     fn session_path(&self, session_id: &str) -> PathBuf {
         self.dir.join(format!("{}.jsonl", session_id))
     }
+
+    /// D-51：**有界读入**单个会话文件，返回 `(内容, 是否被截断)`。
+    ///
+    /// 此前 `load_session` 用 `std::fs::read_to_string` 把**整份文件**读进内存
+    /// （无界读入第 6 落点；写侧 MEM-3 上限只是弱化、并非强制）。现走共享原语
+    /// [`bounded_io::read_file_text_capped`]——排空到 EOF 但只保留前 `cap` 字节，
+    /// 截断点退到合法 UTF-8 边界；截断**必须留痕**（不静默）。
+    ///
+    /// `cap` 显式传入以便单测用一个小上限验证截断路径（无需造 64 MiB 文件）。
+    async fn read_session_text(&self, session_id: &str, cap: u64) -> Result<(String, bool)> {
+        let path = self.session_path(session_id);
+        let (text, truncated) = bounded_io::read_file_text_capped(&path, cap).await?;
+        if truncated {
+            tracing::warn!(
+                "load_session({session_id}): session 文件超过 {cap} 字节上限，已截断读取——\
+                 被截断的尾部事件不会加载（写侧 MEM-3 上限应已阻止此情形）"
+            );
+        }
+        Ok((text, truncated))
+    }
 }
 
 #[async_trait]
@@ -153,7 +173,10 @@ impl MemoryStore for JsonlMemoryStore {
             return Ok(None);
         }
 
-        let content = std::fs::read_to_string(&path)?;
+        // D-51：有界读入（cap 与写侧 MEM-3 上限同值——写不进来的就读不出来）。
+        let (content, _truncated) = self
+            .read_session_text(session_id, MAX_SESSION_FILE_BYTES)
+            .await?;
         let mut events = Vec::new();
         let mut meta: Option<(String, String, String, String, String)> = None;
 
@@ -590,5 +613,29 @@ mod tests {
         assert_eq!(loaded.events.len(), 2);
         assert_eq!(loaded.events[0].event_type, "phase");
         assert_eq!(loaded.events[1].event_type, "done");
+    }
+
+    /// 先红后绿（D-51）：会话文件读取必须**有界**。修复前 `load_session` 用
+    /// `std::fs::read_to_string` 把整份文件读进内存——文件多大就吃多少内存。
+    #[tokio::test]
+    async fn test_d51_session_read_is_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = JsonlMemoryStore::new(tmp.path());
+
+        // 远大于测试上限的文件（不必造 64 MiB——用小 cap 验证同一条路径）。
+        std::fs::write(tmp.path().join("big.jsonl"), "x".repeat(4096)).unwrap();
+        let (text, truncated) = store.read_session_text("big", 1024).await.unwrap();
+        assert_eq!(
+            text.len(),
+            1024,
+            "保留量必须被 cap 钳住（修复前等于整份文件长度）"
+        );
+        assert!(truncated, "超限必须报告截断（不静默）");
+
+        // 未超限：原样返回且不标截断。
+        std::fs::write(tmp.path().join("small.jsonl"), "hello").unwrap();
+        let (text, truncated) = store.read_session_text("small", 1024).await.unwrap();
+        assert_eq!(text, "hello");
+        assert!(!truncated);
     }
 }

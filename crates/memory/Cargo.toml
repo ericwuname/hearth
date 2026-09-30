@@ -10,6 +10,8 @@ serde.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
+# D-51：有界读入原语（与 sandbox / tools-builtin / agent-core / agent-runtime 共用）
+bounded-io.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 agent-types.workspace = true
