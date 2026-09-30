@@ -103,6 +103,24 @@ impl Tool for PatchTool {
         };
 
         let path = ctx.cwd.join(rel);
+        // D-53（2026-10-01）：**无界读入第 7 落点**。apply_patch 是"读-改-写"，
+        // 因此**不能**像只读工具那样"有界截断读取"——截断会静默损坏文件内容
+        // （见下方 `test_patch_no_truncation_on_large_file` 所锁语义）。
+        // 正解 = **先查大小再决定**：超限显式拒绝（同 D-38 `parse_rust_file` 口径），
+        // 绝不截断后照改。
+        let size = tokio::fs::metadata(&path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if size > bounded_io::MAX_CAPTURED_BYTES as u64 {
+            return Err(anyhow!(
+                "file too large to patch: {} is {} bytes (limit {} bytes) — refusing \
+                 rather than risk a truncated read-modify-write",
+                path.display(),
+                size,
+                bounded_io::MAX_CAPTURED_BYTES
+            ));
+        }
         let content = tokio::fs::read_to_string(&path)
             .await
             .map_err(|e| anyhow!("read failed for {}: {e}", path.display()))?;
@@ -334,6 +352,41 @@ mod tests {
             big.len() as i64 + delta,
             "文件其余部分不得损坏"
         );
+    }
+
+    /// 先红后绿（D-53）：**超大文件必须显式拒绝，不得静默截断**。
+    /// 此前 `apply_patch` 用 `tokio::fs::read_to_string` 把整份文件读进内存
+    /// （无界读入第 7 落点）；而"读-改-写"工具若改成截断读取又会损坏内容，
+    /// 故正解是**先查大小、超限拒绝**（同 D-38 口径）。
+    #[tokio::test]
+    async fn test_patch_rejects_oversized_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = format!("// header\n{}\n// footer\n", "x".repeat(8 * 1024 * 1024));
+        std::fs::write(dir.path().join("huge.js"), &big).unwrap();
+        assert!(
+            big.len() as u64 > bounded_io::MAX_CAPTURED_BYTES as u64,
+            "测试前提：文件须超过上限"
+        );
+
+        let tool = PatchTool::new();
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let err = tool
+            .execute(
+                serde_json::json!({"path": "huge.js", "search": "// header", "replace": "// header v2"}),
+                &ctx,
+            )
+            .await
+            .expect_err("超大文件必须被显式拒绝（不静默截断）");
+        assert!(
+            err.to_string().contains("too large to patch"),
+            "拒绝原因必须可读：{err}"
+        );
+        // 拒绝 == 零副作用：文件原样未动。
+        let after = std::fs::read_to_string(dir.path().join("huge.js")).unwrap();
+        assert_eq!(after, big, "被拒绝的补丁不得改动文件");
     }
 
     /// P1-8 (v0.2.4): 宽松匹配——search 与文件内容仅行尾空白/CRLF 差异时成功。
