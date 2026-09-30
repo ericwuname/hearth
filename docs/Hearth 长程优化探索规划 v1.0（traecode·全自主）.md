@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**三十二张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
+**三十四张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -46,6 +46,8 @@
 | P1-19 | `cbfaab5` | **D-50 收口（门禁真空补齐）**：删 `crates/memory/src/lib.rs` 顶部 `#![allow(clippy::all, unused_mut)]`——该豁免使 CI 的 `clippy -D warnings` 对本 crate **完全失效**。逐条修真实告警（`unused_mut` ×1、`lines_filter_map_ok` ×2、`items_after_test_module` ×1→测试模块移至文件末尾），**不新增任何 allow** |
 | P1-20 | `b5dfde5` | **D-52 收口（残余 crate 级豁免）**：全仓复查（`#!\[allow(` 检索）又发现 2 处——`agent-core`（3 条 doc lint）与 `codex-cli`（`unused_imports`+`manual_strip`）→ 一并拆除，修 23 处（agent-core 17：悬空 `///` 降 `//` ×9 + `doc_lazy_continuation` ×8；codex-cli 6：死导入 ×3 + `strip_prefix` ×3）。**顺带发现 `clippy::doc_markdown` 豁免本是死豁免**（pedantic、默认未启用） |
 | P1-21 | `584f104` | **D-51 收口（无界读入第 6 落点）**：`JsonlMemoryStore::load_session` 由 `std::fs::read_to_string`（整份入内存）改为共享原语 `bounded_io::read_file_text_capped`（cap 与写侧 MEM-3 同值 64 MiB + 截断 UTF-8 边界回退 + **留痕**）；`memory` 接入 `bounded-io`（不再新造轮子）；**先红后绿**（还原无界读即读到 4096 而非 1024）回归锁 |
+| P1-22 | `5df53d5` | **D-53 收口（无界读入第 7 落点）**：`apply_patch` 的 `tokio::fs::read_to_string`（同 crate `read.rs` 早已改用有界原语，此系漏网）→ 因 apply_patch 是**读-改-写**，**不能**截断读取（会静默损坏），改**先查大小再决定**：`metadata().len()` 超 8 MiB 显式拒绝（同 D-38 口径）；**先红后绿**（禁用守卫即"patched"成功并改动文件 → 红）回归锁，并断言**被拒不得改动文件** |
+| P1-23 | `24a3556` | **D-54 收口（注释订正）**：`check_egress` 的 doc 写「白名单为空 = 全拒」「提取不到主机 → fail-closed」，与实现（`if allow.is_empty() { return Ok(()) }`）**直接矛盾**——真相是 hearth-slim S2 的**语义反转**（空/未设 = 默认放开，用户 2026-09-09 拍板）。会让安全审计把"默认放开"误读成"默认拒绝"（同 D-45 型文档错误）。**纯注释订正、零行为变更** |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -205,6 +207,11 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-50** | **`memory` crate 整包禁用 clippy**：`lib.rs:1` 的 `#![allow(clippy::all, unused_mut)]` → CI 的 `clippy --workspace -D warnings` 对本 crate **完全失效**（门禁真空）；`unused_mut` 亦掩盖真实告警（如 `WorkLineStore::add(&self, mut node)` 的多余 `mut`） | memory crate 体检发现 | **已修**（P1-19）：删豁免 + 逐条修真实告警（`unused_mut`/`lines_filter_map_ok`/`items_after_test_module`），不新增 allow | **close** |
 | **D-51** | **`JsonlMemoryStore::load_session` 无界读入**（`std::fs::read_to_string` 全量入内存）——**无界读入第 6 落点**；写入侧有 64 MiB 上限（MEM-3），但 `append_events` 是"先查后写"、单次 append 可越界，且外部放置/导入的文件不受限 | memory crate 体检发现 | **已修**（P1-21）：改走共享有界读入原语 `bounded_io::read_file_text_capped`（cap=写侧上限 + 截断留痕），`memory` 接入 `bounded-io` | **close** |
 | **D-52** | **残余 2 处 crate 级 lint 豁免**（D-50 修完后全仓 `#!\[allow(` 复查发现）：`agent-core/src/lib.rs` 豁免 3 条 doc lint、`codex-cli/src/lib.rs` 豁免 `unused_imports`+`manual_strip` → CI `clippy -D warnings` 对这些 lint **局部失效**。其中 `clippy::doc_markdown` 属 pedantic、默认未启用 → 该条**本就是死豁免** | D-50 同批复查发现 | **已修**（P1-20）：两处豁免拆除，修 23 处真实告警（agent-core 17 doc 类 / codex-cli 6：死导入 ×3 + `manual_strip` ×3），**不新增 allow**；冻结区只动注释 | **close** |
+| **D-53** | **`apply_patch` 无界读入（第 7 落点）**：`tools-builtin/src/patch.rs` 用 `tokio::fs::read_to_string` 整份入内存——同 crate `read.rs` 早已改用 `bounded_io::read_file_text_capped`，此系漏网。特殊点：apply_patch 是**读-改-写**，截断读取会**静默损坏**内容（既有测试 `test_patch_no_truncation_on_large_file` 正锁此语义） | tools-builtin 体检发现 | **已修**（P1-22）：改"**先查大小再决定**"——`metadata().len()` 超 8 MiB 显式拒绝（同 D-38 口径），绝不截断后照改；**先红后绿**（禁用守卫即"patched"成功且改动文件 → 红）+ 断言被拒零副作用 | **close** |
+| **D-54** | **`check_egress` 注释与实现矛盾（会误导安全审计）**：doc 写"白名单为空 = 全拒""提取不到主机 → fail-closed"，实现是 `if allow.is_empty() { return Ok(()) }`——hearth-slim S2 **语义反转**（空/未设 = 默认放开，用户 2026-09-09 拍板）；紧邻内联注释已如实记录，唯 doc 头部未同步 | tools-builtin 体检发现 | **已修**（P1-23）：doc 按 S2 现状订正（含订正说明），与实现/内联注释三者一致；**纯注释、零行为变更** | **close** |
+| **D-55** | **HTTP 响应体无界读入**：`tools-builtin/src/web.rs`（`resp.text()`）与 `src/search.rs`（同）——reqwest 把**整份响应**读进内存后才截到 8000 字符；恶意/超大响应可致 OOM（与已修的 7 处"读入无界"同族，但落在**网络**侧） | tools-builtin 体检发现 | 确证（**第 8/9 落点**，网络侧） | **P1 立卡** |
+| **D-56** | **`code-index` 整 crate 无生产消费者**：`agent-core/Cargo.toml:11` 声明依赖，但全仓 `TreeSitterIndex`/`code_index::` **零使用**（仅 crate 自身与测试）→ 依赖声明是死的（同 D-41 `project-sync` 型）。附带隐患：`walk_and_parse`（lib.rs:322）用 `path.is_dir()` **跟随 symlink** 递归且无深度/visited 守卫 → symlink 成环即栈溢出；死字段 `Symbol.parent`、零构造枚举变体 `SymbolKind::{Method,Variable,Other}` | tools-builtin/code-index 体检发现 | 确证（**整 crate 死**）。注意：**接线属"能力扩展"（本规划未授权）** → 默认处置为**删除**（同 D-41），待卡执行 | **P1 立卡** |
+| **D-57** | **`tools-builtin` 死 pub 项**：`lib.rs` `is_allowed_absolute`（全仓仅定义处；且**直读 `std::env`** 绕过 `ctx.env`，属遗留）、`coerce_args`（仅定义+同文件测试）、`glob.rs` 的 `sandbox` 字段（`#[allow(dead_code)]`，只写不读） | tools-builtin 体检发现 | 确证（"定义了但无人用"；`is_allowed_absolute` 另有"绕过注入 env"隐患） | **P1 立卡** |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
 | **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
 | **D-6** | 无入库前密钥扫描门禁 | 安全事故根因 | **已建**：`crates/codex-cli/tests/secret_scan_gate.rs`——扫 `git ls-files`、三轮红→绿、白名单 3 项、文件头自报盲区；门禁目标数 61→62 | **close** |
