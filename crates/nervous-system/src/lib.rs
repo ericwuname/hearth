@@ -5,9 +5,12 @@
 /// 资源快照采样、civ 告警累积）为死代码——全仓无 `nervous.query()` 生产调用，
 /// 已随 D-47 删除。
 ///
-/// ⚠️ 成本侧同样未接地：`cost_budget_usd` 只有 [`NervousSystem::with_budget`] 会设置，
-/// 而生产路径从未调用它（`AgentLoop` 用 `NervousSystem::new()`）→ [`cost_ratio`]
-/// 恒返回 0.0，`CostGuard` 在生产中永不触发。是否接通真实成本核算＝产品方向抉择，见 D-46。
+/// D-46（2026-10-01，已接通）：成本侧已接地——`AgentLoop` 每步在构造
+/// `GuardContext` 前，用 `cost_meter` 经 `PriceTable` 换算 USD 后调用
+/// [`set_cost`](NervousSystem::set_cost)；预算由环境变量
+/// `HEARTH_COST_BUDGET_USD`（>0）经 [`with_budget`](NervousSystem::with_budget)
+/// 注入。若 cost_meter 中存在无价格条目的模型，则成本显式"不可用"（不更新、
+/// [`cost_ratio`] 保持原值），调用方据此 warn。
 pub struct NervousSystem {
     /// Rolling cost accumulator (injected from the gateway).
     cost_accumulated_usd: f64,
@@ -23,8 +26,10 @@ impl NervousSystem {
         }
     }
 
-    /// ⚠️ 仅测试调用（P1-12 核验，2026-10-01）：全仓生产路径从未设置预算
-    /// ⇒ [`cost_ratio`](Self::cost_ratio) 恒 0 ⇒ `CostGuard` 永不触发。见 D-46。
+    /// D-46（2026-10-01，已接通）：生产路径在 `AgentLoop` 构造时，若环境变量
+    /// `HEARTH_COST_BUDGET_USD` 解析为 >0 的数值，则经本方法注入预算；
+    /// 未设置 / 非法 / ≤0 ⇒ 无预算 ⇒ [`cost_ratio`](Self::cost_ratio) 返回 0.0
+    /// ⇒ 该守卫不拦（既有语义，保持不变）。
     pub fn with_budget(mut self, budget_usd: f64) -> Self {
         self.cost_budget_usd = Some(budget_usd);
         self
@@ -33,13 +38,11 @@ impl NervousSystem {
     /// v16.0: Normalized cost ratio (0.0~1.0) for the subconscious guard.
     /// Returns 0.0 when no budget is set (guard won't react).
     ///
-    /// ⚠️ 生产实际值（P1-12 核验，2026-10-01）：`cost_budget_usd` 只有
-    /// [`with_budget`](Self::with_budget) 会设置，而**生产路径从未调用它**
-    /// （`AgentLoop` 用 `NervousSystem::new()`，agent-core/loop.rs:1627）→ 本函数
-    /// **恒返回 0.0**；累加侧 `AgentLoop::update_cost()`（loop.rs:1098）也**零调用者**，
-    /// 即便设了预算分子仍恒 0。⇒ subconscious 的 `CostGuard`
-    /// （`cost_ratio > 0.80 / > 0.95`）在生产中**永不触发**。
-    /// 是否接通真实成本核算（需定价口径）＝产品方向抉择，见 D-46。
+    /// D-46（2026-10-01，已接通）：分子由 `AgentLoop` 每步经
+    /// [`set_cost`](Self::set_cost) 从 `cost_meter`→`PriceTable` 同步真实 USD；
+    /// 分母由 `HEARTH_COST_BUDGET_USD` 经 [`with_budget`](Self::with_budget) 注入。
+    /// 无预算 → 返回 0.0（守卫不拦）；有预算但某模型无价格条目时，调用方显式
+    /// 判定"成本不可用"并跳过同步（不会把未知当 0）。
     pub fn cost_ratio(&self) -> f32 {
         match self.cost_budget_usd {
             Some(b) if b > 0.0 => (self.cost_accumulated_usd / b).min(1.0) as f32,

@@ -5,7 +5,7 @@ pub mod registry;
 pub mod stream_util;
 pub mod types;
 
-pub use cost::{CostEntry, CostMeter};
+pub use cost::{CostEntry, CostMeter, ModelPrice, PriceTable};
 pub use fallback::FallbackChain;
 pub use provider::LlmProvider;
 pub use registry::ProviderRegistry;

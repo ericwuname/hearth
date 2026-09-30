@@ -1076,6 +1076,11 @@ pub struct AgentLoop {
     depth: u32,
     /// P5: CostMeter for tracking real token usage from ChatResponse.usage.
     cost_meter: std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>>,
+    /// D-46（成本治理接通）：token → USD 换算价表。构造时由
+    /// `HEARTH_PRICE_TABLE`（内联 JSON）/ `HEARTH_PRICE_FILE`（路径）覆盖，
+    /// 未设或解析失败则回退内置 DeepSeek 官方价快照。未知模型无条目 →
+    /// `cost_meter.total_usd()` 返回 None（成本显式"不可用"，不静默当 0）。
+    price_table: llm_gateway::PriceTable,
     /// Session id this loop belongs to — scopes approval state (M2).
     session_id: String,
     /// v10.2: Nervous system — bridges brain and body, enables self-awareness.
@@ -1094,11 +1099,12 @@ pub struct AgentLoop {
 
 impl AgentLoop {
     /// v10.2.1: Feed accumulated cost into the nervous system.
-    /// Called externally (e.g., service layer) after LLM responses with usage data.
     ///
-    /// ⚠️ 声称 ≠ 实现（P1-12 核验，2026-10-01）：**全仓零调用者**——没有任何
-    /// 调用方在 LLM 响应后喂成本。与 `NervousSystem::with_budget()` 同样零调用，
-    /// 两者叠加使 subconscious 的 `CostGuard` 在生产中恒不触发。见 D-46。
+    /// D-46（2026-10-01，已接通）：生产路径**不再依赖外部调用者**喂成本——
+    /// loop 内部在每步构造 `subconscious::GuardContext` **之前**，用
+    /// `cost_meter`（token 累计）经 `PriceTable` 换算为 USD 后直接
+    /// `nervous.set_cost()`（见 `do_plan_inner` 的同步块）。本方法保留为公开
+    /// API（供测试 / 外部注入覆盖用），并非生产接线点。
     pub fn update_cost(&mut self, usd: f64) {
         self.nervous.set_cost(usd);
     }
@@ -1628,7 +1634,27 @@ impl AgentLoop {
             last_action: None,
             last_success: true,
             injected_experience: None,
-            nervous: NervousSystem::new(),
+            // D-46：预算来自 HEARTH_COST_BUDGET_USD（>0 才生效）；无预算 =
+            // cost_ratio() 恒 0 = 守卫不拦（既有语义，保持不变）。
+            nervous: match std::env::var("HEARTH_COST_BUDGET_USD")
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok())
+                .filter(|b| *b > 0.0)
+            {
+                Some(b) => NervousSystem::new().with_budget(b),
+                None => NervousSystem::new(),
+            },
+            // D-46：价表——解析失败 warn 后回退内置价（不静默、不 panic）。
+            price_table: match llm_gateway::PriceTable::from_env() {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "D-46: HEARTH_PRICE_TABLE/FILE 解析失败——回退内置 DeepSeek 价表（成本换算仍按内置价）"
+                    );
+                    llm_gateway::PriceTable::builtin()
+                }
+            },
             approval_policy: ApprovalPolicy::Interactive,
             run_abort: None,
             delegated_approvals: Vec::new(),
@@ -2828,6 +2854,35 @@ impl AgentLoop {
         // 校验 + replan 逼迫）已随 TaskGraph 删除——完成判定收敛到 run() Done
         // 相位的确定性核验（acceptance criteria + written_files 事实校验，
         // A 臂现役路径），判定权归模型、护栏只剩预算与核验。
+
+        // ── D-46（成本治理接通）：把 cost_meter 的真实 USD 同步进 nervous ──
+        // 放在这里的原因：本函数（do_plan_inner）是 async 上下文，可 `await` 锁；
+        // 且此块是**紧邻唯一 GuardContext 构造点**（下方 cost_ratio 读取处）的
+        // 最近 async 调用点，单点同步、不散落到各处。先 clone Arc 再锁（不长期
+        // 持 self 借用），拿到 owned Option 后即释放 guard。
+        //
+        // None 语义（诚实）：cost_meter 里只要有任意一条 (provider, model) 无
+        // 价格条目 → total_usd = None → **不调用 set_cost**（nervous 保持上次值 /
+        // 初始 0），并只首次 warn 一次，说明"成本不可用、CostGuard 不会触发"。
+        // 绝不按 0 静默冒充"成本为零"。
+        let cost_usd = {
+            let meter = self.cost_meter.clone();
+            let cm = meter.lock().await;
+            cm.total_usd(&self.price_table)
+        };
+        match cost_usd {
+            Some(usd) => self.nervous.set_cost(usd),
+            None => {
+                static UNPRICED_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                if UNPRICED_WARNED.set(()).is_ok() {
+                    tracing::warn!(
+                        "D-46: 成本不可用——cost_meter 中存在无价格条目的 (provider, model)，\
+                         total_usd 返回 None；本次不更新 nervous 成本、CostGuard 不会据此触发\
+                         （未按 0 静默处理）。请用 HEARTH_PRICE_TABLE / HEARTH_PRICE_FILE 补齐价格。"
+                    );
+                }
+            }
+        }
 
         // v11.4: Subconscious gate — check before building prompt
         let goal_text = self.ctx_mgr.state().goal.clone();
