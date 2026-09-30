@@ -17,7 +17,6 @@ use memory::JsonlMemoryStore;
 use service::routes;
 use service::session;
 use tool_runtime::{ToolContext, ToolDispatcher, ToolRegistry};
-use tools_builtin::{BashTool, EditTool, GlobTool, GrepTool, ReadTool};
 
 // ── B3 (trunk-freeze): OpenAPI document (components only; path annotations deferred) ──
 #[derive(OpenApi)]
@@ -381,24 +380,13 @@ async fn main() -> anyhow::Result<()> {
         .filter(|s| !s.is_empty())
         .collect();
     let mut dispatcher = ToolDispatcher::new();
-    if !disabled_tools.contains("bash") {
-        dispatcher.register(Arc::new(BashTool::new()));
-    }
-    if !disabled_tools.contains("read") {
-        dispatcher.register(Arc::new(ReadTool::new()));
-    }
-    if !disabled_tools.contains("edit") {
-        dispatcher.register(Arc::new(EditTool::new()));
-    }
-    // WS2 (v0.2): SEARCH/REPLACE diff 编辑（小步精确、无截断）
-    if !disabled_tools.contains("apply_patch") {
-        dispatcher.register(Arc::new(tools_builtin::PatchTool::new()));
-    }
-    if !disabled_tools.contains("glob") {
-        dispatcher.register(Arc::new(GlobTool::new()));
-    }
-    if !disabled_tools.contains("grep") {
-        dispatcher.register(Arc::new(GrepTool::new()));
+    // P1-11（D-44）：注册与 `GET /api/v1/tools` 同用 `builtin_tools()` 一张表
+    // （此前是两份各自维护的名单，导致 API 报出 read_file/edit_file/lsp_* 等
+    //  从未注册的名字）。`key` 保持原有别名语义不变（如 `edit`→`write_file`）。
+    for (key, tool) in routes::builtin_tools() {
+        if !disabled_tools.iter().any(|d| d == key) {
+            dispatcher.register(tool);
+        }
     }
     let dispatcher = Arc::new(dispatcher);
 

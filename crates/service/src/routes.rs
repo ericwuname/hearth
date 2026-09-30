@@ -981,22 +981,78 @@ pub async fn get_resources(State(state): State<Arc<AppState>>) -> impl IntoRespo
 
 /// v10.0: GET /api/v1/tools — list registered tools.
 pub async fn list_tools() -> impl IntoResponse {
-    let tools: &[&str] = &[
-        "bash",
-        "read_file",
-        "write_file",
-        "edit_file",
-        "grep",
-        "glob",
-        "lsp_diagnostics",
-        "lsp_hover",
-        "code_index_search",
-        "web_search",
-        "web_fetch",
-        "send_message",
-        "approve",
-    ];
-    Json(serde_json::json!({ "tools": tools }))
+    Json(serde_json::json!({ "tools": tool_names() }))
+}
+
+/// `GET /api/v1/tools` 的载荷：本服务内置工具名。
+///
+/// 唯一事实源 = [`builtin_tools()`]（与启动注册同一张表）——
+/// 工具增删只需改那一处，路由与注册**自动同步**，不可能再漂移。
+pub fn tool_names() -> Vec<String> {
+    builtin_tools()
+        .into_iter()
+        .map(|(_, t)| t.name().to_string())
+        .collect()
+}
+
+/// P1-11（D-44）：**内置工具表 = 唯一事实源**。
+///
+/// 启动注册（`main.rs`）与 `GET /api/v1/tools` 都从这里取，杜绝
+/// "API 声称 ≠ 实际注册"。首元素是 `HEARTH_DISABLED_TOOLS` 的**键**——
+/// 其中 `edit`→`write_file` 是历史别名，**勿改**（改了会变配置语义）。
+pub fn builtin_tools() -> Vec<(&'static str, Arc<dyn tool_runtime::Tool>)> {
+    vec![
+        ("bash", Arc::new(tools_builtin::BashTool::new())),
+        ("read", Arc::new(tools_builtin::ReadTool::new())),
+        ("edit", Arc::new(tools_builtin::EditTool::new())),
+        ("apply_patch", Arc::new(tools_builtin::PatchTool::new())),
+        ("glob", Arc::new(tools_builtin::GlobTool::new())),
+        ("grep", Arc::new(tools_builtin::GrepTool::new())),
+    ]
+}
+
+#[cfg(test)]
+mod d44_tests {
+    use super::*;
+
+    /// 先红后绿（D-44）：`GET /api/v1/tools` 此前硬编码 13 个名字，与真实注册完全不符——
+    /// ① 名字错：`read_file` / `edit_file` 不是工具名（真名 `read` / `write_file`）；
+    /// ② 幽灵工具：`lsp_diagnostics` / `lsp_hover` / `code_index_search` 全仓从未注册；
+    /// ③ 非工具：`send_message` / `approve` 是 API 动作，不在 dispatcher 里。
+    /// 修复后名单由 `builtin_tools()` 派生（与启动注册**同一张表**）→ 不可能漂移。
+    #[test]
+    fn test_p1_11_reported_tools_match_registered_builtins() {
+        let reported = tool_names();
+        for ghost in [
+            "lsp_diagnostics",
+            "lsp_hover",
+            "code_index_search",
+            "send_message",
+            "approve",
+            "read_file",
+            "edit_file",
+        ] {
+            assert!(
+                !reported.iter().any(|n| n == ghost),
+                "API 声称了从未注册的工具名 `{ghost}`（声称 ≠ 存在）"
+            );
+        }
+        let real: Vec<String> = builtin_tools()
+            .into_iter()
+            .map(|(_, t)| t.name().to_string())
+            .collect();
+        assert_eq!(
+            reported.len(),
+            real.len(),
+            "名单条数与真实注册不一致：reported={reported:?} real={real:?}"
+        );
+        for n in &real {
+            assert!(
+                reported.iter().any(|r| r == n),
+                "真实注册的 `{n}` 未出现在 /api/v1/tools"
+            );
+        }
+    }
 }
 
 // ─── v10.5: Tool ecosystem routes ───
