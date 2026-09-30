@@ -160,7 +160,10 @@
 | **D-16** | `retriever`/`lsp_bridge` **只写不读**死接线 | P1 体检 | **已加锁**：字段 ⚠️ 注释 + `known_dead_wiring_marker` 测试钉住（**未改产品语义**） | **close（接线/删除仍待裁决）** |
 | **D-13** | 仓库提交态非 fmt-clean（`cargo fmt --all` 改动了未触碰的 `codex-cli/src/session_store.rs`） | 本卡发现 | 既有 | P1 立卡 |
 | **D-14** | `SPEC` 顶部注释亦为旧口径（写"15 能力/24 链"，实测 16 / 27） | 本卡发现 | **已订正**（commit `1729646`） | **close** |
-| **D-17** | **会话泄漏 → 无界内存 + 磁盘**（从不 `send_message` 的会话 `finished_at` 恒 `None`，`cleanup_finished` 一律保留；每会话还建 `sessions/{uuid}` 目录） | P0-02 审计 | 确证（`session.rs:320` / `:935-961`） | **高（DoS）·待修** |
+| **D-17** | **会话泄漏 → 无界内存 + 磁盘**（从未 `send_message` 的会话 `finished_at` 恒 `None` → 落入"Active: always keep" → 永不回收；工作区目录同泄漏） | P0-02 审计 → P0-04 | **已修**：`Session` 加 `created_at`，`None` 分支按 idle TTL 回收非运行中者（`running=true` 永不触碰）；回归测试已重写 | **close** |
+| **D-24** | `service/src/per_user.rs` 请求路径上的 `.expect()` + **panic 持锁 → 锁中毒 → 其后所有 `civ.write().unwrap()` 二次 panic → civ 接口全站 DoS** | P0-04 专项扫描 | 确证 | **中高 · 待修** |
+| **D-25** | `service/src/routes.rs` 限流中间件 `lock().unwrap()`——中毒后**每个请求** panic（影响面全站） | P0-04 专项扫描 | 确证 | 中 · 待修 |
+| **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | 确证（注释虚构防护层） | 中 · 待修 |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | 确证（`sandbox/src/lib.rs:1204-1217`） | **中高 ·待修** |
 | **D-19** | **cgroup 失败路径泄漏子进程**（`Child` 被 drop，Rust 不 kill 不 wait） | P0-02 审计 | 确证（`sandbox/src/lib.rs:1185-1192`） | 中 · 待修 |
 | **D-20** | **NoopSandbox 超时不杀进程组**（Windows 走此路径，孙进程成孤儿） | P0-02 审计 | 确证（`sandbox/src/lib.rs:190-193`） | 中 · 待修 |

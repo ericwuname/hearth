@@ -63,7 +63,33 @@ impl WebhookManager {
                             &url,
                         ])
                         .output();
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), cmd).await;
+                    // P0-04（2026-10-01, traecode）：原为 `let _ =`——把
+                    // 「curl 不存在（NotFound）」「超时」「非零退出」**全部静默吞掉**，
+                    // 注册端拿不到任何失败信号：告警/回调永不送达却**零痕迹**。
+                    // fire-and-forget 语义不变，但失败必须留痕（"不静默"）。
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), cmd).await {
+                        Ok(Ok(out)) if out.status.success() => {
+                            tracing::debug!(url = %url, "webhook delivered");
+                        }
+                        Ok(Ok(out)) => {
+                            tracing::warn!(
+                                url = %url,
+                                code = ?out.status.code(),
+                                stderr = %String::from_utf8_lossy(&out.stderr),
+                                "webhook delivery failed (non-zero exit)"
+                            );
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!(
+                                url = %url,
+                                error = %e,
+                                "webhook spawn failed (curl 未安装？)"
+                            );
+                        }
+                        Err(_) => {
+                            tracing::warn!(url = %url, "webhook delivery timed out (5s)");
+                        }
+                    }
                 });
             }
         }

@@ -50,7 +50,11 @@ async fn spawn_open(target: &str) -> anyhow::Result<String> {
     cmd.arg(target);
     cmd.spawn()
         .map_err(|e| anyhow::anyhow!("spawn open failed: {e}"))?;
-    Ok(format!("opened: {target}"))
+    // P0-04（2026-10-01, traecode）：如实措辞——`spawn` 成功 ≠ **打开**成功
+    // （headless Linux 上 xdg-open 常立即非零退出，旧文案 "opened:" 会误报成功）。
+    Ok(format!(
+        "opened: {target} (仅表示已请求外部程序处理，不代表打开成功)"
+    ))
 }
 use retriever::Retriever;
 use std::collections::HashMap;
@@ -85,6 +89,13 @@ pub struct Session {
     /// `cleanup_finished` to evict old sessions from the in-memory map,
     /// which otherwise grows without bound.
     pub finished_at: Option<std::time::Instant>,
+    /// P0-04（2026-10-01, traecode）：会话**创建时刻**。
+    ///
+    /// 为什么需要：`cleanup_finished` 原以 `finished_at: None` 判定"活跃，永不回收"，
+    /// 但**从未 `send_message` 的会话 `finished_at` 恒为 `None`** → 永不被回收，
+    /// 内存与 `sessions/{uuid}` 工作区目录**双向无界增长**（反复 `POST /api/v1/sessions`
+    /// 即为一条 DoS 路径）。有了创建时刻，即可按 idle TTL 回收**非运行中**者。
+    pub created_at: std::time::Instant,
 }
 
 /// Manages all active sessions.
@@ -336,6 +347,7 @@ impl SessionManager {
             budget,
             cancel_tx: None,
             finished_at: None,
+            created_at: std::time::Instant::now(),
             workspace_dir,
         }));
 
@@ -954,17 +966,16 @@ impl SessionManager {
         let now = std::time::Instant::now();
         let mut guard = self.sessions.write().await;
         let before = guard.len();
+        // E2: 是否随会话一起清理工作区目录（默认清理；`CODEX_KEEP_WORKSPACES=1` 保留）。
+        let cleanup_ws = std::env::var("CODEX_KEEP_WORKSPACES")
+            .map(|v| v != "1")
+            .unwrap_or(true);
         guard.retain(|_id, sess| match sess.try_lock() {
             Ok(s) => match s.finished_at {
                 // Finished: keep only while within TTL.
                 Some(t) => {
                     let expired = now.duration_since(t) > ttl;
-                    // E2: clean up workspace of evicted sessions
-                    if expired
-                        && std::env::var("CODEX_KEEP_WORKSPACES")
-                            .map(|v| v != "1")
-                            .unwrap_or(true)
-                    {
+                    if expired && cleanup_ws {
                         if let Err(e) = std::fs::remove_dir_all(&s.workspace_dir) {
                             tracing::warn!(
                                 "E2: cleanup_finished: failed to remove {:?}: {e}",
@@ -974,8 +985,25 @@ impl SessionManager {
                     }
                     !expired
                 }
-                // Active: always keep.
-                None => true,
+                // P0-04（2026-10-01, traecode）：**从未启动**的会话 `finished_at` 恒为 `None`。
+                // 原逻辑「Active: always keep」使其**永不回收** → 内存 map 与
+                // `sessions/{uuid}` 工作区目录**双向无界增长**（反复 `POST /api/v1/sessions`
+                // 且从不 `send_message` 即构成 DoS）。
+                // 现按 idle TTL（自 `created_at` 起算）回收**非运行中**者；
+                // `running == true`（真的在跑）的会话**仍然不触碰**。
+                None => {
+                    let idle_expired = now.duration_since(s.created_at) > ttl;
+                    let evict = !s.running && idle_expired;
+                    if evict && cleanup_ws {
+                        if let Err(e) = std::fs::remove_dir_all(&s.workspace_dir) {
+                            tracing::warn!(
+                                "P0-04: cleanup: failed to remove idle workspace {:?}: {e}",
+                                s.workspace_dir
+                            );
+                        }
+                    }
+                    !evict
+                }
             },
             // Lock busy → session is mid-transition; keep and revisit next sweep.
             Err(_) => true,
@@ -1149,7 +1177,12 @@ mod tests {
         let mgr = SessionManager::new(registry, dispatcher, ctx);
 
         // Manually insert three sessions: active / freshly-finished / long-finished.
-        let mk = |id: &str, finished: Option<std::time::Instant>| {
+        // P0-04（2026-10-01）：新增 `running` / `created` 两个维度，以覆盖
+        // 「从未启动的会话也须回收」这条修复点。
+        let mk = |id: &str,
+                  running: bool,
+                  finished: Option<std::time::Instant>,
+                  created: std::time::Instant| {
             Arc::new(Mutex::new(Session {
                 id: id.into(),
                 provider_name: "p".into(),
@@ -1160,35 +1193,46 @@ mod tests {
                 budget_remaining: None,
                 event_tx: None,
                 events: Vec::new(),
-                running: false,
+                running,
                 agent: None,
                 budget: Budget::default(),
                 cancel_tx: None,
                 finished_at: finished,
+                created_at: created,
                 workspace_dir: std::path::PathBuf::from("/tmp/test"),
             }))
         };
         let now = std::time::Instant::now();
         {
             let mut guard = mgr.sessions.write().await;
-            guard.insert("active".into(), mk("active", None));
-            guard.insert("finished".into(), mk("finished", Some(now)));
+            // 创建后**从未 send_message**：finished_at 恒 None（旧逻辑下永不回收）
+            guard.insert("idle".into(), mk("idle", false, None, now));
+            // 真在跑：running=true
+            guard.insert("running".into(), mk("running", true, None, now));
+            // 刚结束
+            guard.insert("finished".into(), mk("finished", false, Some(now), now));
         }
 
-        // Generous TTL: nothing should be evicted yet.
+        // 宽 TTL：一个都不应被回收。
         let evicted = mgr
             .cleanup_finished(std::time::Duration::from_secs(3600))
             .await;
-        assert_eq!(evicted, 0);
+        assert_eq!(evicted, 0, "宽 TTL 下不应回收任何会话");
         assert!(mgr.get_session("finished").await.is_some());
 
-        // Zero TTL after a short wait: the finished session must be evicted,
-        // the active one must survive.
+        // 零 TTL：finished 与 idle 均应被回收，running 必须保留。
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let evicted = mgr.cleanup_finished(std::time::Duration::ZERO).await;
-        assert_eq!(evicted, 1, "only the finished session should be evicted");
-        assert!(mgr.get_session("active").await.is_some());
+        assert_eq!(evicted, 2, "finished 与 idle 都应被回收");
         assert!(mgr.get_session("finished").await.is_none());
+        assert!(
+            mgr.get_session("idle").await.is_none(),
+            "P0-04 修复点：从未启动的会话必须被回收（修复前此处恒为 Some → 无界增长）"
+        );
+        assert!(
+            mgr.get_session("running").await.is_some(),
+            "running=true 的会话永不回收"
+        );
     }
 
     /// B1 (trunk-freeze) regression: an in-memory active session returns its
@@ -1226,6 +1270,7 @@ mod tests {
             budget: Budget::default(),
             cancel_tx: None,
             finished_at: None,
+            created_at: std::time::Instant::now(),
             workspace_dir: std::path::PathBuf::from("/tmp/test"),
         }));
         mgr.sessions.write().await.insert("mem-1".into(), session);
