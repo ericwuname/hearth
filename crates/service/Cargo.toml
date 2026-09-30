@@ -21,6 +21,9 @@ tools-builtin = { path = "../tools-builtin" }
 memory.workspace = true
 bridge.workspace = true
 resource-monitor.workspace = true
+# D-33 收敛（2026-10-01）：有界读入 / 有界排空 / 进程树回收的共用安全原语
+# P1-13（D-36）：webhook 的 curl 改走有界排空 + 超时树杀
+bounded-io.workspace = true
 toml = "0.8"
 planner.workspace = true
 observer.workspace = true

@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**二十三张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
+**二十四张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -36,7 +36,8 @@
 | P1-09 | `cd8e00a` | **D-42 收口（flaky 门禁）**：定位到真因 = `test_maybe_compact_folds_old_turns` 触发压缩却不持 env 锁 → 把 8 轮追加进并行测试的归档文件 → 对侧 `archive_digest(max_turns=8)` 按行序截断挤掉自己的 turn#102。**确定性复现 → 修复 → 5× 全跑 0 失败**；顺带修掉"该测试污染真实 HOME" |
 | P1-10 | `c771102` | **D-40 收口（LSP/检索残链）**：两个无生产者事件变体 + 其唯一消费方（`agent-runtime` 映射 + 两个恒不触发的 scratch 注入块）+ `PlanContext` 的两个死字段与 planner 注入 + **只剩类型宿主作用的 `retriever`/`lsp-bridge` 两 crate** 一并删除（27→25 包，摘掉 tantivy 与 rust-analyzer JSON-RPC 依赖）；新登记 D-44 |
 | P1-11 | `289d952` | **D-44 收口（API 声称 ≠ 实际）**：`GET /api/v1/tools` 的名单与启动注册合一到唯一事实源 `builtin_tools()`——原 13 项里 7 项是幽灵（名字错/不存在/非工具）；**先红后绿**（红：`API 声称了从未注册的工具名 lsp_diagnostics`） |
-| P1-12 | 本卡 | **「声称 ≠ 实现」专项 · 第二轮（D-23 续）**：核 6 个尚未体检的"机体" crate（resource-monitor/nervous-system/subconscious/experience/bridge/observer），**证伪 2 处安全/治理声称**——① observer 的「L2 fail-closed」（`Err` 后调用方只 warn，会话照常继续）② 成本治理链整条失效（`with_budget`/`update_cost` 双零调用 → `cost_ratio()` 恒 0 → `CostGuard` 永不触发）；**已订正注释并登记 D-45/D-46/D-47 待顶层裁**；另清点 5 处"定义了但生产无人用"的死能力 |
+| P1-12 | `17aa87c` | **「声称 ≠ 实现」专项 · 第二轮（D-23 续）**：核 6 个尚未体检的"机体" crate，**证伪 2 处安全/治理声称**——① observer 的「L2 fail-closed」（`Err` 后调用方只 warn，会话照常继续）② 成本治理链整条失效（`with_budget`/`update_cost` 双零调用 → `cost_ratio()` 恒 0 → `CostGuard` 永不触发）；已订正注释 + 登记 D-45/D-46/D-47 待裁 |
+| P1-13 | 本卡 | **D-36 收口（webhook 子进程）**：`curl` 从 `.output()`（无界 + 超时不收尸）改为 `run_bounded()`——有界排空到 EOF + 超时树杀收割 + `kill_on_drop` 兜底；新增**哨兵法**回归锁（超时后子进程必须已被杀） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -213,7 +214,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-28** | `service/src/user.rs`（**每请求鉴权路径**）与 `webhook.rs` 的 `lock().unwrap()`——同 D-24/D-25 缺陷类，残留即全站级失败通道 | P0-05 新发现 | **已修**：`recover` | **close** |
 | **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | **已修**：订正为"出网旁路已知未治理"并指向 D-35 | **close** |
 | **D-35** | **bash 出网无任何治理**：`web_fetch` 有 fail-closed 白名单，但 bash 的 `curl`/`wget` 可直连任意地址（原被 D-26 的虚构机制遮住） | P0-10 专项 | 确证（**真实防护缺口**） | **close · 顶层裁决「接受」（显式风险接受，2026-10-01）** |
-| **D-36** | `service/src/webhook.rs:69` `curl … .output()` 无界输出 + `kill_on_drop` 默认 false（超时不收尸），与 D-18/D-32 同类（在 fire-and-forget 任务里） | P0-10 专项 | 确证 | 低 · 待修 |
+| **D-36** | `service/src/webhook.rs` `curl … .output()` 无界输出 + `kill_on_drop` 默认 false（超时不收尸），与 D-18/D-32 同类（在 fire-and-forget 任务里） | P0-10 专项 → P1-13 修复 | **已修**（P1-13）：改走新的 `run_bounded(cmd, timeout, cap)`——两路 `bounded_io::drain_capped_async` 并发**有界排空到 EOF**（不再 `.output()` 全量入内存）+ 超时 `kill_process_tree` **树杀 + `wait()` 收割** + `kill_on_drop(true)` 兜底；截断留痕不静默。**哨兵法**回归锁：超时后子进程必须已被杀（哨兵文件不得出现） | **close** |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | **已修**：`drain_capped_std`——继续排空到 EOF 但只留前 8 MiB + 留痕 | **close** |
 | **D-29** | **NoopSandbox（Windows 运行时路径）`Command::output()` 无界读** → 同 D-18 的 OOM，且落在**本项目主力平台** | P0-06 新发现 | **已修**：spawn + 两路 `drain_capped_async` 并行有界排空 | **close** |
 | **D-30** | （**能力，非债**）**Linux 专用代码的交叉类型检查**：`rustup target add x86_64-unknown-linux-gnu` + `cargo check --target …` 实测可跑通（本次已验证），补上"`cfg(target_os=linux)` 代码本机不参与编译、改了没人验"的缺口 | P0-06 附带产出 | 可用；**顶层裁决7「列入」** → 已并入门禁四件套（P1-06 起，见本档第二节） | **close · 已入常规门禁** |

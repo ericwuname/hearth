@@ -53,29 +53,38 @@ impl WebhookManager {
                 let url = h.url.clone();
                 let body = payload.to_string();
                 tokio::spawn(async move {
-                    let cmd = tokio::process::Command::new("curl")
-                        .args([
-                            "-s",
-                            "-X",
-                            "POST",
-                            "-H",
-                            "Content-Type: application/json",
-                            "-d",
-                            &body,
-                            // `--` 终止选项解析：url 一律按位置参数处理（纵深防御）
-                            "--",
-                            &url,
-                        ])
-                        .output();
-                    // P0-04（2026-10-01, traecode）：原为 `let _ =`——把
-                    // 「curl 不存在（NotFound）」「超时」「非零退出」**全部静默吞掉**，
-                    // 注册端拿不到任何失败信号：告警/回调永不送达却**零痕迹**。
-                    // fire-and-forget 语义不变，但失败必须留痕（"不静默"）。
-                    match tokio::time::timeout(std::time::Duration::from_secs(5), cmd).await {
-                        Ok(Ok(out)) if out.status.success() => {
+                    let mut cmd = tokio::process::Command::new("curl");
+                    cmd.args([
+                        "-s",
+                        "-X",
+                        "POST",
+                        "-H",
+                        "Content-Type: application/json",
+                        "-d",
+                        &body,
+                        // `--` 终止选项解析：url 一律按位置参数处理（纵深防御）
+                        "--",
+                        &url,
+                    ]);
+                    // P1-13（D-36）：原实现 = `cmd.output()` + 外层 `timeout(5s, fut)`，
+                    // 有两个缺陷（与被修过的 D-18 / D-32 同类）：
+                    //   ① `output()` 把 curl 的 stdout/stderr **全量**读进内存，无字节上限；
+                    //   ② 超时只是**丢掉那个 future**——`kill_on_drop` 默认 false，curl
+                    //      进程继续跑（孤儿 + 管道缓冲滞留），且从不 `wait()` 收割。
+                    // 现改走 `run_bounded()`：有界排空到 EOF + 超时**树杀 + 收割**。
+                    match run_bounded(cmd, WEBHOOK_TIMEOUT, bounded_io::MAX_CAPTURED_BYTES).await {
+                        Ok(out) if out.status.success() => {
+                            if out.truncated() {
+                                tracing::warn!(
+                                    url = %url,
+                                    stdout_bytes = out.stdout.len(),
+                                    stderr_bytes = out.stderr.len(),
+                                    "webhook 响应体超上限，已截断（仅记前 8 MiB，不静默）"
+                                );
+                            }
                             tracing::debug!(url = %url, "webhook delivered");
                         }
-                        Ok(Ok(out)) => {
+                        Ok(out) => {
                             tracing::warn!(
                                 url = %url,
                                 code = ?out.status.code(),
@@ -83,15 +92,18 @@ impl WebhookManager {
                                 "webhook delivery failed (non-zero exit)"
                             );
                         }
-                        Ok(Err(e)) => {
+                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                            tracing::warn!(
+                                url = %url,
+                                "webhook delivery timed out (5s)——已树上杀 + 收割"
+                            );
+                        }
+                        Err(e) => {
                             tracing::warn!(
                                 url = %url,
                                 error = %e,
                                 "webhook spawn failed (curl 未安装？)"
                             );
-                        }
-                        Err(_) => {
-                            tracing::warn!(url = %url, "webhook delivery timed out (5s)");
                         }
                     }
                 });
@@ -109,6 +121,78 @@ impl WebhookManager {
 
     pub fn list(&self) -> Vec<WebhookConfig> {
         recover(self.hooks.read()).clone()
+    }
+}
+
+/// webhook 投递超时（原实现同为 5s；提为常量以便生产与回归测试共用）。
+const WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 单次子进程执行结果——**有界**捕获（最多各 `cap` 字节）。
+#[derive(Debug)]
+struct BoundedOutcome {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+}
+
+impl BoundedOutcome {
+    fn truncated(&self) -> bool {
+        self.stdout_truncated || self.stderr_truncated
+    }
+}
+
+/// 执行命令并**有界**捕获输出；超时则**树杀 + 收割**（不留孤儿、不留僵尸）。
+///
+/// 与 P0-06 / P0-07 / P0-09 / P0-12 同一条不变式（实现已收敛到 `bounded-io`）：
+/// - **必须排空到 EOF**，只保留前 `cap` 字节——若图省事用 `take(cap)` 提前停读，
+///   子进程写满管道后会永久阻塞（把 OOM 换成死锁）；
+/// - 超时必须杀到**进程树**并 `wait()` 收割，否则 `curl` 会继续跑。
+///
+/// `kill_on_drop(true)` 是**兜底**（显式树杀失败时仍会终止直接子进程）。
+async fn run_bounded(
+    mut cmd: tokio::process::Command,
+    timeout: std::time::Duration,
+    cap: usize,
+) -> std::io::Result<BoundedOutcome> {
+    use std::process::Stdio;
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+    let so = child.stdout.take().expect("stdout 已 piped");
+    let se = child.stderr.take().expect("stderr 已 piped");
+    // 两路并发有界排空（各自独立任务，避免与 wait() 互相借用）。
+    let h_out = tokio::spawn(bounded_io::drain_capped_async(so, cap));
+    let h_err = tokio::spawn(bounded_io::drain_capped_async(se, cap));
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(status) => {
+            let (stdout, stdout_truncated) = h_out.await.unwrap_or_default();
+            let (stderr, stderr_truncated) = h_err.await.unwrap_or_default();
+            Ok(BoundedOutcome {
+                status: status?,
+                stdout,
+                stderr,
+                stdout_truncated,
+                stderr_truncated,
+            })
+        }
+        Err(_) => {
+            // 超时：先树杀（Windows 用系统自带 taskkill /T），再直接杀 + 收割。
+            if let Some(pid) = pid {
+                bounded_io::kill_process_tree(pid);
+            }
+            let _ = child.kill().await;
+            let _ = child.wait().await; // 收割，不留僵尸
+            h_out.abort();
+            h_err.abort();
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "webhook delivery timed out",
+            ))
+        }
     }
 }
 
@@ -188,5 +272,86 @@ mod tests {
         // 通配写法 `*.example.com` 与其裸域等价
         assert!(validate_webhook_url("https://a.example.com/x", Some("*.example.com")).is_ok());
         assert!(validate_webhook_url("https://example.com/x", Some("*.example.com")).is_ok());
+    }
+
+    /// P1-13（D-36）回归锁——投递子进程的两条不变式（与已修的 D-18/D-32 同类）：
+    /// ① **有界捕获**：修复前 `Command::output()` 把 curl 的 stdout/stderr 全量读进内存；
+    /// ② **超时必须真杀**：修复前超时只丢掉 `output()` 的 future，而 `kill_on_drop`
+    ///    默认 false → 子进程继续跑（孤儿）。此处用**哨兵法**验真：子进程本应在数秒后
+    ///    写一个哨兵文件；300ms 超时后它必须已被杀，哨兵永不出现。
+    #[tokio::test]
+    async fn test_p1_13_run_bounded_caps_output_and_kills_on_timeout() {
+        // ① 有界捕获（cap=4096，命令产出约 120KB）
+        let out = run_bounded(noisy_cmd(), std::time::Duration::from_secs(60), 4096)
+            .await
+            .expect("spawn 必须成功");
+        assert_eq!(
+            out.stdout.len(),
+            4096,
+            "保留量必须被 cap 钳住（修复前 = 全量入内存）"
+        );
+        assert!(out.stdout_truncated, "超限必须标记截断（不静默）");
+        assert!(out.status.success());
+
+        // ② 超时树杀 + 收割（哨兵法）
+        let dir = std::env::temp_dir().join(format!("hearth_p113_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sentinel = dir.join("sentinel.txt");
+        let err = run_bounded(
+            hang_then_touch_cmd(&sentinel),
+            std::time::Duration::from_millis(300),
+            4096,
+        )
+        .await
+        .expect_err("超时必须返回 Err");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        // 等过子进程原本该写哨兵的时刻，确认它确实没能活到那时。
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        assert!(
+            !sentinel.exists(),
+            "超时后子进程必须已被杀——哨兵文件不得出现（出现 = 孤儿进程仍在跑）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 产出约 120KB 到 stdout 的跨平台命令（远超测试用 cap=4096）。
+    fn noisy_cmd() -> tokio::process::Command {
+        #[cfg(windows)]
+        {
+            let mut c = tokio::process::Command::new("cmd");
+            c.args([
+                "/C",
+                "for /L %i in (1,1,2000) do @echo 0123456789012345678901234567890123456789012345678901234567890",
+            ]);
+            c
+        }
+        #[cfg(not(windows))]
+        {
+            let mut c = tokio::process::Command::new("sh");
+            c.args(["-c", "i=0; while [ $i -lt 2000 ]; do echo 0123456789012345678901234567890123456789012345678901234567890; i=$((i+1)); done"]);
+            c
+        }
+    }
+
+    /// 先等约 3 秒再写哨兵文件的跨平台命令。
+    fn hang_then_touch_cmd(sentinel: &std::path::Path) -> tokio::process::Command {
+        #[cfg(windows)]
+        {
+            let mut c = tokio::process::Command::new("cmd");
+            c.args([
+                "/C",
+                &format!(
+                    "ping -n 4 127.0.0.1 >nul & echo x > \"{}\"",
+                    sentinel.display()
+                ),
+            ]);
+            c
+        }
+        #[cfg(not(windows))]
+        {
+            let mut c = tokio::process::Command::new("sh");
+            c.args(["-c", &format!("sleep 3; echo x > '{}'", sentinel.display())]);
+            c
+        }
     }
 }

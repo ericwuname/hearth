@@ -1867,6 +1867,7 @@ dependencies = [
  "api",
  "async-trait",
  "axum",
+ "bounded-io",
  "bridge",
  "chrono",
  "dotenvy",
