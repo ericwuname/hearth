@@ -96,7 +96,10 @@ impl CodexClient {
         let resp = self
             .request(
                 reqwest::Method::POST,
-                &format!("/api/v1/sessions/{session_id}/messages"),
+                &format!(
+                    "/api/v1/sessions/{}/messages",
+                    crate::pct_encode(session_id)
+                ),
             )
             .json(&serde_json::json!({ "content": message }))
             .send()
@@ -130,7 +133,10 @@ impl CodexClient {
         let resp = self
             .request(
                 reqwest::Method::GET,
-                &format!("/api/v1/sessions/{session_id}/messages"),
+                &format!(
+                    "/api/v1/sessions/{}/messages",
+                    crate::pct_encode(session_id)
+                ),
             )
             .send()
             .await
@@ -143,7 +149,7 @@ impl CodexClient {
         let resp = self
             .request(
                 reqwest::Method::GET,
-                &format!("/api/v1/sessions/{session_id}"),
+                &format!("/api/v1/sessions/{}", crate::pct_encode(session_id)),
             )
             .send()
             .await
@@ -177,7 +183,11 @@ impl CodexClient {
         let resp = self
             .request(
                 reqwest::Method::POST,
-                &format!("/api/v1/sessions/{session_id}/interaction/{approval_id}"),
+                &format!(
+                    "/api/v1/sessions/{}/interaction/{}",
+                    crate::pct_encode(session_id),
+                    crate::pct_encode(approval_id)
+                ),
             )
             .json(&serde_json::json!({
                 "id": approval_id,
@@ -197,7 +207,7 @@ impl CodexClient {
         let resp = self
             .request(
                 reqwest::Method::POST,
-                &format!("/api/v1/sessions/{session_id}/cancel"),
+                &format!("/api/v1/sessions/{}/cancel", crate::pct_encode(session_id)),
             )
             .send()
             .await

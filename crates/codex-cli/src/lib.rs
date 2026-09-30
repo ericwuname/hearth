@@ -1221,7 +1221,7 @@ pub async fn hearth_main() -> Result<()> {
         )?;
 
             let resp: serde_json::Value = client
-                .get_json(&format!("/api/v1/sessions/{id}/messages"))
+                .get_json(&format!("/api/v1/sessions/{}/messages", pct_encode(&id)))
                 .await?;
             if let Some(msgs) = resp.get("messages").and_then(|v| v.as_array()) {
                 for m in msgs {
@@ -1265,7 +1265,8 @@ pub async fn hearth_main() -> Result<()> {
                     println!("posted: {:?}", resp["id"].as_str().unwrap_or("?"));
                 }
                 CivAction::Search { query } => {
-                    let encoded = query.replace(' ', "%20");
+                    // D-61：全量百分号编码（旧实现只编码空格 → `&`/`#` 可注入参数）。
+                    let encoded = pct_encode(&query);
                     let url = format!("/api/v1/civilization?search={encoded}");
                     let resp: serde_json::Value = client.get_json(&url).await?;
                     if let Some(entries) = resp["entries"].as_array() {
@@ -1328,10 +1329,35 @@ pub async fn hearth_main() -> Result<()> {
 /// 展示 key 时打码（config get 不泄漏明文）。
 fn mask_key(key: Option<&str>) -> String {
     match key {
-        Some(k) if k.len() > 8 => format!("{}…{}", &k[..4], &k[k.len() - 4..]),
+        // D-60（2026-10-01）：按 **字符** 截断。旧实现 `&k[..4]` / `&k[k.len() - 4..]`
+        // 是**字节**切片——key 含非 ASCII（多字节 UTF-8）时切点落在非字符边界 → panic
+        // （`hearth config get api-key` 直接崩）。此处改用 `chars()` 计数与截取。
+        Some(k) if k.chars().count() > 8 => {
+            let head: String = k.chars().take(4).collect();
+            let tail: String = k.chars().skip(k.chars().count() - 4).collect();
+            format!("{head}…{tail}")
+        }
         Some(k) if !k.is_empty() => "****".into(),
         _ => "(未设置)".into(),
     }
+}
+
+/// D-61（2026-10-01）：最小百分号编码（RFC 3986 `unreserved` 之外一律编码）。
+///
+/// 用于把**用户输入**安全地嵌进 URL 的查询值与路径段。旧实现只做
+/// `query.replace(' ', "%20")`，`&`/`#`/`=`/`/`/`?` 等会破坏 URL 结构——`&x=y`
+/// 可注入额外查询参数、`/` 可跳转路径层级（参数注入 / 路径注入）。
+pub(crate) fn pct_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(*b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// Y2: Shared SSE render loop (Chat + Resume). Renders thinking / tools / done / errors.
@@ -1579,4 +1605,49 @@ fn read_line(prompt: &str, default: &str) -> String {
         }
     }
     default.to_string()
+}
+
+#[cfg(test)]
+mod d6061_tests {
+    use super::*;
+
+    /// 先红后绿（D-60）：`mask_key` 必须按**字符**截断。
+    /// 旧实现 `&k[..4]` / `&k[k.len() - 4..]` 是字节切片 → 多字节 UTF-8 key
+    /// 切在非字符边界即 **panic**（`hearth config get api-key` 直接崩）。
+    #[test]
+    fn test_d60_mask_key_multibyte_no_panic() {
+        // 每个中文 3 字节：`len()=30`（>8）但字符数=10（>8）→ 旧代码 `&k[..4]` 落在字符中
+        let k = "密钥密钥密钥密钥密钥"; // 10 个汉字
+        assert_eq!(k.chars().count(), 10);
+        assert!(k.len() > 8, "前提：字节长度 > 8，旧实现会走切片分支");
+
+        let masked = mask_key(Some(k)); // 旧实现此处 panic: byte index 4 is not a char boundary
+        assert!(masked.contains('…'), "应打码：{masked}");
+        assert_eq!(masked.chars().count(), 9, "4 头 + 1 省略号 + 4 尾");
+        // 首尾各保留 4 个字符
+        let first4: String = k.chars().take(4).collect();
+        let last4: String = k.chars().skip(6).collect();
+        assert_eq!(masked, format!("{first4}…{last4}"));
+
+        // 常规 ASCII 分支不受影响
+        assert_eq!(mask_key(Some("sk-abcdefghij")), "sk-a…ghij");
+        assert_eq!(mask_key(Some("short")), "****");
+        assert_eq!(mask_key(None), "(未设置)");
+    }
+
+    /// D-61：URL 编码必须覆盖 `&`/`#`/`=`/`/`/空格` 等会破坏 URL 结构的字符
+    /// （旧实现只编码空格 → `?search=a&b=c` 可注入额外参数）。
+    #[test]
+    fn test_d61_pct_encode_escapes_url_structural_chars() {
+        assert_eq!(pct_encode("a b"), "a%20b");
+        assert_eq!(pct_encode("a&b"), "a%26b");
+        assert_eq!(pct_encode("a=b"), "a%3Db");
+        assert_eq!(pct_encode("a#b"), "a%23b");
+        assert_eq!(pct_encode("a/b"), "a%2Fb");
+        assert_eq!(pct_encode("a?b"), "a%3Fb");
+        // unreserved 保持原样
+        assert_eq!(pct_encode("Az0-._~"), "Az0-._~");
+        // 非 ASCII 逐字节编码（中文 = 3 字节）
+        assert_eq!(pct_encode("中"), "%E4%B8%AD");
+    }
 }
