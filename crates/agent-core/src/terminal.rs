@@ -271,6 +271,7 @@ mod execdec_node02_tests {
 /// 新增输入（均为既有结构化事实，无新事实源）：
 /// - approval_denied: 审批门拒绝/委托审计拒绝（RC24 审批通道既有事实）
 /// - budget_exhausted: budget_remaining==0 或 Reserve 耗尽（budget 事实派生）
+///
 /// Unknown 判据：exit_code=None 且无任何其他结构化信号——**不得强行塞入
 /// ToolFailure**（F10 必须真实存在）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

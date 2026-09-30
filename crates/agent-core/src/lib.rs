@@ -1,9 +1,3 @@
-#![allow(
-    clippy::empty_line_after_doc_comments,
-    clippy::doc_lazy_continuation,
-    clippy::doc_markdown
-)]
-
 pub mod constitution;
 pub mod context;
 pub mod r#loop;

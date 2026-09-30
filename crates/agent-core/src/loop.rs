@@ -259,26 +259,26 @@ pub enum Event {
     },
 }
 
-/// APPR-1: semantic approval gate.
-///
-/// Replaces the old `tc.args.to_string().contains("rm ")` substring heuristic,
-/// which (a) missed `rm-rf` / `dd if=` / `mkfs` etc., (b) false-flagged benign
-/// commands like `echo rm`, and (c) never caught `edit` writes because edit
-/// carries the payload in a `content` field, not the word "write".
-///
-/// The decision is based on the *actual tool payload*:
-/// - `bash`: the `cmd` string, checked against a destructive-command table
-///   (tokenized so `rm -rf` / `rm-rf` / ` dd ` all match, but `echo "rm"` does
-///   not).
-/// - `edit`: only a *suspicious* write needs approval — an absolute path or a
-///   `..` traversal component. Ordinary workspace-relative writes are the
-///   agent's bread and butter; gating every one of them would deadlock
-///   headless runs (no human to approve) and add no security: the edit tool
-///   itself already rejects absolute/`..` paths **on every platform**, and on
-///   Linux landlock *additionally* confines writes to the workspace
-///   (D-23: landlock is Linux-only — do not cite it as the primary defense on
-///   other platforms). This check is the belt to those suspenders.
-/// - anything else (read, grep, glob, …): no approval needed.
+// APPR-1: semantic approval gate.
+//
+// Replaces the old `tc.args.to_string().contains("rm ")` substring heuristic,
+// which (a) missed `rm-rf` / `dd if=` / `mkfs` etc., (b) false-flagged benign
+// commands like `echo rm`, and (c) never caught `edit` writes because edit
+// carries the payload in a `content` field, not the word "write".
+//
+// The decision is based on the *actual tool payload*:
+// - `bash`: the `cmd` string, checked against a destructive-command table
+//   (tokenized so `rm -rf` / `rm-rf` / ` dd ` all match, but `echo "rm"` does
+//   not).
+// - `edit`: only a *suspicious* write needs approval — an absolute path or a
+//   `..` traversal component. Ordinary workspace-relative writes are the
+//   agent's bread and butter; gating every one of them would deadlock
+//   headless runs (no human to approve) and add no security: the edit tool
+//   itself already rejects absolute/`..` paths **on every platform**, and on
+//   Linux landlock *additionally* confines writes to the workspace
+//   (D-23: landlock is Linux-only — do not cite it as the primary defense on
+//   other platforms). This check is the belt to those suspenders.
+// - anything else (read, grep, glob, …): no approval needed.
 
 /// E4 v5.0: max agent nesting depth (main=0, sub=1, sub-sub=2; blocked at ≥2).
 const MAX_DEPTH: u32 = 2;
@@ -614,8 +614,8 @@ pub struct RunReport {
     pub usage: Option<llm_gateway::CostEntry>,
 }
 
-/// P1/H1: Extract file paths and line ranges from tool call args.
-/// After execution, also augment with paths found in tool result output.
+// P1/H1: Extract file paths and line ranges from tool call args.
+// After execution, also augment with paths found in tool result output.
 
 /// P0-4 (v0.2.4): 从用户文本提取字面提到的文件名 token（带点扩展名的标识符）。
 /// 纯函数（可测）：启发式最粗粒度——只捕捉"字面提到的文件名"，不做语义理解。
@@ -1151,7 +1151,7 @@ impl AgentLoop {
         self.approval_policy
     }
 
-    /// Node 04 (P1-EXECUTION-DECISION-01): REFLECT_FACT_CONFLICT 分类器——
+    // Node 04 (P1-EXECUTION-DECISION-01): REFLECT_FACT_CONFLICT 分类器——
 
     /// Node 03 (O-4): 设置待注入的 acceptance criteria（init 后/run 前调用，
     /// 供 run() 内 ContextManager::new 重建后恢复——pending 桥）。
@@ -1503,7 +1503,7 @@ impl AgentLoop {
         }
     }
 
-    /// 任务状态持久化 (v0.2): resume 恢复任务图——节点状态（Completed/InProgress）
+    // 任务状态持久化 (v0.2): resume 恢复任务图——节点状态（Completed/InProgress）
 
     /// WS8 (v0.2): 体感内观——把"身体状态"（steps/预算/上下文填充/相位/写盘）写入
     /// ToolContext.scratch["body"]，供 introspect 工具读取（LLM 可见，撞预算前能感知疲劳）。
@@ -2322,7 +2322,7 @@ impl AgentLoop {
         None
     }
 
-    /// R7-5/D-10（线C手术）：`emit_think_summary` 相位套话本体与 plan/act/observe
+    // R7-5/D-10（线C手术）：`emit_think_summary` 相位套话本体与 plan/act/observe
 
     // R6-5: last_observe_errored helper 已随 R5-1 scratch 中转注入块删除
     // （失败事实直接附着工具结果消息，不再需要独立注入的新鲜度门）。
@@ -3950,6 +3950,7 @@ impl AgentLoop {
     /// - `.html/.htm` → 无头浏览器冒烟（playwright 通用自检脚本，见
     ///   `HEARTH_HTML_SELFCHECK_SCRIPT`；不可用则静态降级并如实标注）；
     /// - `.md/.txt` → 重读自查（非空）。
+    ///
     /// 工具不可用（命令不存在）→ 标注 skipped，不判失败（不误伤）。
     /// 返回 (checks, failures)——checks 为逐项证据（写 run report）。
     async fn self_check_artifacts(&self) -> (Vec<serde_json::Value>, Vec<String>) {
@@ -8991,7 +8992,7 @@ mod tests {
         }
     }
 
-    /// R6-5 反例：成功轮（零错误）不得附着策略注（无失败即无策略）。
+    // R6-5 反例：成功轮（零错误）不得附着策略注（无失败即无策略）。
 
     /// R6-7 判据①：小输出原样透传（不落盘、无提示）。
     #[test]
@@ -9381,7 +9382,7 @@ mod tests {
         assert_eq!(agent.empty_turn_streak, 2);
     }
 
-    /// R5-3 判据：same_tool_repeat ≥2（策略 Replan）必须强制换策略——
+    // R5-3 判据：same_tool_repeat ≥2（策略 Replan）必须强制换策略——
 
     /// R5-3 反例：单次工具失败（repeat=1，策略 ≠ Replan）不得强制重分解。
 
@@ -10342,13 +10343,13 @@ mod tests {
         );
     }
 
-    /// R1-3 Observe 实职化（对话可用性根治任务书 v1.0）：Observe 必须**写入
+    // R1-3 Observe 实职化（对话可用性根治任务书 v1.0）：Observe 必须**写入
 
     /// R2-2 硬切片并入压缩路径（对话可用性根治任务书 v1.0；E18 闭合）：
     /// >40 消息触发切片时，完全落在被切区域的早轮 Turn **必须落盘归档**
-    /// （archive/<sid>.jsonl，与压缩归档同文件）——旧切片"prompt 裁掉 +
-    /// 不落盘"= 会话重启即事实销毁。验收判据：切片后归档文件存在且含
-    /// 早轮内容（早轮事实跨重启可 grep 找回），切片提示携带检索通道。
+    /// > （archive/<sid>.jsonl，与压缩归档同文件）——旧切片"prompt 裁掉 +
+    /// > 不落盘"= 会话重启即事实销毁。验收判据：切片后归档文件存在且含
+    /// > 早轮内容（早轮事实跨重启可 grep 找回），切片提示携带检索通道。
     #[test]
     fn test_r22_hard_slice_archives_early_turns() {
         // 双锁纪律补齐（同 test_r56 注）：本测 set_var HEARTH_ARCHIVE_FILE。
@@ -10744,9 +10745,9 @@ mod tests {
         );
     }
 
-    /// R6-9（判定权归还长程任务书 v1.0）A 臂判据①：单循环 end_turn = Done。
-    /// chat→tool_calls→exec→回灌→chat→text(stop)→Done：零 decompose、零
-    /// reflect（Observe/Reflect 相位撤销），LLM 调用 = 步数（1:1，B 臂 ≥3:1）。
+    // R6-9（判定权归还长程任务书 v1.0）A 臂判据①：单循环 end_turn = Done。
+    // chat→tool_calls→exec→回灌→chat→text(stop)→Done：零 decompose、零
+    // reflect（Observe/Reflect 相位撤销），LLM 调用 = 步数（1:1，B 臂 ≥3:1）。
 
     // ── hearth-slim S3/S4（prompt 瘦身，先红后绿）──
 

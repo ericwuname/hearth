@@ -2,7 +2,6 @@
 //!
 //! 派 A 单二进制：进程内直跑内核（默认 auto 模式），也可 --url 连远程 service。
 //! 配置三层优先级：参数 > env > ~/.config/hearth/config.toml > 内置默认。
-#![allow(unused_imports, clippy::manual_strip)]
 
 pub mod client;
 pub mod config;
@@ -724,7 +723,6 @@ pub async fn hearth_main() -> Result<()> {
 
         Commands::Setup => {
             // Y2: 上手面——交互式配 URL + key，写 .env，冒烟测试，展示示例
-            use std::io::Write as _;
             let url = read_line(
                 "service URL [http://localhost:3000]: ",
                 "http://localhost:3000",

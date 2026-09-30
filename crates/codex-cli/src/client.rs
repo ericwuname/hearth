@@ -1,7 +1,6 @@
 //! HTTP + SSE client for the codex service.
 
 use anyhow::{Context, Result};
-use futures::StreamExt;
 use serde::Deserialize;
 use std::time::Duration;
 

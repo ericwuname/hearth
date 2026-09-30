@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use agent_core::{Agent, AgentLoop, Goal};
+use agent_core::{AgentLoop, Goal};
 use agent_types::Budget;
 use anyhow::{Context, Result};
 use api::AgentEvent;

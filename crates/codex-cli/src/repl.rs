@@ -57,8 +57,8 @@ pub async fn run(base_url: String, api_key: Option<String>) -> Result<()> {
             }
             continue;
         }
-        if line.starts_with("/history ") {
-            let sid = line["/history ".len()..].trim();
+        if let Some(rest) = line.strip_prefix("/history ") {
+            let sid = rest.trim();
             match client.get_history(sid).await {
                 Ok(h) => {
                     let msgs = h.get("messages").and_then(|m| m.as_array());
@@ -75,16 +75,16 @@ pub async fn run(base_url: String, api_key: Option<String>) -> Result<()> {
             }
             continue;
         }
-        if line.starts_with("/status ") {
-            let sid = line["/status ".len()..].trim();
+        if let Some(rest) = line.strip_prefix("/status ") {
+            let sid = rest.trim();
             match client.get_status(sid).await {
                 Ok(s) => println!("{}", serde_json::to_string_pretty(&s).unwrap_or_default()),
                 Err(e) => render::error(&format!("status: {e}")),
             }
             continue;
         }
-        if line.starts_with("/cancel ") {
-            let sid = line["/cancel ".len()..].trim();
+        if let Some(rest) = line.strip_prefix("/cancel ") {
+            let sid = rest.trim();
             match client.cancel_session(sid).await {
                 Ok(()) => render::info(&format!("cancelled {sid}")),
                 Err(e) => render::error(&format!("cancel: {e}")),
