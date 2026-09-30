@@ -126,7 +126,13 @@ fn check_link(root: &Path, link: &ChainLink) -> LinkResult {
     // P0-4 (audit-fix): 先剥离注释/字符串再做子串匹配——否则把调用整行
     // 注释掉（子串留在注释里）仍能通过 wiring，G1「代码分支必执行」退化为
     // 「文本出现过」。剥离后注释掉的调用不再命中 → 断裂被检出。
-    let content = strip_comments_and_strings(&content);
+    //
+    // P0-5 (audit-fix): 再抹掉 `#[cfg(test)]` 区域——剥离器**保留字符串字面量**，
+    // 故测试代码里的字符串（如工具名数组）能"顶绿"生产锚点：
+    // `readonly-view-strips`（red）锚 `dispatcher.rs` 的 `MUTATING_TOOLS`，
+    // 生产数组删掉 `"edit"` 后，测试行 `["…","write_file","edit","bash"]` 仍命中 → 假绿。
+    // 先 strip（注释里的 `#[cfg(test)]` 已随之消失）再 blank，双保险。
+    let content = blank_test_modules(&strip_comments_and_strings(&content));
 
     if link.any.is_empty() && link.all.is_empty() {
         return LinkResult {
@@ -178,6 +184,31 @@ enum LexState {
     RawStr(usize),
 }
 
+/// `'` 处是否构成字符字面量（而非生命周期 `'a`）。
+///
+/// 启发式：向后最多 5 字节内找到闭合 `'`，且期间无换行 → 是字符字面量。
+/// `'a` / `&'static str` 这类找不到闭合引号 → 判为生命周期，按普通代码处理。
+fn is_char_literal(b: &[u8], i: usize) -> bool {
+    let n = b.len();
+    let mut j = i + 1;
+    if j < n && b[j] == b'\\' {
+        j += 2; // 转义：'\n' '\\' '\''
+    } else if j < n {
+        let lead = b[j];
+        let len = if lead < 0x80 {
+            1
+        } else if lead >> 5 == 0b110 {
+            2
+        } else if lead >> 4 == 0b1110 {
+            3
+        } else {
+            4
+        };
+        j += len; // 跳过整个 UTF-8 字符（支持 '中'）
+    }
+    j < n && b[j] == b'\''
+}
+
 /// 剥离行注释与块注释，**保留字符串字面量与其余代码**。
 ///
 /// 历史修复（均为 traecode，2026-09-30）：
@@ -193,29 +224,6 @@ fn strip_comments_and_strings(src: &str) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(n);
     let mut i = 0usize;
     let mut st = LexState::Code;
-
-    // `'` 处是否构成字符字面量（而非生命周期 `'a`）。
-    // 启发式：向后最多 5 字节内找到闭合 `'`，且期间无换行 → 是字符字面量。
-    // `'a` / `&'static str` 这类找不到闭合引号 → 判为生命周期，按普通代码处理。
-    let is_char_literal = |i: usize| -> bool {
-        let mut j = i + 1;
-        if j < n && b[j] == b'\\' {
-            j += 2; // 转义：'\n' '\\' '\''
-        } else if j < n {
-            let lead = b[j];
-            let len = if lead < 0x80 {
-                1
-            } else if lead >> 5 == 0b110 {
-                2
-            } else if lead >> 4 == 0b1110 {
-                3
-            } else {
-                4
-            };
-            j += len; // 跳过整个 UTF-8 字符（支持 '中'）
-        }
-        j < n && b[j] == b'\''
-    };
 
     while i < n {
         let c = b[i];
@@ -307,7 +315,7 @@ fn strip_comments_and_strings(src: &str) -> String {
                     continue;
                 }
                 // 字符字面量（排除生命周期）
-                if c == b'\'' && is_char_literal(i) {
+                if c == b'\'' && is_char_literal(b, i) {
                     st = LexState::Char;
                     out.push(c);
                     i += 1;
@@ -319,6 +327,264 @@ fn strip_comments_and_strings(src: &str) -> String {
         }
     }
     // 只删除 ASCII 注释字节的子序列仍是合法 UTF-8，故此处无损。
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 给定 `#[cfg(test)]` 之后的字节下标，返回该属性所修饰**条目**的结束下标
+/// （配对的 `}` 或该语句的 `;` 之后一位）。找不到（文件异常）→ 返回 `n`
+/// （保守：抹到文件末尾——宁可让锚点变红，也不要静默漏抹）。
+///
+/// 判定"花括号形态 vs 无花括号形态"：扫描中先遇到 `{` → 花括号条目（配平到 `}`）；
+/// 先遇到顶层 `;` → 无花括号条目（`use ...;` / `mod foo;`）。
+/// 复用 [`LexState`] 词法状态：字符串/原始字符串/字符字面量/注释里的一切
+/// （包括 `{` `}` `;`）都**不**参与结构判定。
+fn cfg_test_item_end(b: &[u8], n: usize, from: usize) -> usize {
+    let mut i = from;
+    let mut st = LexState::Code;
+    let mut braces = 0usize; // {} 深度
+    let mut groups = 0usize; // () / [] 深度（属性、类型/表达式里的分号不误判）
+    let mut seen_brace = false;
+    while i < n {
+        let c = b[i];
+        match st {
+            LexState::LineComment => {
+                if c == b'\n' {
+                    st = LexState::Code;
+                }
+                i += 1;
+            }
+            LexState::BlockComment => {
+                if c == b'*' && i + 1 < n && b[i + 1] == b'/' {
+                    st = LexState::Code;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            LexState::Str | LexState::Char => {
+                let closing = if st == LexState::Str { b'"' } else { b'\'' };
+                if c == b'\\' && i + 1 < n {
+                    i += 2;
+                } else {
+                    if c == closing {
+                        st = LexState::Code;
+                    }
+                    i += 1;
+                }
+            }
+            LexState::RawStr(hashes) => {
+                if c == b'"' {
+                    let mut k = 1;
+                    while k <= hashes && i + k < n && b[i + k] == b'#' {
+                        k += 1;
+                    }
+                    if k == hashes + 1 {
+                        st = LexState::Code;
+                        i += k + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+            LexState::Code => {
+                if c == b'/' && i + 1 < n {
+                    match b[i + 1] {
+                        b'/' => {
+                            st = LexState::LineComment;
+                            i += 2;
+                            continue;
+                        }
+                        b'*' => {
+                            st = LexState::BlockComment;
+                            i += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                if c == b'r' {
+                    let mut k = i + 1;
+                    while k < n && b[k] == b'#' {
+                        k += 1;
+                    }
+                    if k < n && b[k] == b'"' {
+                        st = LexState::RawStr(k - (i + 1));
+                        i = k + 1;
+                        continue;
+                    }
+                }
+                if c == b'"' {
+                    st = LexState::Str;
+                    i += 1;
+                    continue;
+                }
+                if c == b'\'' && is_char_literal(b, i) {
+                    st = LexState::Char;
+                    i += 1;
+                    continue;
+                }
+                match c {
+                    b'{' => {
+                        braces += 1;
+                        seen_brace = true;
+                        i += 1;
+                    }
+                    b'}' => {
+                        braces = braces.saturating_sub(1);
+                        i += 1;
+                        if seen_brace && braces == 0 {
+                            return i;
+                        }
+                    }
+                    b'(' | b'[' => {
+                        groups += 1;
+                        i += 1;
+                    }
+                    b')' | b']' => {
+                        groups = groups.saturating_sub(1);
+                        i += 1;
+                    }
+                    b';' if !seen_brace && groups == 0 => return i + 1,
+                    _ => i += 1,
+                }
+            }
+        }
+    }
+    n
+}
+
+/// 把源码里所有 **`#[cfg(test)]` 覆盖的区域**整体抹成空白（保留换行，行号对齐）。
+///
+/// 目的（P0-5 audit-fix）：让 wiring 锚点**对测试代码免疫**——测试里出现的字符串
+/// （如工具名数组）不得"顶绿"生产锚点。反例：`readonly-view-strips`（red）锚定
+/// `dispatcher.rs` 的生产数组 `MUTATING_TOOLS`，但同文件测试里的
+/// `["read","grep","glob","write_file","edit","bash"]` 含同名子串，
+/// 生产数组即便删掉 `"edit"` 仍假绿。抹掉测试区后，此漏洞被堵死。
+///
+/// 形态：
+/// - `#[cfg(test)] mod tests { ... }`（任意嵌套/字符串/注释）→ 抹到配对的 `}`；
+/// - `#[cfg(test)] use ...;` / `#[cfg(test)] mod foo;` 等无花括号形态 → 抹到该语句的 `;`；
+/// - 找不到匹配右括号（文件异常）→ 保守抹到文件末尾。
+///
+/// 复用同文件 [`LexState`] 词法状态机：字符串/注释里出现的 `#[cfg(test)]` **不**触发抹除；
+/// 被抹区域内的 `{` `}` 若位于字符串/注释里也**不**参与括号配对。
+fn blank_test_modules(src: &str) -> String {
+    const MARKER: &[u8] = b"#[cfg(test)]";
+    let b = src.as_bytes();
+    let n = b.len();
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut i = 0usize;
+    let mut st = LexState::Code;
+
+    while i < n {
+        let c = b[i];
+        match st {
+            LexState::LineComment => {
+                out.push(c);
+                if c == b'\n' {
+                    st = LexState::Code;
+                }
+                i += 1;
+            }
+            LexState::BlockComment => {
+                if c == b'*' && i + 1 < n && b[i + 1] == b'/' {
+                    out.push(b'*');
+                    out.push(b'/');
+                    st = LexState::Code;
+                    i += 2;
+                } else {
+                    out.push(c);
+                    i += 1;
+                }
+            }
+            LexState::Str | LexState::Char => {
+                let closing = if st == LexState::Str { b'"' } else { b'\'' };
+                out.push(c);
+                if c == b'\\' && i + 1 < n {
+                    out.push(b[i + 1]);
+                    i += 2;
+                } else {
+                    if c == closing {
+                        st = LexState::Code;
+                    }
+                    i += 1;
+                }
+            }
+            LexState::RawStr(hashes) => {
+                out.push(c);
+                if c == b'"' {
+                    let mut k = 1;
+                    while k <= hashes && i + k < n && b[i + k] == b'#' {
+                        out.push(b'#');
+                        k += 1;
+                    }
+                    if k == hashes + 1 {
+                        out.push(b'"');
+                        i += k + 1;
+                        st = LexState::Code;
+                        continue;
+                    }
+                    i += k;
+                    continue;
+                }
+                i += 1;
+            }
+            LexState::Code => {
+                // 注释入口：必须先于 marker 判定，保证注释里的 `#[cfg(test)]` 不触发抹除。
+                if c == b'/' && i + 1 < n {
+                    match b[i + 1] {
+                        b'/' => {
+                            st = LexState::LineComment;
+                            i += 2;
+                            continue;
+                        }
+                        b'*' => {
+                            st = LexState::BlockComment;
+                            i += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                // marker 只在 Code 态触发（字符串/字符/原始字符串态不走此分支）。
+                if c == b'#' && b[i..].starts_with(MARKER) {
+                    let end = cfg_test_item_end(b, n, i + MARKER.len());
+                    // 抹成空白但保留换行——报错行号仍与实际源码对齐。
+                    for &x in &b[i..end] {
+                        out.push(if x == b'\n' { b'\n' } else { b' ' });
+                    }
+                    i = end;
+                    continue;
+                }
+                // 原始字符串
+                if c == b'r' {
+                    let mut k = i + 1;
+                    while k < n && b[k] == b'#' {
+                        k += 1;
+                    }
+                    if k < n && b[k] == b'"' {
+                        st = LexState::RawStr(k - (i + 1));
+                        i = k + 1;
+                        continue;
+                    }
+                }
+                if c == b'"' {
+                    st = LexState::Str;
+                    out.push(c);
+                    i += 1;
+                    continue;
+                }
+                if c == b'\'' && is_char_literal(b, i) {
+                    st = LexState::Char;
+                    out.push(c);
+                    i += 1;
+                    continue;
+                }
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
     String::from_utf8_lossy(&out).into_owned()
 }
 
@@ -551,5 +817,111 @@ severity = "red"
         let spec = load_spec(&spec_path).unwrap();
         let results = check(tmp.path(), &spec);
         assert!(results[0].broken, "capability with empty chain must break");
+    }
+
+    /// P0-5 (audit-fix) 守卫①：生产锚点不因测试代码被抹而丢失。
+    ///
+    /// 生产数组完整、测试里有同名子串 → 抹除测试区后，生产锚点**仍命中**。
+    #[test]
+    fn blank_test_modules_keeps_production_anchor_hit() {
+        let src = r#"
+pub const MUTATING_TOOLS: &[&str] = &["write_file", "edit", "apply_patch", "bash"];
+
+pub fn read_only_view() {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn strips() {
+        let names = ["write_file", "edit", "apply_patch", "bash"];
+        assert_eq!(names.len(), 4);
+    }
+}
+"#;
+        let out = blank_test_modules(src);
+        for p in [
+            "MUTATING_TOOLS",
+            "\"write_file\"",
+            "\"edit\"",
+            "\"apply_patch\"",
+            "\"bash\"",
+            "fn read_only_view",
+        ] {
+            assert!(out.contains(p), "生产锚点应仍命中 `{p}`：\n{out}");
+        }
+        // 测试区被抹：测试专属标识不得残留。
+        assert!(!out.contains("assert_eq!"), "测试代码应被抹除：\n{out}");
+        // 行数不变（报错行号对齐）。
+        assert_eq!(
+            out.lines().count(),
+            src.lines().count(),
+            "抹除必须保留换行数"
+        );
+    }
+
+    /// P0-5 (audit-fix) 守卫②（修复目标）：测试里的字符串**不得**顶绿生产锚点。
+    ///
+    /// 生产数组删掉 `"edit"`、仅测试里还有 → 抹除后锚点**必须不命中**。
+    /// 修复前（只 strip、不 blank）本测试的 `\x22edit\x22` 会由测试行命中 → 假绿。
+    #[test]
+    fn blank_test_modules_immunizes_anchor_against_test_strings() {
+        let src = r#"pub const MUTATING_TOOLS: &[&str] = &["write_file", "apply_patch", "bash"];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn t() {
+        let names = ["write_file", "edit", "apply_patch", "bash"];
+        assert!(names.contains(&"edit"));
+    }
+}
+"#;
+        let out = blank_test_modules(src);
+        assert!(out.contains("MUTATING_TOOLS"), "生产数组仍在");
+        assert!(
+            !out.contains("\"edit\""),
+            "仅测试里存在的 \"edit\" 不得顶绿生产锚点：\n{out}"
+        );
+        assert!(out.contains("\"apply_patch\""), "生产元素仍应保留");
+        // 对照：不抹除时（只 strip）确实会命中——证明本测试揭示的正是假绿路径。
+        assert!(
+            strip_comments_and_strings(src).contains("\"edit\""),
+            "对照：未抹测试区时 \"edit\" 会被测试行命中（假绿根源）"
+        );
+    }
+
+    /// P0-5 (audit-fix) 守卫③：字符串/注释里的 `#[cfg(test)]` 不触发抹除。
+    #[test]
+    fn blank_test_modules_ignores_marker_in_strings_and_comments() {
+        let in_string = "let s = \"#[cfg(test)]\";\nlet keep = \"PRODUCTION_ANCHOR\";\n";
+        let out = blank_test_modules(in_string);
+        assert!(
+            out.contains("PRODUCTION_ANCHOR"),
+            "字符串里的 marker 不得触发抹除：\n{out}"
+        );
+
+        let in_line_comment = "// #[cfg(test)]\nlet keep2 = \"PRODUCTION_ANCHOR_2\";\n";
+        let out2 = blank_test_modules(in_line_comment);
+        assert!(
+            out2.contains("PRODUCTION_ANCHOR_2"),
+            "行注释里的 marker 不得触发抹除：\n{out2}"
+        );
+
+        let in_block_comment = "/* #[cfg(test)] { } ; */\nlet keep3 = \"PRODUCTION_ANCHOR_3\";\n";
+        let out3 = blank_test_modules(in_block_comment);
+        assert!(
+            out3.contains("PRODUCTION_ANCHOR_3"),
+            "块注释里的 marker 不得触发抹除：\n{out3}"
+        );
+
+        // 被抹区域内的 {} 若在字符串里，不得参与配对（否则会提前收尾、漏抹）。
+        let braces_in_string =
+            "let s = \"}{\";\n#[cfg(test)]\nmod tests {\n    fn t() {}\n}\nlet after = \"TAIL\";\n";
+        let out4 = blank_test_modules(braces_in_string);
+        assert!(
+            !out4.contains("fn t()"),
+            "字符串里的 }} 不得让配对提前收尾：\n{out4}"
+        );
+        assert!(out4.contains("TAIL"), "后续生产代码须保留：\n{out4}");
     }
 }
