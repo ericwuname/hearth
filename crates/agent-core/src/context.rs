@@ -586,6 +586,16 @@ pub(crate) mod tests {
     // P3 观察到的 gate flake（123+1）：env-mutating 测试在 cargo 并行下互相竞争
     // （HEARTH_COMPACTION_MODE / HEARTH_COMPACT_CHAR_THRESHOLD / HEARTH_ARCHIVE_FILE /
     //  HOME）。以下 env 触碰测试统一持锁串行。
+    //
+    // D-42 纪律（2026-10-01 定位后固化，**改测试前先读这条**）：
+    //   ① 凡**会触发压缩**的测试（构造超阈值 history 后调 `maybe_compact()`，或跑完
+    //      整条 agent loop 且输出量可能超阈值）——即使自己**不读不写** env——也必须持
+    //      `ENV_SER` + `ENV_LOCK`：压缩内部经 `archive_path()` 读进程全局
+    //      `HEARTH_ARCHIVE_FILE`，缺锁会把本测轮次**追加进并行测试的归档文件**。
+    //   ② 这类测试还应把 `HEARTH_ARCHIVE_FILE` 显式指向临时文件再复原——否则
+    //      `archive_path` 回落到真实 `HOME/.config/hearth/archive`（污染开发者家目录）。
+    //   反例（本卡修复）：`test_maybe_compact_folds_old_turns` 曾两处皆缺，导致
+    //   `test_r56_archive_digest_reads_back_and_dedups` 约 1/3 概率假红。
     pub(crate) static ENV_SER: std::sync::Mutex<()> = std::sync::Mutex::new(());
     use super::*;
 
@@ -751,6 +761,21 @@ pub(crate) mod tests {
     /// 无 compaction 时此测试红（长会话 token 腐烂）。
     #[test]
     fn test_maybe_compact_folds_old_turns() {
+        // D-42（2026-10-01 定位并修复）：本测**会真实触发压缩** → `maybe_compact` 内
+        // `archive_compacted_turns` 读**进程全局** HEARTH_ARCHIVE_FILE。旧写法两处缺失，
+        // 全量并行下约 1/3 概率让**别的**测试假红：
+        //   ① 不持锁：本测会把 8 个轮次(0..7)追加进并行测试（`test_r56_*`）此刻设置的
+        //      归档文件；对侧 `archive_digest(sid, 8)` 有 max_turns=8 上限且**按行序截断**
+        //      → 对侧自己的 turn#102 被这 8 行挤出窗口 → `digest.contains("早期事实C")` 假红。
+        //      （确定性实证：digest 打印出 turn#100/101 后接 turn#0..5，102 消失。）
+        //   ② 不设 env：`archive_path` 回落到真实 `HOME/.config/hearth/archive`（或
+        //      Windows `%APPDATA%`）→ 测试污染开发者家目录。
+        // 故：持双锁（与 context/loop 其余 env 测试同源）+ 显式指向临时文件 + 复原。
+        let _env_ser = ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let old_archive = std::env::var_os("HEARTH_ARCHIVE_FILE");
+        std::env::set_var("HEARTH_ARCHIVE_FILE", dir.path().join("folded.jsonl"));
         let mut ctx = ContextManager::new("build a game".into(), Budget::default());
         // 造 8 个轮次（旧轮带 user goal + write_file 工具调用 + 大量填充文本）——
         // 8 轮 × ~9000 字符，压缩保留最近 2 轮后 after 应 < before/3。
@@ -808,6 +833,11 @@ pub(crate) mod tests {
             all.contains("snake_game/index.html"),
             "摘要须保留写盘文件, got: {all}"
         );
+        // 复原进程全局 env（不泄漏给后续测试）
+        match old_archive {
+            Some(v) => std::env::set_var("HEARTH_ARCHIVE_FILE", v),
+            None => std::env::remove_var("HEARTH_ARCHIVE_FILE"),
+        }
     }
 
     /// 回归 WS4 (v0.1.5): 短会话（低于阈值）不触发压缩（防误伤）。
