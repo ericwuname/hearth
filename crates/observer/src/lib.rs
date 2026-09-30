@@ -4,9 +4,14 @@
 //! - **独立 crate**：禁塞进 nervous-system（后者 `NerveAction` 有干预执行权）。
 //! - **零执行权**：只消费事件流（`Vec<EnvelopedEvent>`），产出 Finding / 报告 /
 //!   熔断事件。不调用任何工具、不修改计划、不尝试修复。
-//! - **L2 fail-closed**：`Observer::run()` 返回 `Err` → 由 **service 层**拒绝继续
-//!   （内核 agent-core 不 import observer——独立 crate 铁律；fail-closed 在协调者
-//!   service 落地，而非内核）。
+//! - **L2 fail-closed —— ⚠️ 声称 ≠ 实现（P1-12 核验，2026-10-01）**：
+//!   `Observer::run()` 在 seq 断档时确实返回 `Err`，但**协调者并没有拒绝继续**——
+//!   `agent-runtime/src/session.rs:785-790` 收到 `Err` 后只 `tracing::warn!`，
+//!   会话照常跑完。故本项目**当前不存在** L2 fail-closed 保证
+//!   （原注释写"由 service 层拒绝继续"不成立）。另：`Observer::new()` 无失败路径，
+//!   故"构造失败 → 拒启"同样恒不触发（见 main.rs:652 自述）。
+//!   是否升级为真 fail-closed（`Err` → 中止会话/拒启）＝**产品方向抉择**，已登记 D-45 待顶层裁。
+//!   （内核 agent-core 不 import observer——独立 crate 铁律不变。）
 //! - 事件流是唯一事实源（事实产生权：BE 产生事实，FE/Observer 投影）。
 
 pub mod circuit;
@@ -30,8 +35,11 @@ impl Observer {
     }
 
     /// L1: 消费一段事件流 → 产出 Finding + 熔断事件。
-    /// L2 fail-closed：事件流解析失败（不可信的流）→ Err —— 调用方（service）
-    /// 必须拒绝继续执行。
+    /// seq 断档（不可信的流）→ `Err`。
+    ///
+    /// ⚠️ 注意（P1-12 核验）：`Err` 只表示"这份事件流不可信 / 没算成"，
+    /// **不是 fail-closed 保证**——当前调用方 `agent-runtime/src/session.rs:785-790`
+    /// 拿到 `Err` 后仅 warn 留痕，会话继续。见 D-45。
     ///
     /// 返回 (findings, circuit_breaks)。
     pub fn run(&self, events: &[EnvelopedEvent]) -> Result<(Vec<Finding>, Vec<CircuitBreak>)> {

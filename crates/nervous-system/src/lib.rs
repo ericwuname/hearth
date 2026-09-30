@@ -74,6 +74,8 @@ impl NervousSystem {
         self
     }
 
+    /// ⚠️ 仅测试调用（P1-12 核验，2026-10-01）：全仓生产路径从未设置预算
+    /// ⇒ [`cost_ratio`](Self::cost_ratio) 恒 0 ⇒ `CostGuard` 永不触发。见 D-46。
     pub fn with_budget(mut self, budget_usd: f64) -> Self {
         self.cost_budget_usd = Some(budget_usd);
         self
@@ -81,6 +83,14 @@ impl NervousSystem {
 
     /// v16.0: Normalized cost ratio (0.0~1.0) for the subconscious guard.
     /// Returns 0.0 when no budget is set (guard won't react).
+    ///
+    /// ⚠️ 生产实际值（P1-12 核验，2026-10-01）：`cost_budget_usd` 只有
+    /// [`with_budget`](Self::with_budget) 会设置，而**生产路径从未调用它**
+    /// （`AgentLoop` 用 `NervousSystem::new()`，agent-core/loop.rs:1627）→ 本函数
+    /// **恒返回 0.0**；累加侧 `AgentLoop::update_cost()`（loop.rs:1098）也**零调用者**，
+    /// 即便设了预算分子仍恒 0。⇒ subconscious 的 `CostGuard`
+    /// （`cost_ratio > 0.80 / > 0.95`）在生产中**永不触发**。
+    /// 是否接通真实成本核算（需定价口径）＝产品方向抉择，见 D-46。
     pub fn cost_ratio(&self) -> f32 {
         match self.cost_budget_usd {
             Some(b) if b > 0.0 => (self.cost_accumulated_usd / b).min(1.0) as f32,

@@ -1095,6 +1095,10 @@ pub struct AgentLoop {
 impl AgentLoop {
     /// v10.2.1: Feed accumulated cost into the nervous system.
     /// Called externally (e.g., service layer) after LLM responses with usage data.
+    ///
+    /// ⚠️ 声称 ≠ 实现（P1-12 核验，2026-10-01）：**全仓零调用者**——没有任何
+    /// 调用方在 LLM 响应后喂成本。与 `NervousSystem::with_budget()` 同样零调用，
+    /// 两者叠加使 subconscious 的 `CostGuard` 在生产中恒不触发。见 D-46。
     pub fn update_cost(&mut self, usd: f64) {
         self.nervous.set_cost(usd);
     }
