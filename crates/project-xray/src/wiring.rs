@@ -162,60 +162,163 @@ fn check_link(root: &Path, link: &ChainLink) -> LinkResult {
 /// 注释掉后子串留在注释里仍命中 = 绕过；(b) 字符串/文本断言
 /// （`"write_file"` 工具名、`"constitution.md"` 文件名、trait 名），这些**必须**保留。
 /// 因此只剥注释：既堵住 (a) 的注释绕过，又不误伤 (b)。
+/// 剥离过程中的词法状态。**必须跟踪字符串**——否则字符串里的 `/*` 会被误判为
+/// 块注释开头，吞掉其后整份文件（实测 `bash.rs` 被吞 79%：43132→9081 字节），
+/// 导致该文件上的一切断言**假报缺失**。
+#[derive(PartialEq, Clone, Copy)]
+enum LexState {
+    Code,
+    LineComment,
+    BlockComment,
+    /// 普通字符串 `"..."`（含其 `\` 转义）
+    Str,
+    /// 字符字面量 `'x'` / `'\n'`（**不含**生命周期 `'a`）
+    Char,
+    /// 原始字符串 `r"..."` / `r#"..."#`，参数为 `#` 的个数
+    RawStr(usize),
+}
+
+/// 剥离行注释与块注释，**保留字符串字面量与其余代码**。
+///
+/// 历史修复（均为 traecode，2026-09-30）：
+/// 1. **UTF-8 缺陷**：原实现 `out.push(c as char)` 把 u8 当码点，多字节字符（中文）被拆成
+///    乱码 → 含非 ASCII 的锚点永远匹配不上（门禁假阴性）。现改为原始字节收集、结尾整体还原。
+/// 2. **字符串状态缺陷**：原实现只看 `/`+`*` 两个字节、不区分是否位于字符串内 → 字符串里的
+///    `/*` 会开启"块注释"并吞掉其后一切。现引入 [`LexState`] 跟踪普通/原始字符串与字符字面量。
+///
+/// 语义保持不变：只剥注释，字符串与代码原样保留。
 fn strip_comments_and_strings(src: &str) -> String {
-    let bytes = src.as_bytes();
-    // 2026-09-30 UTF-8 修复（traecode）：原实现 `out.push(c as char)` 把 **u8 当码点**转 char，
-    // 而 `c` 是 UTF-8 的**单个字节**——任何多字节字符（中文等）会被拆成逐字节的乱码字符
-    // （如 `编` = E7 BC 96 → 三个 Latin-1 字符），于是**含非 ASCII 的锚点永远匹配不上**：
-    // ASCII 断言照常通过，CJK 断言静默失效（=门禁假阴性）。改为收集原始字节、结尾整体还原，
-    // 保留原语义（只剥注释、其余含字符串原样保留）。ASCII 行为与修复前**完全一致**。
-    let mut out: Vec<u8> = Vec::with_capacity(src.len());
-    let mut i = 0;
-    let mut in_line = false;
-    let mut in_block = false;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if in_line {
-            if c == b'\n' {
-                in_line = false;
-                out.push(b'\n');
-            }
-            i += 1;
-            continue;
+    let b = src.as_bytes();
+    let n = b.len();
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut i = 0usize;
+    let mut st = LexState::Code;
+
+    // `'` 处是否构成字符字面量（而非生命周期 `'a`）。
+    // 启发式：向后最多 5 字节内找到闭合 `'`，且期间无换行 → 是字符字面量。
+    // `'a` / `&'static str` 这类找不到闭合引号 → 判为生命周期，按普通代码处理。
+    let is_char_literal = |i: usize| -> bool {
+        let mut j = i + 1;
+        if j < n && b[j] == b'\\' {
+            j += 2; // 转义：'\n' '\\' '\''
+        } else if j < n {
+            let lead = b[j];
+            let len = if lead < 0x80 {
+                1
+            } else if lead >> 5 == 0b110 {
+                2
+            } else if lead >> 4 == 0b1110 {
+                3
+            } else {
+                4
+            };
+            j += len; // 跳过整个 UTF-8 字符（支持 '中'）
         }
-        if in_block {
-            if c == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                in_block = false;
-                i += 2;
-                continue;
+        j < n && b[j] == b'\''
+    };
+
+    while i < n {
+        let c = b[i];
+        match st {
+            LexState::LineComment => {
+                if c == b'\n' {
+                    st = LexState::Code;
+                    out.push(b'\n');
+                }
+                i += 1;
             }
-            if c == b'\n' {
-                out.push(b'\n');
-            }
-            i += 1;
-            continue;
-        }
-        // 裸代码区：只识别注释入口，其余（含字符串）原样保留。
-        // 注：`/`、`*` 均为 ASCII，UTF-8 续字节 ≥0x80，故逐字节扫描不会切进多字节字符。
-        if c == b'/' && i + 1 < bytes.len() {
-            match bytes[i + 1] {
-                b'/' => {
-                    in_line = true;
+            LexState::BlockComment => {
+                if c == b'*' && i + 1 < n && b[i + 1] == b'/' {
+                    st = LexState::Code;
                     i += 2;
+                } else {
+                    if c == b'\n' {
+                        out.push(b'\n');
+                    }
+                    i += 1;
+                }
+            }
+            LexState::Str | LexState::Char => {
+                let closing = if st == LexState::Str { b'"' } else { b'\'' };
+                out.push(c);
+                if c == b'\\' && i + 1 < n {
+                    out.push(b[i + 1]); // 转义对整体保留
+                    i += 2;
+                } else {
+                    if c == closing {
+                        st = LexState::Code;
+                    }
+                    i += 1;
+                }
+            }
+            LexState::RawStr(hashes) => {
+                out.push(c);
+                if c == b'"' {
+                    let mut k = 1;
+                    while k <= hashes && i + k < n && b[i + k] == b'#' {
+                        out.push(b'#');
+                        k += 1;
+                    }
+                    if k == hashes + 1 {
+                        out.push(b'"');
+                        i += k + 1;
+                        st = LexState::Code;
+                        continue;
+                    }
+                    i += k;
                     continue;
                 }
-                b'*' => {
-                    in_block = true;
-                    i += 2;
+                i += 1;
+            }
+            LexState::Code => {
+                // 注释入口
+                if c == b'/' && i + 1 < n {
+                    match b[i + 1] {
+                        b'/' => {
+                            st = LexState::LineComment;
+                            i += 2;
+                            continue;
+                        }
+                        b'*' => {
+                            st = LexState::BlockComment;
+                            i += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                // 原始字符串：r"..." / r#"..."# / r##"..."##
+                if c == b'r' {
+                    let mut k = i + 1;
+                    while k < n && b[k] == b'#' {
+                        k += 1;
+                    }
+                    if k < n && b[k] == b'"' {
+                        st = LexState::RawStr(k - (i + 1));
+                        i = k + 1;
+                        continue;
+                    }
+                }
+                // 普通字符串
+                if c == b'"' {
+                    st = LexState::Str;
+                    out.push(c);
+                    i += 1;
                     continue;
                 }
-                _ => {}
+                // 字符字面量（排除生命周期）
+                if c == b'\'' && is_char_literal(i) {
+                    st = LexState::Char;
+                    out.push(c);
+                    i += 1;
+                    continue;
+                }
+                out.push(c);
+                i += 1;
             }
         }
-        out.push(c);
-        i += 1;
     }
-    // 仅删除 ASCII 注释字节的子序列仍是合法 UTF-8，故此处无损。
+    // 只删除 ASCII 注释字节的子序列仍是合法 UTF-8，故此处无损。
     String::from_utf8_lossy(&out).into_owned()
 }
 
@@ -287,6 +390,50 @@ mod tests {
         let mixed = "fn f() { /* 中文注释 */ let s = \"中文断言\"; }";
         assert!(strip_comments_and_strings(mixed).contains("中文断言"));
         assert!(!strip_comments_and_strings(mixed).contains("中文注释"));
+    }
+
+    /// 2026-09-30 修复回归（**先红后绿**）：字符串里的 `/*` 不得被误判为块注释开头。
+    ///
+    /// 修复前该函数不跟踪字符串状态 → 字符串中的 `/*` 开启"块注释"并吞掉其后一切。
+    /// 实测后果：`crates/tools-builtin/src/bash.rs` 剥离后仅剩 9081 字节 / 原文 43132
+    /// （**79% 被吞**）、收尾仍停在块注释态 → 该文件上一切锚点**假报缺失**。
+    #[test]
+    fn strip_does_not_open_block_comment_inside_string() {
+        let src = "let re = \"a/* b\";\nlet anchor = \"SHOULD_SURVIVE\";";
+        let out = strip_comments_and_strings(src);
+        assert!(
+            out.contains("SHOULD_SURVIVE"),
+            "字符串里的 /* 不得吞掉其后代码（修复前必红）：{out}"
+        );
+        assert!(out.contains("a/* b"), "字符串内容须原样保留：{out}");
+    }
+
+    /// 原始字符串 / 字符字面量 / 生命周期 三种易误判场景的守护。
+    #[test]
+    fn strip_handles_raw_strings_chars_and_lifetimes() {
+        // ① 原始字符串里的 `/*` 不得开启块注释
+        let raw = "let p = r#\"x/*y\"#;\nlet k = \"AFTER_RAW\";";
+        assert!(
+            strip_comments_and_strings(raw).contains("AFTER_RAW"),
+            "原始字符串里的 /* 不得吞后续"
+        );
+        // ② 行注释仍须被剥离（修复不得误放行）
+        let commented = "let a = 1;\n// GONE_LINE\nlet b = 2;";
+        let out = strip_comments_and_strings(commented);
+        assert!(!out.contains("GONE_LINE"), "行注释仍须剥离：{out}");
+        assert!(out.contains("let b = 2;"));
+        // ③ 生命周期 `'a` 不是字符字面量：不得干扰其后的注释剥离
+        let life = "fn f<'a>(x: &'a str) {}\n// LIFETIME_LINE\nlet y = 1;";
+        let out2 = strip_comments_and_strings(life);
+        assert!(
+            !out2.contains("LIFETIME_LINE"),
+            "生命周期不得干扰注释剥离：{out2}"
+        );
+        assert!(out2.contains("let y = 1;"));
+        // ④ 块注释仍须被剥离
+        let blk = "/* BLOCK_GONE */\nlet z = 3;";
+        let out3 = strip_comments_and_strings(blk);
+        assert!(!out3.contains("BLOCK_GONE"), "块注释仍须剥离：{out3}");
     }
 
     fn fixture(spec_text: &str, file_content: &str) -> (tempfile::TempDir, PathBuf) {

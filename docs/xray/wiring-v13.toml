@@ -71,20 +71,25 @@ meaning = "下标配对循环仍在"
 # 仅存于历史文档）。**能力本体仍在**：loop.rs:2334 的 system prompt 仍在强制 cargo test 自验证
 # 并明确"非零退出=失败、未验证不得宣称完成"。故原地改锚其现役原文，claim 据实收窄。
 #
-# 【本批未追加 bash.rs 环，原因申报】原"编译错误指引"语义现下沉到 bash 工具层的 read_lints
-# 结构化提取（bash.rs:690）。但**接线引擎对该文件不可用**：其剥离器不跟踪字符串状态，
-# bash.rs 内字符串中的 `/*` 被误判为块注释开头，导致全文件 79% 被吞（43132→9081 字节、
-# 收尾仍停在块注释态）。此为引擎独立缺陷，已立卡（见《长程优化探索规划》债队列 D-9），
-# 修复前**不得**在 bash.rs 上挂任何锚点。故此处不挂，避免制造假红。
+# 【第 2 环来源】原"编译错误指引"语义现下沉到 bash 工具层的 read_lints 结构化提取
+# （bash.rs:690）。此前该环曾被撤回——原因是接线引擎的剥离器不跟踪字符串状态，
+# bash.rs 内字符串中的 `/*` 被误判为块注释开头，全文件 79% 被吞（43132→9081 字节），
+# 该文件上一切锚点**假报缺失**。该引擎缺陷（D-12）已修复（引入字符串/原始字符串/
+# 字符字面量词法状态），故本环**重新挂回**。
 [[capability]]
 id = "self-verify-in-prompt"
-claim = "system prompt 仍强制 cargo test 自验证（原「编译错误指引」字符串已随 B 臂删除，语义下沉至 bash 工具层，暂无法在该文件设锚——引擎缺陷 D-9）"
+claim = "system prompt 仍强制 cargo test 自验证；编译错误结构化提取已下沉至 bash 工具层"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
 all = ["cargo test", "never claim what you did not verify"]
 meaning = "system prompt 自验证 workflow 仍在（loop.rs:2334）"
+
+[[capability.chain]]
+file = "crates/tools-builtin/src/bash.rs"
+any = ["编译错误结构化提取（read_lints）"]
+meaning = "原 loop.rs 的 COMPILER ERRORS 指引已下沉到 bash 工具层（bash.rs:690）"
 
 # ── v13 S3-a：constitution 运行时读文件（锁死 v11.4 式回归） ─────
 # 2026-09-30 锚点同步（traecode）：第 2 环原锚定 loop.rs 的 `constitution::constitution_prompt()`
@@ -177,15 +182,23 @@ all = ["experience_store", "set_experience_store"]
 meaning = "机制本体保留（注入门控已退役——锚点更新至现状，S5/C-1 规格同步）"
 
 # ── v20.0 S1: planner all_done 需要真实 Write 节点 ─────────────
+# 2026-09-30 收窄（traecode）：原锚 `["write_attempted", "needs_decompose = true"]` 断裂——
+# 这两个标识现已**仅存于注释**：`write_attempted` 置位与 `needs_decompose` 强制 replan
+# 均随 R9 线C手术 D-4/D-9 删除（loop.rs:2879 注释载"all_done 门已随 TaskGraph 删除——
+# 完成判定收敛到 run() Done 相位的确定性核验，判定权归模型、护栏只剩预算与核验"）。
+#
+# **作用域已收窄**：通用 Done 出口**不再**要求"必须有真实写盘"；此处改锚**现役存活**的
+# 完成相位产物核验（completion_fact_check：产物为空即拒绝），把这条仍在的防线锁住。
+# ⚠️ 通用"无写即 replan"保证已退役——如需恢复须单独立卡（属产品决策，非本卡范围）。
 [[capability]]
 id = "all-done-requires-write"
-claim = "all_done 判定要求至少一次真实写操作（write_file/edit），否则强制 replan——根治 T13/T19 只读即完成的毒债"
+claim = "【作用域已收窄】完成相位仍对产物做确定性核验（产物为空即拒绝，completion_fact_check）；通用 Done 出口的『必须有真实写盘』要求已随 D-4/D-9 退役"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
-all = ["write_attempted", "needs_decompose = true"]
-meaning = "all_done 与 write_attempted 共同门控 Done，无写则 replan"
+all = ["completion_fact_check", "no artifact written this run"]
+meaning = "完成事实核验仍在：written_files 为空 → 拒绝 Done（loop.rs:3844-3847）"
 
 # ── v20.0 S3: 经验遗忘机制部署 ─────────────────────────────
 [[capability]]
@@ -199,26 +212,43 @@ all = ["observer_experience.prune(0.3, 90)", "observer_experience.upgrade_core()
 meaning = "组合根 observer 任务真实调用遗忘函数"
 # 引擎是子串存在性断言，锚定"新写法必须在"：一旦被改回 /2，
 # saturating_sub(2).max(8) 消失 → 断裂 → RED。
+#
+# 2026-09-30 退役登记（traecode）：该锚**已断裂**——`parent_max_steps.saturating_sub(2).max(8)`
+# 全仓 0 处代码命中。图驱动委派随 R9 线C手术 **D-4** 删除（loop.rs:2870 注释载"图驱动委派
+# （delegable 节点 → 子代理）已随 TaskGraph 删除——spawn 块不可达"），`spawn_sub_agent`
+# 现**无任何调用者**（死代码）。**本项无存活锚点可收窄**。
+#
+# 处置：保留条目**留痕**（不删——`==16` 条数断言正是为"防删条"而设），
+# `severity` 降为 `yellow`（引擎仅对 `red` 阻断，见 `has_red_break`）**不阻断门禁**，
+# claim 如实登记退役。**待顶层追认**。若该写法日后回归，本项将自动转绿。
 [[capability]]
 id = "sub-budget-not-halved"
-claim = "子代理预算 = (parent-2).max(8)，不再是 max_steps/2（v13 FLAKY 根因）"
-severity = "red"
+claim = "【已退役·待顶层追认】子代理委派路径随 D-4 删除，原 `(parent-2).max(8)` 预算公式已消失；`spawn_sub_agent` 仅存 API 且无调用者"
+severity = "yellow"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
 all = ["parent_max_steps.saturating_sub(2).max(8)"]
-meaning = "v14-1 修复写法仍在（被改回 /2 即断裂）"
+meaning = "（历史锚点，已失效——保留留痕：该写法一旦回归即自动转绿）"
 
 # ── v22.0: 双 Done 出口都要求真实 Write ─────────────
+# 2026-09-30 退役登记（traecode）：该锚**已断裂**——`"no tool_calls but NO write executed"`
+# 与 `needs_decompose = true` 全仓 0 处命中。no-tool_calls 分支已坍缩为**直接 Done**
+# （loop.rs:3311-3314），同段注释明载"框架不再 forced-replan、不再 write-required 逼写、
+# 不再『You MUST use tool_calls』"（R9 线C手术 **D-8** 删除 B 臂机关）。
+# **本项无存活锚点可收窄**（现役分支的语义与本项**相反**，绝不可改锚到它）。
+#
+# 处置同 `sub-budget-not-halved`：保留条目留痕、`severity` 降 `yellow` 不阻断、
+# claim 如实登记退役。**待顶层追认**。
 [[capability]]
 id = "no-toolcalls-requires-write"
-claim = "no tool_calls 的 Done 出口同样受 write_attempted 门控（T19 第二路径根治：LLM 纯文本决定完成时无写也必须 replan）"
-severity = "red"
+claim = "【已退役·待顶层追认】no tool_calls 出口的写盘门控已随 D-8 删除；该分支现直接 Done（loop.rs:3311-3314）"
+severity = "yellow"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
 all = ["no tool_calls but NO write executed", "needs_decompose = true"]
-meaning = "纯文本收尾无写时强制 replan"
+meaning = "（历史锚点，已失效——保留留痕：绝不改锚到现役的『不写即 Done』分支）"
 
 # ── v15 线B：确定性回放 provider 必须真接线到组合根 ─
 # 只定义 crate 不注册 = 回放门是空壳；这条钉死"注册进 registry"这一步。

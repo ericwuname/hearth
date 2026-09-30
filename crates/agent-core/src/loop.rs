@@ -919,8 +919,17 @@ pub struct AgentLoop {
     /// criteria 传递桥（重建会清 criteria——R2-D 时代无生产者未暴露）。
     pending_acceptance: Vec<String>,
     /// A4: LSP bridge for diagnostics in observe phase.
+    ///
+    /// ⚠️ **已知死接线（2026-09-30 P1 体检发现）**：本字段**只被赋值、从未被读取**。
+    /// 后果：service 注入 `RustAnalyzerBridge` 后**永不生效**，LSP 诊断全程为空；
+    /// 佐证 = `Event::LspDiagnostics` 全仓**无任何生产者**。
+    /// 处置：**待裁决**（接线 or 删除）——已由 `known_dead_wiring_marker` 测试钉住。
     lsp_bridge: Arc<dyn LspBridge>,
     /// A5: Semantic retriever for code context injection.
+    ///
+    /// ⚠️ **已知死接线（2026-09-30 P1 体检发现）**：本字段**只被赋值、从未被读取**。
+    /// 后果：service 注入检索器后**永不生效**；连带 `code-index` 建完索引即废。
+    /// 处置：**待裁决**（接线 or 删除）——已由 `known_dead_wiring_marker` 测试钉住。
     retriever: Option<Arc<dyn Retriever>>,
     /// WS5 (v0.1.5): 项目记忆 Hearth.md（等价 AGENTS.md/CLAUDE.md）——
     /// 启动时读一次 {cwd}/Hearth.md（家目录兜底），内容注入系统提示。
@@ -5624,6 +5633,37 @@ mod tests {
             call_id: "c1".into(),
             name: name.into(),
             args,
+        }
+    }
+
+    /// P1 体检「只写不读」死接线锁（2026-09-30）。
+    ///
+    /// `retriever` / `lsp_bridge` 在 agent-core 内**只有赋值、没有读取**——注入后永不生效
+    /// （见两处字段的 ⚠️ 注释）。本测试把这条"已知债务"钉住，使沉默状态无法悄悄改变：
+    /// 一旦有人**接线**（新增读取点），`赋值数 != 总出现数` → 红，强制其
+    /// ①删除本测试 ②更新字段 ⚠️ 注释 ③同步《P1-01 体检报告》。
+    ///
+    /// 注：探针用拼接构造（`pre + name`），避免本测试自身的字面量被计入统计。
+    #[test]
+    fn known_dead_wiring_marker() {
+        let src = include_str!("loop.rs");
+        let pre = "self.";
+        for name in ["retriever", "lsp_bridge"] {
+            let needle = format!("{pre}{name}");
+            let write_pat = format!("{needle} =");
+            let total = src.matches(needle.as_str()).count();
+            let writes = src.matches(write_pat.as_str()).count();
+            assert!(
+                total >= 1,
+                "字段 `{name}` 已从 AgentLoop 消失（total=0）——若是有意删除，\
+                 请删除本测试并更新《P1-01 体检报告》"
+            );
+            assert_eq!(
+                writes, total,
+                "字段 `{name}` 出现了**读取点**（total={total}, 赋值={writes}）——说明有人接线了。\
+                 请删除本测试、更新字段处 ⚠️ 注释，并同步《P1-01 体检报告》。\
+                 该字段是 P1 体检登记的已知债务（只写不读），不应无声改变。"
+            );
         }
     }
 
