@@ -807,6 +807,12 @@ mod tests {
         assert!(!e.contains("baidu.txt"), "文件名不得出现在被拒清单: {e}");
     }
 
+    /// P0 门禁修复 2026-09-30：POSIX shell 语义测试，按平台门控。
+    /// Windows 上 `bash` 解析到 WSL 存根，本机未安装分发 → `exit code: 1`
+    /// （实测 stdout 为 UTF-16 中文"没有已安装的分发"）。`echo`/`sleep`/`seq`/
+    /// `tail`/`/tmp` 均为 POSIX 专有，**不是代码缺陷**，故门控而非"修绿"。
+    /// Linux 真机与 CI 照常覆盖。
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_echo() {
         let tool = BashTool::new();
@@ -847,6 +853,9 @@ mod tests {
         );
     }
 
+    /// 平台门控同 `test_bash_echo`（`sleep` 为 POSIX 专有）。
+    /// 另：P0P1 修复战报已登记本项"含负载抖动"——平台门控同时消除 Windows 下的非确定性。
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_timeout() {
         let tool = BashTool::new();
@@ -870,6 +879,8 @@ mod tests {
     /// node --check 曾被 seccomp 缺 syscall（epoll_wait 等）KILL 成 exit -1。
     /// Linux 真 sandbox 下 node 必须能完成语法检查（真实退出码 0/1）；
     /// 白名单退化（106 旧表）时此测试红。Windows NoopSandbox 不拦（pass 无害）。
+    /// 平台门控同 `test_bash_echo`（本测试本就以 Linux seccomp 为验证对象）。
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_node_check_real_exit_code() {
         let tool = BashTool::new();
@@ -893,6 +904,8 @@ mod tests {
     }
 
     /// 回归 R4 (v0.1.4 补测): tail 管道读取正常（v0.1.3 曾怀疑被白名单拦截）。
+    /// 平台门控同 `test_bash_echo`（`seq`/`tail` 为 POSIX 专有）。
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_tail_normal_output() {
         let tool = BashTool::new();

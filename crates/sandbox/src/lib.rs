@@ -1381,6 +1381,11 @@ pub use linux_impl::LinuxSandbox;
 mod tests {
     use super::*;
 
+    /// P0 门禁修复 2026-09-30：本测试以 POSIX 的 `echo` 可执行文件为验证对象。
+    /// Windows 上无 `echo.exe`（且 `bash` 解析到 WSL 存根、本机未装分发），
+    /// spawn 到的输出与预期不符——**属环境依赖，非 noop 后端缺陷**，故按平台门控。
+    /// Linux 真机与 CI 照常覆盖。
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_noop_sandbox_echo() {
         let sandbox = NoopSandbox::new(SandboxConfig::default());

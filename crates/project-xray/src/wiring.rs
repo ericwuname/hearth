@@ -164,7 +164,12 @@ fn check_link(root: &Path, link: &ChainLink) -> LinkResult {
 /// 因此只剥注释：既堵住 (a) 的注释绕过，又不误伤 (b)。
 fn strip_comments_and_strings(src: &str) -> String {
     let bytes = src.as_bytes();
-    let mut out = String::with_capacity(src.len());
+    // 2026-09-30 UTF-8 修复（traecode）：原实现 `out.push(c as char)` 把 **u8 当码点**转 char，
+    // 而 `c` 是 UTF-8 的**单个字节**——任何多字节字符（中文等）会被拆成逐字节的乱码字符
+    // （如 `编` = E7 BC 96 → 三个 Latin-1 字符），于是**含非 ASCII 的锚点永远匹配不上**：
+    // ASCII 断言照常通过，CJK 断言静默失效（=门禁假阴性）。改为收集原始字节、结尾整体还原，
+    // 保留原语义（只剥注释、其余含字符串原样保留）。ASCII 行为与修复前**完全一致**。
+    let mut out: Vec<u8> = Vec::with_capacity(src.len());
     let mut i = 0;
     let mut in_line = false;
     let mut in_block = false;
@@ -173,7 +178,7 @@ fn strip_comments_and_strings(src: &str) -> String {
         if in_line {
             if c == b'\n' {
                 in_line = false;
-                out.push('\n');
+                out.push(b'\n');
             }
             i += 1;
             continue;
@@ -185,12 +190,13 @@ fn strip_comments_and_strings(src: &str) -> String {
                 continue;
             }
             if c == b'\n' {
-                out.push('\n');
+                out.push(b'\n');
             }
             i += 1;
             continue;
         }
-        // 裸代码区：只识别注释入口，其余（含字符串）原样保留
+        // 裸代码区：只识别注释入口，其余（含字符串）原样保留。
+        // 注：`/`、`*` 均为 ASCII，UTF-8 续字节 ≥0x80，故逐字节扫描不会切进多字节字符。
         if c == b'/' && i + 1 < bytes.len() {
             match bytes[i + 1] {
                 b'/' => {
@@ -206,10 +212,11 @@ fn strip_comments_and_strings(src: &str) -> String {
                 _ => {}
             }
         }
-        out.push(c as char);
+        out.push(c);
         i += 1;
     }
-    out
+    // 仅删除 ASCII 注释字节的子序列仍是合法 UTF-8，故此处无损。
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// 是否存在 severity=red 的断裂（决定 exit code）。
@@ -253,6 +260,33 @@ mod tests {
             strip_comments_and_strings(mixed).contains("record_tool_exchange"),
             "混合场景应命中真实调用"
         );
+    }
+
+    /// 2026-09-30 修复回归（先红后绿）：非 ASCII（CJK）字符必须原样保留。
+    ///
+    /// 修复前实现 `out.push(c as char)`：`c` 是 UTF-8 的**单字节**，按码点转 char
+    /// 会把多字节字符拆成乱码（`编` = E7 BC 96 → 3 个 Latin-1 字符）。后果：
+    /// **ASCII 锚点照常通过，含中文的锚点永远匹配不上** —— 门禁假阴性。
+    /// 本测试在修复前必红（`contains("编译错误结构化提取（read_lints）")` 为 false）。
+    #[test]
+    fn strip_preserves_non_ascii_utf8() {
+        // ① 字符串字面量中的中文必须原样保留（可被 wiring 锚点匹配）
+        let cjk_in_string =
+            r#"let s = String::from("[lints] 编译错误结构化提取（read_lints）:\n");"#;
+        assert!(
+            strip_comments_and_strings(cjk_in_string).contains("编译错误结构化提取（read_lints）"),
+            "字符串字面量中的中文必须原样保留——修复前会被拆成乱码导致锚点静默失效"
+        );
+        // ② 注释中的中文仍须被剥离（修复不得误放行）
+        let cjk_in_comment = "// 编译错误结构化提取（read_lints）\nlet x = 1;";
+        assert!(
+            !strip_comments_and_strings(cjk_in_comment).contains("编译错误结构化提取"),
+            "注释中的中文仍须剥离"
+        );
+        // ③ 中英混排：代码/字符串区保留，注释区剥离
+        let mixed = "fn f() { /* 中文注释 */ let s = \"中文断言\"; }";
+        assert!(strip_comments_and_strings(mixed).contains("中文断言"));
+        assert!(!strip_comments_and_strings(mixed).contains("中文注释"));
     }
 
     fn fixture(spec_text: &str, file_content: &str) -> (tempfile::TempDir, PathBuf) {

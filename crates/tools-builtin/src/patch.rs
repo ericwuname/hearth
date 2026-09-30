@@ -79,7 +79,9 @@ impl Tool for PatchTool {
         {
             return Err(anyhow!("path traversal denied: {}", path_str));
         }
-        let rel: &str = if p.is_absolute() {
+        // P0 安全修复 2026-09-30：`is_absolute()` 在 Windows 漏判"有根无前缀"路径
+        // （`/etc/passwd`）→ 越界。改判 `is_rooted_path`（详见 lib.rs 该函数文档）。
+        let rel: &str = if crate::is_rooted_path(p) {
             if !crate::is_allowed_absolute_roots(
                 &path_str,
                 &ctx.cwd,

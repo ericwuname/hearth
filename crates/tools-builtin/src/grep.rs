@@ -98,7 +98,9 @@ impl Tool for GrepTool {
                 }
                 // R3 (v0.1.3 B5): 绝对路径若落在项目/家目录内则放行（真机
                 // grep /home/wutao/codex_6d 被误拒）；越权系统目录仍拒绝。
-                if p.is_absolute()
+                // P0 安全修复 2026-09-30：`is_absolute()` 在 Windows 漏判"有根无前缀"
+                // 路径（`/etc/passwd`）→ 越界。改判 `is_rooted_path`（见 lib.rs）。
+                if crate::is_rooted_path(p)
                     && !crate::is_allowed_absolute_roots(
                         &s,
                         &ctx.cwd,

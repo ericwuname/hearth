@@ -78,7 +78,10 @@ impl Tool for EditTool {
         // resolves inside the workspace, and rewrite it to a relative one;
         // anything outside cwd is still denied.
         // R3 (v0.1.3 B5): 家目录内也放行（landlock 兜底只读，越权写会被拦）。
-        let path_str: &str = if p.is_absolute() {
+        // P0 安全修复 2026-09-30：原用 `p.is_absolute()`，在 Windows 上 `/etc/passwd`
+        // 被判为"相对路径"跳过白名单 → `cwd.join` 落到 `C:\etc\passwd`（工作区外）。
+        // 改判 `is_rooted_path`（含"有根无前缀"与盘符相对两种逃逸形态）。
+        let path_str: &str = if crate::is_rooted_path(p) {
             if !crate::is_allowed_absolute_roots(
                 &path_str,
                 &ctx.cwd,

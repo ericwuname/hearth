@@ -33,6 +33,25 @@ pub fn is_allowed_absolute(raw: &str, cwd: &std::path::Path) -> bool {
     is_allowed_absolute_roots(raw, cwd, read_roots.as_deref())
 }
 
+/// 判定"该路径在被 `join` 到 cwd 时**可能逃出工作区**"。
+///
+/// **为什么不能只用 `Path::is_absolute()`**（P0 安全修复 2026-09-30）：
+///
+/// - **Windows**：`/etc/passwd` 的 `is_absolute()` 为 **false**（Windows 的绝对路径
+///   必须带盘符前缀），于是它被误判成"相对路径"**直接放行**；而
+///   `PathBuf::join` 在 Windows 上遇到**有根无前缀**的路径（`/x`、`\x`）会
+///   **替换掉盘符之后的一切** → `cwd.join("/etc/passwd")` 解析为 `C:\etc\passwd`，
+///   **落到工作区之外**。实测（本机 MSVC）：`edit`/`read`/`patch`/`grep` 四个工具
+///   均可借此越界，测试实跑已真实写出 `C:\etc\passwd`。
+/// - `C:foo` 这类**盘符相对**路径（`Prefix` 组件）同样会被 join 替换盘符。
+///
+/// 故凡"有根"（`has_root`）或"带盘符前缀"（`Component::Prefix`）者，
+/// 一律视为需要走白名单校验的绝对路径。相对的纯文件名（`a.txt`、`test..txt`）
+/// 仍返回 false，不受影响。
+pub fn is_rooted_path(p: &std::path::Path) -> bool {
+    p.has_root() || matches!(p.components().next(), Some(std::path::Component::Prefix(_)))
+}
+
 /// RC25: 带 root 清单的路径校验。roots 语义：None = 默认（cwd + HOME，不回归）；
 /// Some(list) = 显式白名单**替换**默认（逗号分隔绝对路径）。
 pub fn is_allowed_absolute_roots(
@@ -41,7 +60,7 @@ pub fn is_allowed_absolute_roots(
     read_roots: Option<&str>,
 ) -> bool {
     let p = std::path::Path::new(raw);
-    if !p.is_absolute() {
+    if !is_rooted_path(p) {
         return true;
     }
     if p.starts_with(cwd) {

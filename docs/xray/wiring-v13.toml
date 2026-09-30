@@ -66,31 +66,46 @@ any = ["for (i, call) in calls.iter().enumerate()"]
 meaning = "下标配对循环仍在"
 
 # ── v12.6/v12.7：自验证指令在 system prompt 里 ───────────────────
+# 2026-09-30 锚点同步（traecode）：原 all = ["cargo test", "COMPILER ERRORS"] 断裂——
+# "COMPILER ERRORS" 是 B 臂机关块里的字符串，随 R9 线C手术 D-8 一并删除（现已全仓 0 处代码命中，
+# 仅存于历史文档）。**能力本体仍在**：loop.rs:2334 的 system prompt 仍在强制 cargo test 自验证
+# 并明确"非零退出=失败、未验证不得宣称完成"。故原地改锚其现役原文，claim 据实收窄。
+#
+# 【本批未追加 bash.rs 环，原因申报】原"编译错误指引"语义现下沉到 bash 工具层的 read_lints
+# 结构化提取（bash.rs:690）。但**接线引擎对该文件不可用**：其剥离器不跟踪字符串状态，
+# bash.rs 内字符串中的 `/*` 被误判为块注释开头，导致全文件 79% 被吞（43132→9081 字节、
+# 收尾仍停在块注释态）。此为引擎独立缺陷，已立卡（见《长程优化探索规划》债队列 D-9），
+# 修复前**不得**在 bash.rs 上挂任何锚点。故此处不挂，避免制造假红。
 [[capability]]
 id = "self-verify-in-prompt"
-claim = "system prompt 仍强制 cargo test 自验证 + 编译错误指引"
+claim = "system prompt 仍强制 cargo test 自验证（原「编译错误指引」字符串已随 B 臂删除，语义下沉至 bash 工具层，暂无法在该文件设锚——引擎缺陷 D-9）"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
-all = ["cargo test", "COMPILER ERRORS"]
-meaning = "自验证 workflow + trait-bound 错误指引都在"
+all = ["cargo test", "never claim what you did not verify"]
+meaning = "system prompt 自验证 workflow 仍在（loop.rs:2334）"
 
 # ── v13 S3-a：constitution 运行时读文件（锁死 v11.4 式回归） ─────
+# 2026-09-30 锚点同步（traecode）：第 2 环原锚定 loop.rs 的 `constitution::constitution_prompt()`
+# ——该调用点已随 hearth-slim S3（c343031 §二.1）**有意移除**：宪法全文出注入层（3.5K→0，
+# 真机实证为 prompt 肥胖元凶），语义降级为投影层保留，**constitution.rs 模块本体保留**。
+# 故第 1 环（运行时读 constitution.md）原样保留，第 2 环改锚模块本体的函数签名，
+# claim 据实收窄——不再声称"仍注入 build_messages"（那已不成立）。
 [[capability]]
 id = "constitution-reads-file"
-claim = "宪法从 constitution.md 运行时读取（非硬编码摘要）"
+claim = "宪法从 constitution.md 运行时读取（读取函数在位；注入 system prompt 已随 hearth-slim S3 退役）"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/constitution.rs"
 all = ["read_to_string", "constitution.md"]
-meaning = "运行时文件读取逻辑存在"
+meaning = "运行时文件读取逻辑存在（constitution.rs:49/:71）"
 
 [[capability.chain]]
-file = "crates/agent-core/src/loop.rs"
-any = ["constitution::constitution_prompt()"]
-meaning = "build_messages 仍注入宪法"
+file = "crates/agent-core/src/constitution.rs"
+any = ["pub fn constitution_prompt() -> String {"]
+meaning = "运行时读文件函数本体仍在（constitution.rs:35）；注入 prompt 的调用点已删"
 
 # ── v13 S3-b：civ 自动写入（清掉'从未接线'的五版旧债） ───────────
 [[capability]]

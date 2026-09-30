@@ -264,7 +264,11 @@ mod tests {
         let st = serde_json::json!({"steps_used": 7, "k4": true});
         save_run_state(sid, &st).expect("K-4: run_state 落盘必须成功");
         let back_st = load_run_state(sid).expect("K-4: run_state 必须可重读");
-        assert_eq!(back_st["steps_used"].as_u64(), Some(7), "K-4: run_state 一致");
+        assert_eq!(
+            back_st["steps_used"].as_u64(),
+            Some(7),
+            "K-4: run_state 一致"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::remove_var("HEARTH_SESSIONS_DIR");
     }

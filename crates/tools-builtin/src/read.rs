@@ -77,7 +77,9 @@ impl Tool for ReadTool {
         // v12.4: mirror write_file — accept an absolute path when it resolves
         // inside the workspace (LLMs echo them back constantly), deny otherwise.
         // R3 (v0.1.3 B5): 家目录内绝对路径也放行（读 ~/xxx 合法）；越权系统目录仍拒。
-        let path_str: &str = if p.is_absolute() {
+        // P0 安全修复 2026-09-30：`is_absolute()` 在 Windows 漏判"有根无前缀"路径
+        // （`/etc/passwd`）→ 越界。改判 `is_rooted_path`（详见 lib.rs 该函数文档）。
+        let path_str: &str = if crate::is_rooted_path(p) {
             if !crate::is_allowed_absolute_roots(
                 &path_str,
                 &ctx.cwd,

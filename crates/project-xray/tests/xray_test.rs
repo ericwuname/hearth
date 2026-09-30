@@ -54,7 +54,15 @@ fn real_workspace_wiring_all_green() {
     }
     let spec_hash = h;
     assert!(
-        spec_hash == 0x0444c6bfbbbb0ea2, // 2026-08-25 锁（v0.2.2 天赋: +talent-style-injected）
+        // 2026-09-30 更新锁：原锁 0x0444c6bfbbbb0ea2（2026-08-25, v0.2.2 天赋）。
+        // 变更来源 = commit 26d760e「fix(C-1): xray spec 规格同步」——该提交把
+        // `experience-adaptive-switch` 的锚点从 `consecutive_errors >= 3` 更新为
+        // `experience_store`/`set_experience_store`，理由：线C手术 D-9 已删除该门控
+        // （B 臂 do_reflect 随相位机拆除，D-7 起恒 0 死分支），机制本体保留 → A 臂行为零变化。
+        // **该改动是有意的、可追溯的**，故按本断言自述的约定（"若是有意改动 spec，请更新此锁"）
+        // 更新哈希；能力条数断言（==16）仍独立把关，防删条。
+        // 注：26d760e 提交信息自述"待编译验证"，本锁因此长期未更新 → 门禁常红 19 天。
+        spec_hash == 0x0a5929b757504297, // 2026-09-30 复算（FNV-1a 64；本批同步 2 条锚点后重锁）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 
