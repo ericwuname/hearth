@@ -9,6 +9,7 @@ dependencies = [
  "agent-types",
  "anyhow",
  "async-trait",
+ "bounded-io",
  "chrono",
  "code-index",
  "experience",
@@ -39,15 +40,14 @@ dependencies = [
  "agent-types",
  "anyhow",
  "api",
+ "bounded-io",
  "bridge",
  "chrono",
  "experience",
  "llm-gateway",
- "lsp-bridge",
  "memory",
  "observer",
  "planner",
- "retriever",
  "serde",
  "serde_json",
  "tempfile",
@@ -280,6 +280,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bounded-io"
+version = "0.2.27"
+dependencies = [
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -721,16 +730,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fs2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]
@@ -1694,23 +1693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "project-sync"
-version = "0.2.27"
-dependencies = [
- "anyhow",
- "chrono",
- "fs2",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 1.0.69",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "project-xray"
 version = "0.2.27"
 dependencies = [
@@ -2141,6 +2123,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bounded-io",
  "caps",
  "nix",
  "serde",
@@ -2244,7 +2227,6 @@ dependencies = [
  "axum",
  "bridge",
  "chrono",
- "code-index",
  "dotenvy",
  "experience",
  "futures",
@@ -2254,12 +2236,10 @@ dependencies = [
  "llm-local",
  "llm-openai",
  "llm-replay",
- "lsp-bridge",
  "memory",
  "observer",
  "planner",
  "resource-monitor",
- "retriever",
  "serde",
  "serde_json",
  "tempfile",
@@ -2870,6 +2850,7 @@ dependencies = [
  "agent-types",
  "anyhow",
  "async-trait",
+ "bounded-io",
  "reqwest",
  "sandbox",
  "serde_json",

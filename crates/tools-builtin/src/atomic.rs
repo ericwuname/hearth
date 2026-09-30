@@ -2,8 +2,8 @@
 //! 给用户代码没穿"的收口。
 //!
 //! 背景（三层摸底 + 十轮深挖实证）：项目**自己的**状态文件早已是 tmp+rename
-//! 原子写（`session_store.rs:58/82/124`、`config.rs:78`、`memory/src/lib.rs:147`、
-//! `project-sync/registry.rs:32`），但用户代码路径（edit/patch/write_file）仍是
+//! 原子写（`session_store.rs:58/82/124`、`config.rs:78`、`memory/src/lib.rs:147`），
+//! 但用户代码路径（edit/patch/write_file）仍是
 //! 裸 `tokio::fs::write`——`edit.rs` 超长写甚至**先 truncate 原文件再分块追加**，
 //! 崩溃 = 原文件被毁。本模块把既有保障复用到用户代码路径。
 //!

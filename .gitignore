@@ -19,5 +19,13 @@ release/*.tar.gz
 # 工具产物（playwright-cli 运行残留）
 .playwright-cli/
 
+# D-5（2026-10-01, traecode）：hearth 运行期诊断落盘（每次跑测试都会新增/改动）
+# ——**纯运行期产物，不属于源码**。此前被跟踪 → 每次 `git status` 都被污染，
+# 且是 2026-09-30 明文密钥事故的**现成入库入口**（文档归档提交即把它连内容一起带上）。
+.hearth-diag/
+
+# D-6 备注：入库前密钥扫描门禁见 crates/codex-cli 的 `secret_scan_gate` 测试
+# （扫描 git 已跟踪文件；扫描范围**只包含入库内容**，故运行期产物已排除在外）。
+
 # 损坏 git 目录副本（事故残留，2026-09-12 清理）
 .git.broken-*/
