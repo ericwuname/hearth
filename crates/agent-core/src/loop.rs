@@ -901,6 +901,74 @@ pub(crate) fn is_verification_command(cmd: &str) -> bool {
     judge(cmd, 0)
 }
 
+// ── P0-09（2026-10-01, traecode）：S12 自检命令的**有界 / 可收尸**执行 ──
+//
+// 与 `sandbox` 的 `drain_capped_*` / `kill_process_tree`（P0-06 / P0-07）同源同理。
+// **已知重复**：这三处（sandbox / tools-builtin read / 本处）各自持有一份"有界读入"
+// 实现；是否收敛到共享 crate 属架构方向抉择 → 已登记 D-33，**不自主处置**。
+
+/// 单条流（stdout / stderr）保留的字节上限。
+const MAX_CHECK_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
+/// 有界排空：**读到 EOF**（否则子进程会因管道写满而永久阻塞——`Read::take` 的陷阱），
+/// 但只保留前 `cap` 字节，并回报是否截断。读错误按"拿到多少算多少"处理。
+async fn drain_capped<R: tokio::io::AsyncRead + Unpin>(mut r: R, cap: usize) -> (Vec<u8>, bool) {
+    use tokio::io::AsyncReadExt;
+    let mut kept = Vec::new();
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut truncated = false;
+    loop {
+        match r.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => {
+                let room = cap.saturating_sub(kept.len());
+                if n > room {
+                    truncated = true;
+                }
+                kept.extend_from_slice(&chunk[..room.min(n)]);
+            }
+            Err(_) => break,
+        }
+    }
+    (kept, truncated)
+}
+
+/// 杀掉以 `pid` 为根的**整棵进程树**。
+///
+/// - Windows：`taskkill /T /F /PID`（系统自带，无新依赖）——`Child::kill` 只到
+///   直接子进程，`cargo check` 派生的 **rustc** 会成孤儿继续吃 CPU 并占着 target 锁。
+/// - 其他平台：无等价系统工具 → 返回 `false`，调用方退化为 `start_kill()`。
+fn kill_check_process_tree(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        match std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .output()
+        {
+            Ok(o) if o.status.success() => true,
+            Ok(o) => {
+                tracing::warn!(
+                    "self-check: taskkill 失败 (pid {pid}): {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+                false
+            }
+            Err(e) => {
+                tracing::warn!("self-check: 无法执行 taskkill (pid {pid}): {e}");
+                false
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 pub struct AgentLoop {
     provider: Arc<dyn LlmProvider>,
     /// P3: Planner for task decomposition and reflection.
@@ -4044,19 +4112,77 @@ impl AgentLoop {
     /// S12：跑外部检查命令（命令白名单由调用方限定；限时防挂死）。
     /// 返回 (成功?, stdout+stderr 摘要)。命令不存在 → 视为"不可用"（false 但
     /// detail 说明是环境问题，调用方据此标注 skipped 语义）。
+    ///
+    /// P0-09（2026-10-01, traecode）：**两个缺陷同批修**（D-32）。
+    /// 1. **超时不收尸**：原用 `Command::output()`，其 `kill_on_drop` 默认 `false`。
+    ///    `timeout` 触发时 future 被 drop，子进程 **不被杀** —— `cargo check`
+    ///    会**继续在后台跑**（连同它派生的 rustc），占着 CPU 与 `target/` 锁，
+    ///    而调用方已经拿到"检查超时"的结论走人。
+    /// 2. **输出无界**：`output()` 内部 `read_to_end` 无上限——与
+    ///    D-18 / D-21 / D-29 / D-31 同一缺陷类。
+    ///
+    /// 现改为：spawn → 两路**有界**并行排空 → 超时则**杀整棵进程树** + 收割。
     async fn run_check_cmd(program: &str, args: &[&str], timeout_secs: u64) -> (bool, String) {
-        let fut = tokio::process::Command::new(program).args(args).output();
-        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut).await {
-            Ok(Ok(o)) => (
-                o.status.success(),
-                format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&o.stdout),
-                    String::from_utf8_lossy(&o.stderr)
-                ),
-            ),
-            Ok(Err(e)) => (false, format!("{program} 不可用/执行失败: {e}")),
-            Err(_) => (false, format!("检查超时（{timeout_secs}s）")),
+        let mut child = {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                // 兜底：任务被 abort 时仍会终止直接子进程。
+                .kill_on_drop(true);
+            match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => return (false, format!("{program} 不可用/执行失败: {e}")),
+            }
+        };
+        let pid = child.id().unwrap_or(0);
+        let (Some(stdout_pipe), Some(stderr_pipe)) = (child.stdout.take(), child.stderr.take())
+        else {
+            let _ = child.start_kill();
+            return (false, format!("{program}: 无法获取子进程输出管道"));
+        };
+
+        // 先 `let timed = ….await;` 再 match——否则临时 future 会存活到 match 结束，
+        // `child` 的可变借用无法在超时分支复用。
+        let timed = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
+            let (out, err, status) = tokio::join!(
+                drain_capped(stdout_pipe, MAX_CHECK_OUTPUT_BYTES),
+                drain_capped(stderr_pipe, MAX_CHECK_OUTPUT_BYTES),
+                child.wait(),
+            );
+            (out, err, status)
+        })
+        .await;
+
+        match timed {
+            Ok(((out, out_trunc), (err, err_trunc), Ok(status))) => {
+                let mut summary = String::new();
+                // 截断**不静默**；且刻意放在**开头**——`self_check_html` 依赖
+                // 「末行是 JSON」的脚本约定，把留痕放末尾会破坏它。
+                if out_trunc || err_trunc {
+                    summary.push_str(&format!(
+                        "[hearth] 检查命令输出超过 {} MiB，已截断（仅保留前 {} MiB）\n",
+                        MAX_CHECK_OUTPUT_BYTES / (1024 * 1024),
+                        MAX_CHECK_OUTPUT_BYTES / (1024 * 1024)
+                    ));
+                }
+                summary.push_str(&String::from_utf8_lossy(&out));
+                summary.push_str(&String::from_utf8_lossy(&err));
+                (status.success(), summary)
+            }
+            Ok((_, _, Err(e))) => (false, format!("{program} 执行失败: {e}")),
+            Err(_) => {
+                if kill_check_process_tree(pid) {
+                    tracing::warn!("self-check: {program} 超时 (pid {pid}) — 已杀整棵进程树");
+                } else {
+                    let _ = child.start_kill();
+                }
+                // 收割必须有界：kill 通常毫秒级完成；万一未生效，**也不能把调用方挂死**
+                // （否则"超时保护"本身变成新的挂起源）。
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await;
+                (false, format!("检查超时（{timeout_secs}s）"))
+            }
         }
     }
 
@@ -5634,6 +5760,68 @@ mod tests {
             name: name.into(),
             args,
         }
+    }
+
+    // ── P0-09（D-32）：S12 自检命令的有限输出 / 可收尸 ──
+
+    /// 有界排空：保留量被 cap 钳住，且**必须继续排空到 EOF**
+    /// （`take(cap)` 会提前停读 → 子进程写满管道后永久阻塞）。
+    #[tokio::test]
+    async fn test_p0_09_drain_capped_bounds_kept_bytes() {
+        use tokio::io::AsyncWriteExt;
+        let (mut w, r) = tokio::io::duplex(64 * 1024);
+        let payload = vec![b'q'; 50 * 1024];
+        let writer = tokio::spawn(async move {
+            // 读者并发消费，duplex 有界也不会死锁；写完后关写端让读者命中 EOF。
+            let _ = w.write_all(&payload).await;
+            drop(w);
+        });
+        let (kept, truncated) = drain_capped(r, 1024).await;
+        writer.await.unwrap();
+        assert_eq!(kept.len(), 1024, "保留量必须被 cap 钳住");
+        assert!(truncated, "超限必须报告截断（不静默）");
+    }
+
+    /// **先红后绿**：检查命令超时后必须**真的杀掉**子进程。
+    ///
+    /// 探测：把系统 `ping.exe` 复制成一个**独有进程名**，用它当检查命令
+    /// （`ping -n 5` 约 4 秒），超时设 1 秒——全程不经 shell，避免引号问题。
+    ///
+    /// 红侧（原实现 `Command::output()`，`kill_on_drop` 默认 false）：`timeout`
+    /// 只是丢掉 future，子进程继续在后台跑 → `tasklist` 仍能看到它。
+    /// 绿侧：`kill_on_drop(true)` + 超时分支树杀 → `tasklist` 看不到。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_p0_09_run_check_cmd_timeout_reaps_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let ping = std::path::Path::new(&sysroot)
+            .join("System32")
+            .join("PING.EXE");
+        if !ping.exists() {
+            // 环境无 ping.exe——**不静默 SKIP**：打印原因。
+            eprintln!("SKIP: {} 不存在，无法做进程回收探测", ping.display());
+            return;
+        }
+        let probe = dir.path().join("hearth_p009_probe.exe");
+        std::fs::copy(&ping, &probe).unwrap();
+
+        let (ok, detail) =
+            AgentLoop::run_check_cmd(&probe.to_string_lossy(), &["-n", "5", "127.0.0.1"], 1).await;
+        assert!(!ok, "超时必须返回失败：{detail}");
+        assert!(detail.contains("超时"), "detail={detail}");
+
+        // 给"若未被杀则仍在运行"留出可观测窗口。
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        let tl = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq hearth_p009_probe.exe", "/NH"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        assert!(
+            !tl.contains("hearth_p009_probe"),
+            "超时后子进程必须已被终止（修复前它会继续在后台跑，占着 CPU 与 target 锁）：{tl}"
+        );
     }
 
     /// P1 体检「只写不读」死接线锁（2026-09-30）。
