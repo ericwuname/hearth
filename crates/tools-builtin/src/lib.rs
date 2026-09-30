@@ -84,17 +84,10 @@ pub(crate) async fn read_body_capped(
     Ok((text, truncated))
 }
 
-/// R3 (v0.1.3 任务书 B5): 绝对路径放行判定——落在允许根（cwd 项目目录或用户家目录）
-/// 内则放行（真机日志 grep /home/wutao/codex_6d 被误拒）；越权系统目录（/etc /usr）
-/// 仍拒绝。相对路径由各工具自行查 `..` 穿越（此处不判）。
-pub fn is_allowed_absolute(raw: &str, cwd: &std::path::Path) -> bool {
-    // RC25 (P3-BACKLOG): 读范围限域——HEARTH_READ_ROOTS（逗号分隔绝对路径）设置时
-    // **替换**默认根（cwd + HOME），实现显式白名单收敛；未设置 = 默认（不回归）。
-    let read_roots = std::env::var("HEARTH_READ_ROOTS")
-        .ok()
-        .filter(|v| !v.trim().is_empty());
-    is_allowed_absolute_roots(raw, cwd, read_roots.as_deref())
-}
+// D-57（2026-10-01）：原 `pub fn is_allowed_absolute(raw, cwd)` 已删除——全仓**零调用方**
+// （仅其自身函数体引用 `is_allowed_absolute_roots`）。且它**直读 `std::env::var`**、绕过
+// `ctx.env`，与"env 必须经 ToolContext 注入"的纪律相悖（属遗留）。各工具现统一走
+// `is_allowed_absolute_roots(_for_write)` 并显式传入 `ctx.env` 的读根。
 
 /// 判定"该路径在被 `join` 到 cwd 时**可能逃出工作区**"。
 ///
@@ -183,18 +176,10 @@ fn is_allowed_inner(
     }
 }
 
-/// R1-B (v0.1.1 用户真机): 工具参数容错——LLM 层 JSON 解析失败会把参数降级为
-/// `Value::String`（raw），此时 `.get("path")` 必失败（String 无字段）→
-/// "missing 'path' argument"。调度层再救一次：若 args 是 String 且可 parse 成
-/// Object，则转换后照常取参（治本——即使 LLM 层降级也能救回）。
-pub fn coerce_args(args: &serde_json::Value) -> serde_json::Value {
-    match args {
-        serde_json::Value::String(s) => {
-            serde_json::from_str::<serde_json::Value>(s).unwrap_or_else(|_| args.clone())
-        }
-        _ => args.clone(),
-    }
-}
+// D-57（2026-10-01）：原 `pub fn coerce_args` 已删除——全仓**零生产调用方**（仅自身测试
+// 引用）。其"防 LLM 层 raw string 降级"的意图**已由 `extract_str_arg` 覆盖并在位**：
+// 每个工具（bash/read/edit/patch/glob/grep）都显式调用 `extract_str_arg`，
+// 即真实防线是活的，被删的是并行且从未接线的旧机制。
 
 /// R1-B 增强 (v0.1.1 贪吃蛇实测): 提取字符串参数——JSON 被截断（String 降级）时，
 /// 完整 parse 会失败，但**关键字段（path/pattern 等）在对象最前，通常完整**。
@@ -242,7 +227,6 @@ pub fn extract_str_arg(args: &serde_json::Value, key: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::coerce_args;
 
     /// R5-9 判据（智能性根治长程任务包 v1.0）：每工具描述必须含五要素——
     /// 何时用/何时不用/示例/边界/错误解读。旧语义：read 5 个词、glob/grep
@@ -286,31 +270,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_coerce_args_string_to_object() {
-        // R1-B: LLM 层降级 raw string → 调度层再救一次
-        let raw = serde_json::Value::String(r#"{"path": "a.rs", "content": "hi"}"#.into());
-        let v = coerce_args(&raw);
-        assert!(v.is_object(), "String 可 parse 时应转 Object");
-        assert_eq!(v.get("path").and_then(|p| p.as_str()), Some("a.rs"));
-    }
-
-    #[test]
-    fn test_coerce_args_object_passthrough() {
-        let obj = serde_json::json!({"path": "b.rs"});
-        let v = coerce_args(&obj);
-        assert!(v.is_object());
-    }
-
-    #[test]
-    fn test_coerce_args_unparseable_keeps_string() {
-        let raw = serde_json::Value::String("not json {{{".into());
-        let v = coerce_args(&raw);
-        assert!(
-            v.is_string(),
-            "不可 parse 保持 raw string（下游报错给可行动信息）"
-        );
-    }
+    // D-57：原 `test_coerce_args_*` 三例随被删的 `coerce_args` 一并移除
+    // （它们只覆盖那个零调用方的旧机制；真实防线 `extract_str_arg` 另有测试）。
 }
 
 #[cfg(test)]
