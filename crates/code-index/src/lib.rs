@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// P0-12（2026-10-01, traecode）：单个源码文件参与索引的**大小上限**。
+///
+/// 病灶（D-38）：`parse_rust_file` 原用 `std::fs::read_to_string` 把文件**整份**
+/// 读进内存且**无任何上限**，而它遍历的是**会话 workspace**——里面就可能有 agent
+/// 自己产出的巨型 `.rs`（生成代码 / 误命名的数据文件 / dump 出来的内容），
+/// 一个多 GB 的文件即可把索引进程 OOM。
+///
+/// 8 MiB 已属"生成代码"量级的上限（bindgen 类产物通常 < 2 MiB）；超过即**跳过并
+/// 留痕**。刻意选择"跳过"而非"截断读取"：被截断的源码会产出**错误的符号表**，
+/// 比"这个文件没被索引"更糟。
+const MAX_INDEX_FILE_BYTES: u64 = 8 * 1024 * 1024;
+
 /// A symbol extracted from source code.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Symbol {
@@ -86,7 +98,25 @@ impl TreeSitterIndex {
     }
 
     /// Parse a single Rust source file with tree-sitter, extract symbols + chunks.
+    ///
+    /// P0-12（2026-10-01, traecode）：**先看大小，再决定要不要读**（D-38）。
+    /// 原实现直接 `read_to_string` —— 它遍历的是**会话 workspace**，里面可能有
+    /// agent 自己产出的巨型 `.rs`（生成代码 / 误命名的数据文件 / dump 内容），
+    /// 一个多 GB 的文件即可把索引进程 OOM。
+    ///
+    /// 超限**跳过并留痕**（不静默），而不是"读进来再截断"——被截断的源码会产出
+    /// **错误的符号表**，那比"这个文件没被索引"更糟。
     fn parse_rust_file(&mut self, file_path: &Path) -> Result<()> {
+        let size = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+        if size > MAX_INDEX_FILE_BYTES {
+            tracing::warn!(
+                "code-index: 跳过 {}（{} MiB > {} MiB 上限）——不索引超大文件，避免整份读入内存",
+                file_path.display(),
+                size / (1024 * 1024),
+                MAX_INDEX_FILE_BYTES / (1024 * 1024)
+            );
+            return Ok(());
+        }
         let source = std::fs::read_to_string(file_path)?;
         let language = tree_sitter_rust::LANGUAGE;
 
@@ -112,13 +142,14 @@ impl TreeSitterIndex {
     }
 
     fn extract_symbols(&mut self, source: &str, node: &tree_sitter::Node, file: &Path) {
-        for i in 0..node.child_count() {
-            // CODEIDX-1: don't unwrap — a racing tree edit or grammar quirk
-            // yielding None must not panic the indexer; skip the slot instead.
-            let child = match node.child(i) {
-                Some(c) => c,
-                None => continue,
-            };
+        // P0-12（2026-10-01, traecode）：`for i in 0..child_count() { node.child(i) }`
+        // 是 **O(n²)** —— `Node::child(i)` 每次都要从第一个子节点重新数过去。
+        // 实测（本卡红检）：一个 8 MiB 的平坦文件（约 74 万个顶层节点）会让索引
+        // **卡住 2 分钟以上**；`Node::children(cursor)` 一次遍历是 O(n)。
+        // 顺便：`children()` 不会产出 `None`，CODEIDX-1 的"skip the slot"防御
+        // 在此不再需要（该防御针对的是 `child(i)` 的可能缺位）。
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
             let kind_str = child.kind();
 
             let symbol_kind = match kind_str {
@@ -183,12 +214,12 @@ impl TreeSitterIndex {
 
     fn chunk_file(&mut self, source: &str, node: &tree_sitter::Node, file: &Path) {
         // Chunk at top-level item boundaries
-        for i in 0..node.child_count() {
-            // CODEIDX-1: no unwrap (see extract_symbols).
-            let child = match node.child(i) {
-                Some(c) => c,
-                None => continue,
-            };
+        // P0-12：同 `extract_symbols` —— ①用游标把 O(n²) 的 `child(i)` 换成 O(n) 遍历；
+        // ②预先把行切好，避免每个 chunk 都 `source.lines().skip(row)`（那是
+        // O(文件行数) × chunk 数）。
+        let lines: Vec<&str> = source.lines().collect();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
             let kind = child.kind();
 
             // Top-level definitions form chunks
@@ -207,12 +238,9 @@ impl TreeSitterIndex {
             if is_top_level {
                 let start = child.start_position();
                 let end = child.end_position();
-                let content = source
-                    .lines()
-                    .skip(start.row)
-                    .take(end.row - start.row + 1)
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let from = start.row.min(lines.len());
+                let to = (end.row + 1).min(lines.len());
+                let content = lines[from..to].join("\n");
 
                 // Collect symbol names within this chunk
                 let mut chunk_symbols: Vec<String> = Vec::new();
@@ -473,6 +501,45 @@ pub fn init_logger() {
             .filter(|c| c.file.ends_with("main.rs"))
             .collect();
         assert!(!main_chunks.is_empty(), "should have chunks from main.rs");
+    }
+
+    /// P0-12（D-38）**先红后绿**：索引必须**先看大小再读**，超大 `.rs` 一律跳过。
+    ///
+    /// 红侧：修复前 `read_to_string` 不看大小 —— 超大文件会被真的解析，
+    /// 其符号会出现在结果里（断言"不含该符号"失败）；在真实 workspace 上，
+    /// 这一步就是"整份读进内存"。
+    #[tokio::test]
+    async fn test_p0_12_index_skips_oversized_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/small.rs"),
+            "pub fn small_marker_fn() {}\n",
+        )
+        .unwrap();
+
+        // 略超上限，但仍是**合法 Rust**（一个超长注释 + 一个可识别符号）——
+        // 这样"没被索引"只可能是因为大小守卫，而不是解析失败。
+        let pad = "// padding\n".repeat((MAX_INDEX_FILE_BYTES as usize / 11) + 1024);
+        std::fs::write(
+            dir.path().join("src/huge.rs"),
+            format!("{pad}pub fn huge_marker_fn() {{}}\n"),
+        )
+        .unwrap();
+
+        let mut idx = TreeSitterIndex::new();
+        let symbols = idx.index_tree(dir.path()).await.unwrap();
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+
+        assert!(
+            names.contains(&"small_marker_fn"),
+            "正常文件必须照常索引：{names:?}"
+        );
+        assert!(
+            !names.contains(&"huge_marker_fn"),
+            "超过 {} MiB 的文件必须被跳过（修复前会被整份读入并解析）：{names:?}",
+            MAX_INDEX_FILE_BYTES / (1024 * 1024)
+        );
     }
 
     #[tokio::test]
