@@ -126,29 +126,10 @@ impl Tool for GrepTool {
             .has_rg_cache
             .get_or_init(|| has_rg(self.sandbox.clone(), ctx.cwd.clone()))
             .await;
-        let (cmd, argv) = if rg_available {
-            let mut argv: Vec<String> = vec![
-                "--line-number".into(),
-                "--no-heading".into(),
-                "--color=never".into(),
-            ];
-            if let Some(g) = &file_glob {
-                argv.push("--glob".into());
-                argv.push(g.to_string());
-            }
-            argv.push(pattern.to_string());
-            argv.push(search_path.clone());
-            ("rg", argv)
-        } else {
-            let mut argv: Vec<String> = vec!["-rn".into(), "--color=never".into()];
-            if let Some(g) = &file_glob {
-                argv.push("--include".into());
-                argv.push(g.to_string());
-            }
-            argv.push(pattern.to_string());
-            argv.push(search_path.clone());
-            ("grep", argv)
-        };
+        // 2026-10-01 安全修复（traecode）：argv 构造抽为纯函数 `build_search_argv`，
+        // 其中强制插入 `--` 终止选项解析——防 pattern/path 被当选项（见该函数文档）。
+        let (cmd, argv) =
+            build_search_argv(rg_available, file_glob.as_deref(), &pattern, &search_path);
 
         let arg_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
         let output = self
@@ -182,10 +163,72 @@ async fn has_rg(sandbox: Arc<dyn Sandbox>, cwd: PathBuf) -> bool {
         .unwrap_or(false)
 }
 
+/// 构造搜索命令 argv。**抽成纯函数，以便对「选项注入」防护做单测。**
+///
+/// **安全不变量（2026-10-01 修复，traecode）**：`pattern` 与 `path` 之前**必须**插入 `--`。
+/// 二者均来自工具参数，若以 `-` 开头会被 rg/grep **当作选项**解析：
+/// - `--help` 会直接打印帮助文本，并被上层误当"命中结果"返回；
+/// - 更危险的是 `--pre COMMAND`（rg 会对每个文件执行该命令），而紧随 pattern 的位置参数
+///   正是用户可控的 path → **可构成命令执行**。
+///
+/// `--` 终止选项解析后，pattern 与 path 一律按位置参数处理。
+fn build_search_argv(
+    rg_available: bool,
+    file_glob: Option<&str>,
+    pattern: &str,
+    search_path: &str,
+) -> (&'static str, Vec<String>) {
+    let mut argv: Vec<String> = if rg_available {
+        vec![
+            "--line-number".into(),
+            "--no-heading".into(),
+            "--color=never".into(),
+        ]
+    } else {
+        vec!["-rn".into(), "--color=never".into()]
+    };
+    if let Some(g) = file_glob {
+        // 注意：选项必须全部在 `--` 之前，否则会被当位置参数。
+        argv.push(if rg_available { "--glob" } else { "--include" }.into());
+        argv.push(g.to_string());
+    }
+    argv.push("--".into());
+    argv.push(pattern.to_string());
+    argv.push(search_path.to_string());
+    (if rg_available { "rg" } else { "grep" }, argv)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tool_runtime::ToolContext;
+
+    /// 2026-10-01 安全修复回归（**先红后绿**）：`--` 必须存在，且位于 pattern 之前。
+    /// 修复前 argv 为 `[...flags, pattern, path]`——`pattern` 以 `-` 开头即被当选项
+    /// （`--pre COMMAND` 可构成命令执行）。
+    #[test]
+    fn test_search_argv_has_option_separator() {
+        for rg in [true, false] {
+            let (cmd, argv) = build_search_argv(rg, None, "--pre", "whoami");
+            let sep = argv
+                .iter()
+                .position(|a| a == "--")
+                .expect("argv 必须含 `--` 终止选项解析");
+            assert_eq!(argv[sep + 1], "--pre", "pattern 须在 `--` 之后被当位置参数");
+            assert_eq!(argv[sep + 2], "whoami", "path 紧随 pattern");
+            assert_eq!(sep + 2, argv.len() - 1, "`--` 之后应恰为 pattern + path");
+            assert!(cmd == "rg" || cmd == "grep");
+        }
+        // 选项（--glob/--include）必须仍在 `--` 之前，否则自身会被当位置参数
+        let (_, argv) = build_search_argv(true, Some("*.rs"), "fn ", "src");
+        let sep = argv.iter().position(|a| a == "--").unwrap();
+        let gp = argv.iter().position(|a| a == "--glob").unwrap();
+        assert!(gp < sep, "--glob 必须在 `--` 之前");
+        let (_, argv2) = build_search_argv(false, Some("*.rs"), "fn ", "src");
+        let sep2 = argv2.iter().position(|a| a == "--").unwrap();
+        let inc = argv2.iter().position(|a| a == "--include").unwrap();
+        assert!(inc < sep2, "--include 必须在 `--` 之前");
+    }
 
     #[tokio::test]
     async fn test_grep_finds_pattern() {

@@ -15,19 +15,37 @@ fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-/// B3-3: 启动外部程序打开目标（xdg-open / open / start 按平台）。
+/// 2026-10-01 安全修复（traecode）：`open_external` 的 target 来自请求参数
+/// （`GET /api/v1/sessions/:id/artifact/open-external?path=…`），**原先直接交给 shell**
+/// → 构成**命令注入**。
+///
+/// 病灶：Windows 分支原为 `cmd /C start "" <target>`，而 `&`/`|`/`^`/`<`/`>` 等 cmd
+/// 元字符会被当作命令分隔符。触发路径：`?path=http://a%26calc.exe` —— Query 解码后得到
+/// 含 `&` 的字符串 → cmd 视为两条命令，第二条被执行（认证用户 → 宿主机任意命令执行）。
+/// 附带次生缺陷：Windows 分支已在闭包内 `arg(target)`，函数尾部又 `arg(target)` 一次
+/// → target 被传两遍。
+///
+/// 修复：**任何平台都不经 shell** —— Windows 改用 `explorer.exe`（`std::process::Command`
+/// 走 CreateProcess 直接传参，无元字符解析），并去掉重复传参；另加前置校验。
+fn validate_open_target(target: &str) -> anyhow::Result<()> {
+    if target.is_empty() {
+        anyhow::bail!("open target is empty");
+    }
+    if target.chars().any(|c| c.is_control() || c == '"') {
+        anyhow::bail!("open target contains control chars or double quote: rejected");
+    }
+    Ok(())
+}
+
+/// B3-3: 启动外部程序打开目标（xdg-open / open / explorer 按平台）。
+/// 安全：**任何平台都不经 shell**（见上 `validate_open_target` 的修复说明）。
 async fn spawn_open(target: &str) -> anyhow::Result<String> {
-    #[cfg(target_os = "linux")]
-    let mut cmd = std::process::Command::new("xdg-open");
+    validate_open_target(target)?;
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer.exe");
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("cmd");
-        c.arg("/C").arg("start").arg("").arg(target);
-        c
-    };
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let mut cmd = std::process::Command::new("xdg-open");
     cmd.arg(target);
     cmd.spawn()

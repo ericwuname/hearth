@@ -119,9 +119,28 @@ allowlist denies everything).\n\
         // 审计：URL/域/时间（fail-open 侧仍留痕——白名单放行也记）
         tracing::info!(url, host, "web_fetch egress audit");
 
+        // 2026-10-01 安全修复（traecode）：reqwest 默认**自动跟随最多 10 次重定向且不复检
+        // 白名单** → 上面那道德 deny-by-default 出网治理可被一条 302 绕过：
+        // 白名单内某个可控来源页若跳转到 `http://169.254.169.254/…`（云元数据）或
+        // `http://127.0.0.1:…`（本机服务），请求已经发出去了。
+        // 修复：自定义重定向策略——**每一跳都复检白名单**，不通过即中断；并限制跳数。
+        let allowlist_for_redirect = allowlist.clone();
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .user_agent("hearth-agent/0.2 (web_fetch)")
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.previous().len() >= 5 {
+                    return attempt.error("too many redirects (web_fetch cap)");
+                }
+                match attempt.url().host_str() {
+                    Some(h) if egress_allowed(h, &allowlist_for_redirect) => attempt.follow(),
+                    Some(h) => {
+                        tracing::warn!(host = h, "web_fetch redirect denied by egress allowlist");
+                        attempt.error("redirect target not in HEARTH_EGRESS_ALLOWLIST")
+                    }
+                    None => attempt.error("redirect target has no host"),
+                }
+            }))
             .build()?;
         let resp = client
             .get(url)
