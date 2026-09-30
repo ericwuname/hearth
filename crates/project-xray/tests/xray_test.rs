@@ -62,7 +62,7 @@ fn real_workspace_wiring_all_green() {
         // **该改动是有意的、可追溯的**，故按本断言自述的约定（"若是有意改动 spec，请更新此锁"）
         // 更新哈希；能力条数断言（==16）仍独立把关，防删条。
         // 注：26d760e 提交信息自述"待编译验证"，本锁因此长期未更新 → 门禁常红 19 天。
-        spec_hash == 0x5d00c2e4dc7416ae, // 2026-09-30 复算（FNV-1a 64；D-11 处置后重锁）
+        spec_hash == 0x3854ddaf16e6dd1d, // 2026-09-30 复算（FNV-1a 64；头部口径订正后重锁）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

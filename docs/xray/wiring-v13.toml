@@ -1,4 +1,8 @@
-# wiring-v13.toml — 接线断言规格（A3 修正：15 能力断言 / 24 调用链；v13 起"7 条"为旧口径，v22 加 replay-provider-wired 后 15）
+# wiring-v13.toml — 接线断言规格（A3 修正：**16 能力断言 / 27 调用链**；v13 起"7 条"为旧口径，
+# v22 加 replay-provider-wired 后为 15，v0.2.2 天赋增 talent-style-injected 后为 16。
+# 2026-09-30 订正（traecode）：原头部写"15 / 24"为旧口径漏更新，实测为 16 / 27。）
+# 注：其中 2 条（sub-budget-not-halved / no-toolcalls-requires-write）已于 2026-09-30 登记为
+# severity=yellow（能力随 R9 线C手术 D-4/D-8 退役，**留痕不阻断**，待顶层追认）——见各自条目注释。
 #
 # 语义：每条 capability 是一条调用链；每环指向一个文件，
 #   all = 全部子串必须命中（AND）；any = 至少一个子串命中（OR）。
