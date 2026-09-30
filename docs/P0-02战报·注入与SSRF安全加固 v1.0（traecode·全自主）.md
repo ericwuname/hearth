@@ -3,11 +3,12 @@
 - **出品**：traecode　**日期**：2026-10-01　**授权**：用户全权
 - **基线**：`p0-usability-01` @ `1729646`（= 远端 `origin/main`）
 - **方法**：两路并行只读审计（`crates/service` HTTP 层 + `crates/tools-builtin` 全部工具）+ **关键结论亲验**
-- **结论先行**：查出 **9 项确证缺陷**（其中 **3 项为注入/SSRF 类安全缺陷**）。**本卡修 3 项**，
-  其余 6 项按严重度立卡（见第五节）。**全部为新增发现**，与此前修复无重叠。
+- **结论先行**：查出 **9 项确证缺陷**（其中 **4 项为注入/SSRF 类安全缺陷**）。**本卡修 4 项**：
+  `open_external` 命令注入 / `grep` 选项注入 / `web_fetch` 重定向 SSRF /
+  `webhook` 选项注入 + SSRF。其余 5 项按严重度立卡（见第五节）。**全部为新增发现**，与此前修复无重叠。
 
-> 本卡延续 P0-01 的方法论：**"测试全绿"不等于"没有缺陷"**——本卡的 3 项安全缺陷，
-> 在 61 个 target 全绿、clippy 干净的状态下全部存在。
+> 本卡延续 P0-01 的方法论：**"测试全绿"不等于"没有缺陷"**——本卡的 4 项安全缺陷，
+> 在 61 个 target 全绿、clippy 干净的状态下**全部存在**。
 
 ---
 
@@ -76,6 +77,35 @@ argv.push(search_path.clone());
 
 ---
 
+## 三·补、修复 4 · `webhook` 选项注入 + SSRF（比代理初报更严重）
+
+**位置**：`crates/service/src/webhook.rs`（`fire`）
+
+```rust
+let cmd = tokio::process::Command::new("curl")
+    .args(["-s", "-X", "POST", "-H", "…", "-d", &body, &url])   // ← url 原样进 argv
+```
+
+**问题 ①（比"SSRF"更严重）：curl 选项注入 → 宿主机文件读写原语。**
+`url` 虽是最后一个位置参数，但 **curl 会在整个 argv 中解析选项**——只要 `url` 以 `-` 开头
+即被当作选项。例如 `url = "-K/tmp/evil.conf"`（curl 读该配置文件 → 注入任意 curl 选项）
+或 `url = "-o/tmp/out"`（把响应体写到任意路径）。注册一个 webhook 即可获得**宿主机文件读写**。
+
+**问题 ②：SSRF。** 服务端代注册者发请求，可打内网 / 云元数据（`169.254.169.254`）。
+
+**修复**：
+1. 新增纯函数 `validate_webhook_url(raw, allowlist)` —— 强制 `http://`/`https://` 前缀
+   （同时挡掉 `-K…` 这类非 URL 的选项注入）、必须有 host；不通过则**跳过并告警**（不静默）；
+2. **仅在显式设置 `HEARTH_EGRESS_ALLOWLIST` 时**按白名单收紧（支持 `*.domain` 写法）。
+   **默认不阻断**——webhook 的语义本就允许指向任意外部服务，强加白名单会破坏功能本身；
+   与 README「不设/空 = 全放」口径一致。
+3. argv 中 url 前加 `--` 终止选项解析（纵深防御）。
+
+**回归测试** `test_webhook_url_validation`（含选项注入、非法 scheme、白名单命中等 11 个断言）；
+`service` 单测 4 → **5 passed**。
+
+---
+
 ## 四、门禁
 
 | 项 | 结果 |
@@ -94,12 +124,13 @@ argv.push(search_path.clone());
 
 | # | 缺陷 | 位置 | 后果 | 级别 |
 |---|---|---|---|---|
-| 1 | **webhook 任意出网（SSRF）** | `service/src/webhook.rs:37-59` | 接受任意 `url` 直接 `curl`，**不校验** `HEARTH_EGRESS_ALLOWLIST` | **高** |
-| 2 | **会话泄漏 → 无界内存+磁盘** | `agent-runtime/src/session.rs:320`、`:935-961` | 从不 `send_message` 的会话 `finished_at` 恒 `None`，`cleanup_finished` 一律保留；每会话还建 `sessions/{uuid}` 目录 | **高（DoS）** |
-| 3 | **输出全量入内存 → OOM** | `sandbox/src/lib.rs:1204-1217` | 读线程 `read_to_end` 无上限，截断发生在之后；`bash("yes \| head -c 2G")` 可打爆主进程 | **中高** |
-| 4 | **cgroup 失败路径泄漏子进程** | `sandbox/src/lib.rs:1185-1192` | `apply_cgroups_impl` 失败时 `Child` 被 drop（Rust 不 kill 不 wait）→ 孤儿/僵尸 | **中** |
-| 5 | **NoopSandbox 超时不杀进程组** | `sandbox/src/lib.rs:190-193` | Windows 走此路径，`bash -c "sleep 100 &"` 的孙进程成孤儿 | **中** |
-| 6 | **`read` 无字节上限** | `tools-builtin/src/read.rs:105` | 限的是"2000 行"不是字节，单行超大（压缩 JS）会整行入内存 | **中** |
+| 1 | **会话泄漏 → 无界内存+磁盘** | `agent-runtime/src/session.rs:320`、`:935-961` | 从不 `send_message` 的会话 `finished_at` 恒 `None`，`cleanup_finished` 一律保留；每会话还建 `sessions/{uuid}` 目录 | **高（DoS）** |
+| 2 | **输出全量入内存 → OOM** | `sandbox/src/lib.rs:1204-1217` | 读线程 `read_to_end` 无上限，截断发生在之后；`bash("yes \| head -c 2G")` 可打爆主进程 | **中高** |
+| 3 | **cgroup 失败路径泄漏子进程** | `sandbox/src/lib.rs:1185-1192` | `apply_cgroups_impl` 失败时 `Child` 被 drop（Rust 不 kill 不 wait）→ 孤儿/僵尸 | **中** |
+| 4 | **NoopSandbox 超时不杀进程组** | `sandbox/src/lib.rs:190-193` | Windows 走此路径，`bash -c "sleep 100 &"` 的孙进程成孤儿 | **中** |
+| 5 | **`read` 无字节上限** | `tools-builtin/src/read.rs:105` | 限的是"2000 行"不是字节，单行超大（压缩 JS）会整行入内存 | **中** |
+
+> **webhook 任意出网**原列本表第 1 项（**高**），已在同批修复 → 移入「三·补」。
 
 **可疑需验证**（低置信，未展开）：
 - `is_allowed_absolute_roots`（`tools-builtin/src/lib.rs`）放行 HOME 下任意绝对路径，
