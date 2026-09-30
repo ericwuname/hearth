@@ -1,4 +1,8 @@
 // v8.0: Webhook notification system.
+// P0-05（2026-10-01, traecode）：锁访问改走 `recover`——与 per_user/routes 同批清掉
+// "锁中毒 → 其后每次访问都 panic" 这一类（此处数据是 `Vec<WebhookConfig>`，无跨字段
+// 不变式，中毒无保留价值）。
+use crate::lock::recover;
 use serde::{Deserialize, Serialize};
 use std::sync::RwLock;
 
@@ -29,7 +33,7 @@ impl WebhookManager {
 
     /// Register a new webhook.
     pub fn register(&self, cfg: WebhookConfig) {
-        self.hooks.write().unwrap().push(cfg);
+        recover(self.hooks.write()).push(cfg);
     }
 
     /// Fire all webhooks that match the given event name.
@@ -97,14 +101,14 @@ impl WebhookManager {
 
     /// v10.4: Fire matching webhooks from the registry.
     pub async fn fire_event(&self, event: &str, payload: &serde_json::Value) {
-        let hooks = self.hooks.read().unwrap().clone();
+        let hooks = recover(self.hooks.read()).clone();
         if !hooks.is_empty() {
             Self::fire(event, payload, &hooks).await;
         }
     }
 
     pub fn list(&self) -> Vec<WebhookConfig> {
-        self.hooks.read().unwrap().clone()
+        recover(self.hooks.read()).clone()
     }
 }
 

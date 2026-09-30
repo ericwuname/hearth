@@ -1,3 +1,5 @@
+/// P0-05（2026-10-01, traecode）：锁中毒恢复（见模块注释）。
+pub mod lock;
 pub mod per_user;
 pub mod routes;
 pub mod session;

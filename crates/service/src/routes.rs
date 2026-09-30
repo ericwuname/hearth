@@ -493,6 +493,7 @@ pub async fn readyz(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 // P2-1 (audit-fix): ① 429 补 Retry-After；② per-IP 在途维度（单客户端不再
 // 吃满全局额度）；③ /healthz /readyz 豁免限流（探针不应被限流拒）。
 
+use crate::lock::recover;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -517,6 +518,79 @@ fn rate_limit_response(reason: &str) -> Response {
     resp
 }
 
+/// P0-05: 限流拒绝原因（用于 429 文案与单测断言）。
+#[derive(Debug, PartialEq, Eq)]
+enum LimitKind {
+    PerIp,
+    Global,
+}
+
+/// 在途计数的 **RAII 守卫**（P0-05, 2026-10-01, traecode）。
+///
+/// 病灶（原实现）：在函数尾部**手动** `fetch_sub` / 回退 per-IP 计数。
+/// 一旦 `next.run(req).await` **panic 并 unwind**（handler 内任何 panic，例如
+/// 修复前的 `per_user.civ_for` `.expect()`），这些递减语句**永不执行** →
+/// `PER_IP_INFLIGHT[ip]` 与全局 `P1_TOTAL_INFLIGHT` **双双单调泄漏**。
+/// 放大链：同一 IP 泄漏到 50 → 该 IP **永久 429**；全局泄漏到 500 → **整站永久 429**
+/// （且健康端点虽豁免，业务面已全灭）。即"一个可复现的 handler panic"被放大成全局 DoS。
+///
+/// `Drop` 在 unwind 展开时**仍会执行**，故改为守卫持有计数、析构时成对归还。
+struct InflightGuard {
+    ip: Option<IpAddr>,
+}
+
+/// 归还一个 IP 的在途计数（计数为 1 时移除条目，避免 map 无界增长）。
+fn release_ip(ip: Option<IpAddr>) {
+    if let Some(ip) = ip {
+        let mut map = recover(
+            PER_IP_INFLIGHT
+                .get_or_init(|| Mutex::new(HashMap::new()))
+                .lock(),
+        );
+        if let Some(v) = map.get_mut(&ip) {
+            if *v > 1 {
+                *v -= 1;
+            } else {
+                map.remove(&ip);
+            }
+        }
+    }
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        P1_TOTAL_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
+        release_ip(self.ip);
+    }
+}
+
+/// 尝试占用一个在途名额；成功返回守卫，超限返回原因。
+///
+/// P0-05：锁访问改走 `recover`（中毒不升级为"每个请求都 panic"，见 D-25）。
+fn enter(ip: Option<IpAddr>) -> Result<InflightGuard, LimitKind> {
+    if let Some(ip) = ip {
+        let mut map = recover(
+            PER_IP_INFLIGHT
+                .get_or_init(|| Mutex::new(HashMap::new()))
+                .lock(),
+        );
+        let n = map.entry(ip).or_insert(0);
+        if *n >= P1_MAX_PER_IP {
+            return Err(LimitKind::PerIp);
+        }
+        *n += 1;
+    }
+    // 全局总量（洪水防护，上限放宽到 per-IP 的 10 倍）
+    let total = P1_TOTAL_INFLIGHT.fetch_add(1, Ordering::Relaxed);
+    if total >= P1_MAX_TOTAL {
+        P1_TOTAL_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
+        // 全局拒绝时回退已占用的 per-IP 名额（保持原有语义）
+        release_ip(ip);
+        return Err(LimitKind::Global);
+    }
+    Ok(InflightGuard { ip })
+}
+
 /// P1: per-IP + 全局并发限流——容量内透传，超限 429 + Retry-After。
 pub async fn concurrency_limit(req: Request, next: Next) -> Result<Response, StatusCode> {
     // P2-1: 健康端点豁免限流（探针必须可到达）
@@ -529,52 +603,92 @@ pub async fn concurrency_limit(req: Request, next: Next) -> Result<Response, Sta
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip());
-    if let Some(ip) = peer_ip {
-        let mut map = PER_IP_INFLIGHT
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap();
-        let n = map.entry(ip).or_insert(0);
-        if *n >= P1_MAX_PER_IP {
-            return Ok(rate_limit_response(&format!("per-ip limit ({ip})")));
+    // P0-05：名额由守卫持有，handler panic 时也能归还（原先会泄漏 → 永久 429）。
+    let _guard = match enter(peer_ip) {
+        Ok(g) => g,
+        Err(LimitKind::PerIp) => {
+            return Ok(rate_limit_response(&format!(
+                "per-ip limit ({})",
+                peer_ip.map(|i| i.to_string()).unwrap_or_default()
+            )));
         }
-        *n += 1;
-    }
-    // 全局总量（洪水防护，上限放宽到 per-IP 的 10 倍）
-    let total = P1_TOTAL_INFLIGHT.fetch_add(1, Ordering::Relaxed);
-    if total >= P1_MAX_TOTAL {
-        P1_TOTAL_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
-        if let Some(ip) = peer_ip {
-            let mut map = PER_IP_INFLIGHT
-                .get_or_init(|| Mutex::new(HashMap::new()))
-                .lock()
-                .unwrap();
-            if let Some(v) = map.get_mut(&ip) {
-                if *v > 1 {
-                    *v -= 1;
-                } else {
-                    map.remove(&ip);
-                }
+        Err(LimitKind::Global) => return Ok(rate_limit_response("global limit")),
+    };
+    Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+mod p0_05_tests {
+    use super::*;
+
+    /// 先红后绿：修复前计数在函数尾部**手动**归还，`next.run(req).await` panic 展开时
+    /// 那段代码不会执行 → per-IP 与全局两个计数**单调泄漏** → 累积到上限即
+    /// "该 IP 永久 429 / 整站永久 429"。此处直接对守卫做 unwind 断言。
+    ///
+    /// 三个断言写在**同一个**测试函数里：它们共享全局静态计数器，拆成多个测试
+    /// 并行跑会互相干扰。
+    #[test]
+    fn test_p0_05_inflight_guard_releases_on_unwind() {
+        fn per_ip_of(ip: IpAddr) -> usize {
+            recover(
+                PER_IP_INFLIGHT
+                    .get_or_init(|| Mutex::new(HashMap::new()))
+                    .lock(),
+            )
+            .get(&ip)
+            .copied()
+            .unwrap_or(0)
+        }
+
+        let ip: IpAddr = "10.99.0.1".parse().unwrap();
+
+        // ① 正常路径：占用后归还（含 per-IP 条目清理，防 map 无界增长）。
+        let base_total = P1_TOTAL_INFLIGHT.load(Ordering::SeqCst);
+        {
+            let _g = enter(Some(ip)).expect("容量内应放行");
+            assert_eq!(per_ip_of(ip), 1, "占用时应计数 1");
+            assert_eq!(P1_TOTAL_INFLIGHT.load(Ordering::SeqCst), base_total + 1);
+        }
+        assert_eq!(per_ip_of(ip), 0, "归还后 per-IP 条目应被移除");
+        assert_eq!(
+            P1_TOTAL_INFLIGHT.load(Ordering::SeqCst),
+            base_total,
+            "归还后全局计数应回到基线"
+        );
+
+        // ② panic / unwind 路径（本卡核心缺陷）。
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = enter(Some(ip)).expect("容量内应放行");
+            panic!("simulated handler panic");
+        }));
+        assert!(r.is_err(), "前置条件：闭包确实 panic 了");
+        assert_eq!(
+            per_ip_of(ip),
+            0,
+            "panic 后 per-IP 计数必须归还（修复前泄漏 → 累积 50 次即该 IP 永久 429）"
+        );
+        assert_eq!(
+            P1_TOTAL_INFLIGHT.load(Ordering::SeqCst),
+            base_total,
+            "panic 后全局计数必须归还（修复前泄漏 → 累积 500 次即整站永久 429）"
+        );
+
+        // ③ per-IP 上限语义未被本次改动破坏：容量内放行、超限拒绝、释放后清零。
+        let ip2: IpAddr = "10.99.0.2".parse().unwrap();
+        let mut held = Vec::new();
+        for i in 0..P1_MAX_PER_IP {
+            match enter(Some(ip2)) {
+                Ok(g) => held.push(g),
+                Err(e) => panic!("第 {i} 个名额应放行，实得 {e:?}"),
             }
         }
-        return Ok(rate_limit_response("global limit"));
+        assert!(
+            matches!(enter(Some(ip2)), Err(LimitKind::PerIp)),
+            "超出 per-IP 上限必须拒绝"
+        );
+        drop(held);
+        assert_eq!(per_ip_of(ip2), 0, "全部释放后应清空");
     }
-    let resp = next.run(req).await;
-    P1_TOTAL_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
-    if let Some(ip) = peer_ip {
-        let mut map = PER_IP_INFLIGHT
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap();
-        if let Some(v) = map.get_mut(&ip) {
-            if *v > 1 {
-                *v -= 1;
-            } else {
-                map.remove(&ip);
-            }
-        }
-    }
-    Ok(resp)
 }
 
 // ── 6C v6.0: Civilization Line handlers ──
@@ -582,13 +696,23 @@ pub async fn concurrency_limit(req: Request, next: Next) -> Result<Response, Sta
 use agent_types::{CivAuthor, CivCategory, CivEntry};
 
 /// GET /api/v1/civilization — recent civ entries.
+///
+/// P0-05：`civ_for` 失败改为 500（**不再**在请求路径 panic —— 那会毒掉 civ 锁，
+/// 把一次 I/O 错误放大成该接口全站永久不可用）。
 pub async fn get_civ_feed(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let uid = get_user_id(&headers, &state.user_store);
-    let entries = state.per_user.civ_for(&uid).recent(50);
-    Json(serde_json::json!({ "entries": entries }))
+    let store = state.per_user.civ_for(&uid).map_err(|e| {
+        api_err(
+            ERR_INTERNAL,
+            format!("{e}"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
+    let entries = store.recent(50);
+    Ok(Json(serde_json::json!({ "entries": entries })))
 }
 
 /// POST /api/v1/civilization — manual civ post.
@@ -620,13 +744,24 @@ pub async fn post_civ_entry(
         tags: vec![],
     };
     let uid = get_user_id(&headers, &state.user_store);
-    state.per_user.civ_for(&uid).append(entry).map_err(|e| {
-        api_err(
-            ERR_INTERNAL,
-            format!("{e}"),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
+    state
+        .per_user
+        .civ_for(&uid)
+        .map_err(|e| {
+            api_err(
+                ERR_INTERNAL,
+                format!("{e}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?
+        .append(entry)
+        .map_err(|e| {
+            api_err(
+                ERR_INTERNAL,
+                format!("{e}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -635,13 +770,21 @@ pub async fn post_civ_entry(
 use agent_types::{WorkCategory, WorkNode, WorkStatus};
 
 /// GET /api/v1/workline — list tasks.
+/// P0-05：同 `get_civ_feed`——失败返回 500，不在请求路径 panic（防锁中毒 DoS）。
 pub async fn get_workline(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let uid = get_user_id(&headers, &state.user_store);
-    let nodes = state.per_user.workline_for(&uid).list(None);
-    Json(serde_json::json!({ "nodes": nodes }))
+    let store = state.per_user.workline_for(&uid).map_err(|e| {
+        api_err(
+            ERR_INTERNAL,
+            format!("{e}"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
+    let nodes = store.list(None);
+    Ok(Json(serde_json::json!({ "nodes": nodes })))
 }
 
 /// POST /api/v1/workline/nodes — create task.
@@ -677,6 +820,13 @@ pub async fn create_work_node(
     state
         .per_user
         .workline_for(&uid)
+        .map_err(|e| {
+            api_err(
+                ERR_INTERNAL,
+                format!("{e}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?
         .add(node.clone())
         .map_err(|e| {
             api_err(
@@ -710,6 +860,13 @@ pub async fn update_work_node(
     state
         .per_user
         .workline_for(&uid)
+        .map_err(|e| {
+            api_err(
+                ERR_INTERNAL,
+                format!("{e}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?
         .update(&id, progress, status)
         .map_err(|e| {
             api_err(

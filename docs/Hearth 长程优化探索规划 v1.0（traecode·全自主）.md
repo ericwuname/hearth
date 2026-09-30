@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**四张卡已收官**（每卡独立 commit + 全量门禁 + 推送）：
+**五张卡已收官**（每卡独立 commit + 全量门禁 + 推送）：
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -17,6 +17,8 @@
 | P1-01 | `b0c89bc` | 逐 crate 体检：3 个"只写不读"死接线 + `project-sync` 整 crate 死亡 + 测试盲区 |
 | P1-02 | `917e3cf` `1729646` | xray 字符串状态缺陷 + 3 条能力锁定处置 + 死接线加锁 → **全量门禁首次全绿** |
 | P0-02 | `503911c` `e4393f2` | **4 项注入/SSRF 安全缺陷**（命令注入 / 选项注入 ×2 / 重定向 SSRF） |
+| P0-04 | `539f4fc` | 会话无界泄漏（高 DoS）+ webhook 静默失败 + 打开结果误报；D-23 专项再命中 2 处 |
+| P0-05 | （见下文） | **服务端 DoS 面**：D-24/D-25 + 新发现 D-27（限流计数 panic 泄漏 → 整站永久 429）/D-28 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**。
 
@@ -161,8 +163,10 @@
 | **D-13** | 仓库提交态非 fmt-clean（`cargo fmt --all` 改动了未触碰的 `codex-cli/src/session_store.rs`） | 本卡发现 | 既有 | P1 立卡 |
 | **D-14** | `SPEC` 顶部注释亦为旧口径（写"15 能力/24 链"，实测 16 / 27） | 本卡发现 | **已订正**（commit `1729646`） | **close** |
 | **D-17** | **会话泄漏 → 无界内存 + 磁盘**（从未 `send_message` 的会话 `finished_at` 恒 `None` → 落入"Active: always keep" → 永不回收；工作区目录同泄漏） | P0-02 审计 → P0-04 | **已修**：`Session` 加 `created_at`，`None` 分支按 idle TTL 回收非运行中者（`running=true` 永不触碰）；回归测试已重写 | **close** |
-| **D-24** | `service/src/per_user.rs` 请求路径上的 `.expect()` + **panic 持锁 → 锁中毒 → 其后所有 `civ.write().unwrap()` 二次 panic → civ 接口全站 DoS** | P0-04 专项扫描 | 确证 | **中高 · 待修** |
-| **D-25** | `service/src/routes.rs` 限流中间件 `lock().unwrap()`——中毒后**每个请求** panic（影响面全站） | P0-04 专项扫描 | 确证 | 中 · 待修 |
+| **D-24** | `service/src/per_user.rs` 请求路径上的 `.expect()` + **panic 持锁 → 锁中毒 → 其后所有 `civ.write().unwrap()` 二次 panic → civ 接口全站 DoS** | P0-04 专项扫描 | **已修**：签名改 `Result` 上抛 + `lock::recover` 中毒不升级；`webhook`/`user` 同类项一并清理 | **close** |
+| **D-25** | `service/src/routes.rs` 限流中间件 `lock().unwrap()`——中毒后**每个请求** panic（影响面全站） | P0-04 专项扫描 | **已修**：`recover` | **close** |
+| **D-27** | **限流在途计数在 handler panic 时单调泄漏**（尾部手动 `fetch_sub` 在 unwind 中不执行）→ 同一 IP 泄漏 50 次即该 IP 永久 429、全局泄漏 500 次即**整站永久 429** | P0-05 新发现 | **已修**：改 RAII `InflightGuard`（`Drop` 在 unwind 时仍执行）+ 单测锁定 | **close** |
+| **D-28** | `service/src/user.rs`（**每请求鉴权路径**）与 `webhook.rs` 的 `lock().unwrap()`——同 D-24/D-25 缺陷类，残留即全站级失败通道 | P0-05 新发现 | **已修**：`recover` | **close** |
 | **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | 确证（注释虚构防护层） | 中 · 待修 |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | 确证（`sandbox/src/lib.rs:1204-1217`） | **中高 ·待修** |
 | **D-19** | **cgroup 失败路径泄漏子进程**（`Child` 被 drop，Rust 不 kill 不 wait） | P0-02 审计 | 确证（`sandbox/src/lib.rs:1185-1192`） | 中 · 待修 |

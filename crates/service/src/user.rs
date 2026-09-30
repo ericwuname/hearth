@@ -1,4 +1,7 @@
 // v8.0: Multi-user support — maps API keys to user identities.
+// P0-05（2026-10-01, traecode）：锁访问改走 `recover`——`find` 在**每个请求**的
+// 鉴权路径上，旧 `.unwrap()` 一旦因中毒而炸即等于全站鉴权不可用。
+use crate::lock::recover;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -21,12 +24,12 @@ impl UserStore {
 
     /// Look up user_id from API key. Returns None if key not recognized.
     pub fn find(&self, api_key: &str) -> Option<String> {
-        self.keys.read().unwrap().get(api_key).cloned()
+        recover(self.keys.read()).get(api_key).cloned()
     }
 
     /// Register a new API key → user mapping.
     pub fn register(&self, api_key: String, user_id: String) {
-        self.keys.write().unwrap().insert(api_key, user_id);
+        recover(self.keys.write()).insert(api_key, user_id);
     }
 }
 
