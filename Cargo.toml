@@ -27,7 +27,7 @@ members = [
   "crates/llm-replay",
   "crates/observer",
   "crates/agent-runtime",
-  "crates/project-sync",
+  "crates/bounded-io",
 ]
 
 [workspace.package]
@@ -76,6 +76,8 @@ lsp-bridge = { path = "crates/lsp-bridge" }
 planner = { path = "crates/planner" }
 bridge = { path = "crates/bridge" }
 agent-runtime = { path = "crates/agent-runtime" }
+# D-33 收敛（2026-10-01）：有界读入 / 有界排空 / 进程树回收的共用安全原语
+bounded-io = { path = "crates/bounded-io" }
 llm-openai = { path = "crates/llm-openai" }
 llm-local = { path = "crates/llm-local" }
 tools-builtin = { path = "crates/tools-builtin" }

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 [dependencies]
+bounded-io.workspace = true
 tool-runtime.workspace = true
 agent-types.workspace = true
 sandbox.workspace = true

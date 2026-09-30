@@ -1,0 +1,12 @@
+[package]
+name = "bounded-io"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["io-util", "fs"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

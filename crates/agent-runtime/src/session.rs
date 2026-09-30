@@ -4,6 +4,8 @@ use api::{
     AgentEvent, ApprovalReq, HistoryEntry, MessageReq, SessionCreate, SessionCreateResponse,
     SessionHistory, SessionStatus,
 };
+/// D-33 收敛：有界读入 / 有界排空 / 树杀的共用实现。
+use bounded_io::{read_file_text_capped, MAX_CAPTURED_BYTES};
 use experience::ExperienceStore;
 use llm_gateway::{CostMeter, ProviderRegistry, Usage};
 use memory::{MemoryStore, SessionRecord, StoredEvent};
@@ -14,7 +16,7 @@ fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-/// P0-08（2026-10-01, traecode）：产物预览的**字节**上限。
+/// P0-08 / D-33：产物预览的**字节**上限与有界读取。
 ///
 /// 病灶（D-31）：`open_artifact` 原用 `tokio::fs::read_to_string` —— 把文件**整份**
 /// 读进内存，再作为 HTTP 响应体原样返回，**没有任何上限**。而该文件就在会话
@@ -22,40 +24,8 @@ fn is_http_url(s: &str) -> bool {
 /// 导出、一次网页抓取落盘……）——一个多 GB 的产物即可把**服务端** OOM。
 /// 触发成本：一次 `GET /api/v1/sessions/:id/artifact/open?path=…`。
 ///
-/// 取 8 MiB：与 `read` 工具同口径（预览正常源码/日志绰绰有余）；命中即**明确留痕**。
-const MAX_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024;
-
-/// P0-08：有界读取文本文件。返回 `(内容, 是否被截断)`。
-///
-/// - 最多读 `cap` 字节（多读 1 字节用于判断"后面还有没有"）；
-/// - **截断时**退到最后一个合法 UTF-8 边界（截断点可能切断多字节字符，
-///   但原文件本身是合法 UTF-8，只是我们主动只读了一段）；
-/// - **未截断时**保持原语义：非 UTF-8 一律报错（不静默 lossy）。
-async fn read_text_capped(path: &std::path::Path, cap: u64) -> std::io::Result<(String, bool)> {
-    use tokio::io::AsyncReadExt;
-    let mut file = tokio::fs::File::open(path).await?;
-    let mut raw = Vec::new();
-    (&mut file).take(cap + 1).read_to_end(&mut raw).await?;
-    let truncated = raw.len() as u64 > cap;
-    if truncated {
-        raw.truncate(cap as usize);
-    }
-    let text = if truncated {
-        match String::from_utf8(raw) {
-            Ok(s) => s,
-            Err(e) => {
-                let valid = e.utf8_error().valid_up_to();
-                let bytes = e.into_bytes();
-                String::from_utf8(bytes[..valid].to_vec())
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
-            }
-        }
-    } else {
-        String::from_utf8(raw)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
-    };
-    Ok((text, truncated))
-}
+/// D-33 收敛（2026-10-01，顶层裁决「收敛」）：实现与上限都已改用共享 crate
+/// `bounded_io`（语义：读到上限、退合法 UTF-8 边界、未截断时严格拒绝非 UTF-8）。
 
 /// 2026-10-01 安全修复（traecode）：`open_external` 的 target 来自请求参数
 /// （`GET /api/v1/sessions/:id/artifact/open-external?path=…`），**原先直接交给 shell**
@@ -479,15 +449,15 @@ impl SessionManager {
         if !full.starts_with(&ws) {
             anyhow::bail!("path outside workspace denied: {rel_path}");
         }
-        let (mut content, truncated) = read_text_capped(&full, MAX_ARTIFACT_BYTES)
+        let (mut content, truncated) = read_file_text_capped(&full, MAX_CAPTURED_BYTES as u64)
             .await
             .map_err(|e| anyhow::anyhow!("read artifact {rel_path} failed: {e}"))?;
         // P0-08：截断**不静默**——预览者必须知道自己看的不是全貌。
         if truncated {
             content.push_str(&format!(
                 "\n\n[hearth] 产物超过 {} MiB，预览仅显示前 {} MiB（要看完整内容请在会话工作区内直接打开该文件）。\n",
-                MAX_ARTIFACT_BYTES / (1024 * 1024),
-                MAX_ARTIFACT_BYTES / (1024 * 1024)
+                MAX_CAPTURED_BYTES / (1024 * 1024),
+                MAX_CAPTURED_BYTES / (1024 * 1024)
             ));
         }
         Ok(content)
@@ -1200,50 +1170,8 @@ mod tests {
         assert!(resp.is_err());
     }
 
-    /// P0-08（D-31）**先红后绿**：产物预览必须有**字节**上限。
-    /// 红侧：原实现 `read_to_string` 把整份文件读进内存，`cap` 无从谈起。
-    #[tokio::test]
-    async fn test_p0_08_read_text_capped_bounds_bytes() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("big.txt");
-        std::fs::write(&p, "C".repeat(4096 + 100)).unwrap();
-
-        let (text, truncated) = read_text_capped(&p, 4096).await.unwrap();
-        assert_eq!(
-            text.len(),
-            4096,
-            "保留量必须被 cap 钳住（修复前等于整份文件长度）"
-        );
-        assert!(truncated, "超限必须报告截断（不静默）");
-
-        // 边界：恰好等于上限 → 不算截断。
-        let exact = dir.path().join("exact.txt");
-        std::fs::write(&exact, "D".repeat(4096)).unwrap();
-        let (text, truncated) = read_text_capped(&exact, 4096).await.unwrap();
-        assert_eq!(text.len(), 4096);
-        assert!(!truncated);
-    }
-
-    /// P0-08 边界：截断点切断多字节字符时，须退到合法 UTF-8 边界
-    /// （既不引入替换符，也不因此报错）。
-    #[tokio::test]
-    async fn test_p0_08_read_text_capped_utf8_boundary() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("cjk.txt");
-        std::fs::write(&p, "中文文件").unwrap(); // 每字 3 字节，共 12 字节
-        let (text, truncated) = read_text_capped(&p, 4).await.unwrap();
-        assert!(truncated);
-        assert_eq!(text, "中", "cap=4 切在第二个字中间，必须退到合法边界");
-    }
-
-    /// P0-08 边界：**未**截断时保持原语义——非 UTF-8 一律报错（不静默 lossy）。
-    #[tokio::test]
-    async fn test_p0_08_read_text_capped_rejects_non_utf8_when_not_truncated() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("bin.dat");
-        std::fs::write(&p, [0xff_u8, 0xfe, 0x00, 0x01]).unwrap();
-        assert!(read_text_capped(&p, 4096).await.is_err());
-    }
+    // D-33 收敛：原 P0-08 的 3 条 `read_text_capped` 辅助单测已随之搬到
+    // `bounded_io::tests`（实现去哪、测试去哪）。
 
     /// OOM-1 regression: finished sessions past TTL are evicted; active
     /// sessions and recently-finished sessions are kept.

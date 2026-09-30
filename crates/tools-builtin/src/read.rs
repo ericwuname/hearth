@@ -21,15 +21,15 @@ impl Default for ReadTool {
 /// 字符截断死结，引擎亲口承认过；中段丢弃后模型不知有截断）。
 const DEFAULT_LINE_CAP: usize = 2000;
 
-/// P0-06（2026-10-01, traecode）：单次 `read` 读取的**字节**上限。
+/// P0-06 / D-33：单次 `read` 读取的**字节**上限。
 ///
 /// 病灶（D-21）：原实现用 `tokio::fs::read_to_string` 把**整个文件**读进内存，
 /// 再在内存里分页——`limit` 限的只是"返回多少行"，**完全不限制读入量**。
 /// 一个 10 GiB 的巨型文件（尤其单行文件）即可把 hearth OOM。
 ///
-/// 取 8 MiB：远大于 `DEFAULT_LINE_CAP` 行正常源码的体积（2000 行 × 数百字节），
-/// **正常用法零影响**；只有病态文件才命中，且会**明确留痕**（不静默）。
-const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
+/// D-33 收敛（2026-10-01，顶层裁决「收敛」）：读取实现与上限都已改用共享 crate
+/// `bounded_io`（8 MiB 远大于 `DEFAULT_LINE_CAP` 行正常源码的体积 → 正常用法零影响）。
+use bounded_io::{read_file_text_capped, MAX_CAPTURED_BYTES as MAX_READ_BYTES};
 
 #[async_trait]
 impl Tool for ReadTool {
@@ -116,43 +116,10 @@ impl Tool for ReadTool {
         // P0-06（2026-10-01, traecode）：原为 `tokio::fs::read_to_string`——**整文件入内存**，
         // `limit` 管不住读入量（D-21）。改为有界读取：最多读 MAX_READ_BYTES（+1 字节
         // 用于探测"后面还有没有"），超限则截断并在输出末尾明确留痕。
-        let mut file = tokio::fs::File::open(&path)
-            .await
-            .map_err(|e| anyhow!("read failed for {}: {e}", path.display()))?;
-        let mut raw = Vec::new();
-        {
-            use tokio::io::AsyncReadExt;
-            (&mut file)
-                .take(MAX_READ_BYTES + 1)
-                .read_to_end(&mut raw)
+        let (content, byte_truncated) =
+            read_file_text_capped(&path, MAX_READ_BYTES as u64)
                 .await
                 .map_err(|e| anyhow!("read failed for {}: {e}", path.display()))?;
-        }
-        let byte_truncated = raw.len() as u64 > MAX_READ_BYTES;
-        if byte_truncated {
-            raw.truncate(MAX_READ_BYTES as usize);
-        }
-        let content = if byte_truncated {
-            // 截断点可能切断多字节字符：退到最后一个合法 UTF-8 边界（不引入替换符，
-            // 也不因此报错——原文件本身是合法 UTF-8，只是我们主动只读了一段）。
-            match String::from_utf8(raw) {
-                Ok(s) => s,
-                Err(e) => {
-                    let valid = e.utf8_error().valid_up_to();
-                    let bytes = e.into_bytes();
-                    String::from_utf8(bytes[..valid].to_vec())
-                        .expect("valid_up_to 之前必为合法 UTF-8")
-                }
-            }
-        } else {
-            // 未截断时保持原语义：非 UTF-8 一律报错（不静默 lossy）。
-            String::from_utf8(raw).map_err(|_| {
-                anyhow!(
-                    "read failed for {}: stream did not contain valid UTF-8",
-                    path.display()
-                )
-            })?
-        };
 
         // ── R5-5: 分页 + 行号（cat -n 格式）——大文件可分页读取，截断必带
         // "如何读剩余部分"提示。offset/limit 均为 1-based 行号（对 LLM 直观）。

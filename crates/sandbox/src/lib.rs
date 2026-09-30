@@ -147,131 +147,34 @@ pub fn create_sandbox(config: SandboxConfig) -> Box<dyn Sandbox> {
     }
 }
 
-// ── P0-06（2026-10-01, traecode）：有界输出排空 ──
+// ── P0-06 / D-33：有界输出排空（实现已收敛到 `bounded-io` crate）──
 //
-// 病灶：**两条后端路径都把子进程 stdout/stderr 全量塞进内存**——LinuxSandbox 的读
-// 线程用 `Read::read_to_end`，NoopSandbox（含 Windows 运行时）用 `Command::output()`。
-// 任何失控输出（`yes`、`cat /dev/zero`、死循环打印）都能把 hearth 自身 OOM；
-// 而"截断"若发生在其后，根本救不了这一步（内存已经吃满）。
+// 病灶（P0-06 修）：**两条后端路径都把子进程 stdout/stderr 全量塞进内存**——
+// LinuxSandbox 的读线程用 `Read::read_to_end`，NoopSandbox（含 Windows 运行时）
+// 用 `Command::output()`。任何失控输出（`yes`、`cat /dev/zero`、死循环打印）
+// 都能把 hearth 自身 OOM；而"截断"若发生在其后，根本救不了这一步。
 //
-// 修法要点：**必须继续排空**——否则子进程会因管道写满而永久阻塞（那样会把 OOM
-// 换成死锁）。所以不能简单用 `Read::take`；正确做法是持续 read，但只保留前
-// `cap` 字节，并回报"是否截断"（不静默丢内容）。
+// 修法要点（**现在只有一处定义**，见 `bounded_io` 模块文档）：
+// **必须继续排空到 EOF**——否则子进程会因管道写满而永久阻塞（把 OOM 换成死锁）。
+// 所以不能简单用 `Read::take`；正确做法是持续 read，但只保留前 `cap` 字节。
 //
-// 这两个辅助函数刻意放在 **crate 顶层**（而非 `cfg(target_os = "linux")` 模块内）：
-// 它们在 Windows 上也能编译并被单测覆盖，本机即可验证边界行为。
-
-/// 单条流（stdout 或 stderr）保留的字节上限。
-///
-/// 8 MiB 远大于任何正常命令输出（`cargo test` 全量日志通常也在数百 KiB 量级），
-/// 同时把"失控输出"从"OOM 整个进程"退化为"截断 + 明确留痕"。
-pub const MAX_CAPTURED_BYTES: usize = 8 * 1024 * 1024;
-
-/// 排空一个**同步**读端（LinuxSandbox 的阻塞读线程用），最多保留 `cap` 字节。
-///
-/// 返回 `(保留数据, 是否发生截断)`。读错误按"拿到多少算多少"处理（与原先
-/// `let _ = read_to_end(..)` 的宽容语义一致）——不因排空失败丢掉整段输出。
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub fn drain_capped_std<R: std::io::Read>(mut r: R, cap: usize) -> (Vec<u8>, bool) {
-    let mut kept = Vec::new();
-    let mut chunk = [0u8; 64 * 1024];
-    let mut truncated = false;
-    loop {
-        match r.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                let room = cap.saturating_sub(kept.len());
-                if n > room {
-                    truncated = true;
-                }
-                kept.extend_from_slice(&chunk[..room.min(n)]);
-            }
-            Err(_) => break,
-        }
-    }
-    (kept, truncated)
-}
-
-/// 排空一个**异步**读端（NoopSandbox 用），语义同 [`drain_capped_std`]。
-pub async fn drain_capped_async<R: tokio::io::AsyncRead + Unpin>(
-    mut r: R,
-    cap: usize,
-) -> (Vec<u8>, bool) {
-    use tokio::io::AsyncReadExt;
-    let mut kept = Vec::new();
-    let mut chunk = vec![0u8; 64 * 1024];
-    let mut truncated = false;
-    loop {
-        match r.read(&mut chunk).await {
-            Ok(0) => break,
-            Ok(n) => {
-                let room = cap.saturating_sub(kept.len());
-                if n > room {
-                    truncated = true;
-                }
-                kept.extend_from_slice(&chunk[..room.min(n)]);
-            }
-            Err(_) => break,
-        }
-    }
-    (kept, truncated)
-}
+// D-33 收敛（2026-10-01，顶层裁决「收敛」）：原先这里有 `drain_capped_std` /
+// `drain_capped_async` 的一份实现，另有 `tools-builtin` / `agent-runtime` /
+// `agent-core` 各一份**语义必须一致**的副本 → 已全部改为引用 `bounded_io`。
+use bounded_io::{drain_capped_async, kill_process_tree, MAX_CAPTURED_BYTES};
+// `drain_capped_std` 只被 `cfg(target_os = "linux")` 的阻塞读线程使用——
+// 非 Linux 上引入会触发 unused_imports（原先本地实现靠 `cfg_attr(allow(dead_code))`
+// 规避同一问题）。
+#[cfg(target_os = "linux")]
+use bounded_io::drain_capped_std;
 
 #[cfg(test)]
 mod p0_06_tests {
     use super::*;
 
-    /// 先红后绿（红侧）：修复前这里是 `Read::read_to_end`——**无上限**，
-    /// 10 GiB 输出就吃 10 GiB 内存。绿侧要求：保留量被 `cap` 钳住。
-    #[test]
-    fn test_p0_06_drain_capped_std_bounds_kept_bytes() {
-        let data = vec![b'a'; 100 * 1024];
-        let mut cursor = std::io::Cursor::new(data.clone());
-        let (kept, truncated) = drain_capped_std(&mut cursor, 4096);
-        assert_eq!(kept.len(), 4096, "保留量必须被上限钳住（修复前等于全长）");
-        assert!(truncated, "超限必须报告截断（不静默）");
-        assert_eq!(
-            cursor.position(),
-            data.len() as u64,
-            "必须**继续排空到 EOF**——若图省事用 `take(cap)` 提前停读，\
-             子进程会因管道写满而永久阻塞（把 OOM 换成死锁）"
-        );
-    }
-
-    #[test]
-    fn test_p0_06_drain_capped_std_exact_fit_not_truncated() {
-        let data = vec![b'x'; 4096];
-        let (kept, truncated) = drain_capped_std(&data[..], 4096);
-        assert_eq!(kept.len(), 4096);
-        assert!(!truncated, "恰好等于上限不算截断");
-    }
-
-    #[test]
-    fn test_p0_06_drain_capped_std_empty_and_small_input() {
-        let (kept, truncated) = drain_capped_std(&b""[..], 4096);
-        assert!(kept.is_empty());
-        assert!(!truncated);
-
-        let (kept, truncated) = drain_capped_std(&b"hi"[..], 4096);
-        assert_eq!(kept, b"hi");
-        assert!(!truncated);
-    }
-
-    /// 异步版（NoopSandbox 走这条）：语义必须与同步版一致。
-    #[tokio::test]
-    async fn test_p0_06_drain_capped_async_bounds_kept_bytes() {
-        use tokio::io::AsyncWriteExt;
-        let (mut w, r) = tokio::io::duplex(64 * 1024);
-        let payload = vec![b'z'; 100 * 1024];
-        let writer = tokio::spawn(async move {
-            let _ = w.write_all(&payload).await;
-            drop(w); // 关写端 → 读者才能命中 EOF
-        });
-        let (kept, truncated) = drain_capped_async(r, 8192).await;
-        writer.await.unwrap();
-        assert_eq!(kept.len(), 8192, "异步版同样必须有界");
-        assert!(truncated);
-    }
+    // D-33 收敛：原先这里 4 条 `drain_capped_*` 的**纯辅助单测**已随之搬到
+    // `bounded_io::tests`（实现去哪、测试去哪）。本模块只保留**端到端**测试——
+    // 它们验证的是"沙箱后端的行为"，与辅助函数放在哪个 crate 无关。
 
     /// 端到端：NoopSandbox 由 `.output()` 改成"有界并行排空"后，
     /// **正常命令的行为必须一字不变**（退出码 / stdout / timed_out）。
@@ -441,47 +344,9 @@ mod p0_07_tests {
 
 // ── NoopSandbox (non-Linux fallback) ──
 
-/// P0-07（2026-10-01, traecode）：杀掉以 `pid` 为根的**整棵进程树**。
-///
-/// 为什么需要：`Child::kill` 与 `kill_on_drop` 都只终止**直接子进程**。Windows 上
-/// `cmd /C start …`、`bash -c "… &"` 派生出的**孙进程**不在其列 —— 超时后它变成
-/// 孤儿继续跑（占 CPU / 端口 / 文件锁），而父进程已经报"超时"走人（D-20）。
-///
-/// - Windows：`taskkill /T /F /PID`（系统自带，**不引入新依赖**）。
-/// - 其他平台：无等价系统工具 → 返回 `false`，调用方退化为只杀直接子进程。
-///   （Linux **生产**路径不经过这里：LinuxSandbox 用 setsid + `kill(-pgid)` 组杀。）
-///
-/// 返回 `true` = 已执行树杀（taskkill 退出码 0）。
-fn kill_process_tree(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    #[cfg(windows)]
-    {
-        match std::process::Command::new("taskkill")
-            .args(["/T", "/F", "/PID", &pid.to_string()])
-            .output()
-        {
-            Ok(o) if o.status.success() => true,
-            Ok(o) => {
-                tracing::warn!(
-                    "NoopSandbox: taskkill 失败 (pid {pid}): {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                );
-                false
-            }
-            Err(e) => {
-                tracing::warn!("NoopSandbox: 无法执行 taskkill (pid {pid}): {e}");
-                false
-            }
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = pid;
-        false
-    }
-}
+// P0-07 的 `kill_process_tree` 实现已收敛到 `bounded_io`（D-33）；本文件顶部 `use` 引入。
+// 不变式：`Child::kill` / `kill_on_drop` **只终止直接子进程**，孙进程必须靠树杀
+// （Windows 用系统自带 `taskkill /T /F`；Linux 生产路径走 setsid + `kill(-pgid)`）。
 
 pub struct NoopSandbox {
     config: SandboxConfig,

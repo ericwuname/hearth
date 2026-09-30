@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 [dependencies]
 agent-types.workspace = true
+bounded-io.workspace = true
 llm-gateway.workspace = true
 tool-runtime.workspace = true
 lsp-bridge.workspace = true

@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.82"
 
 [dependencies]
+bounded-io.workspace = true
 tokio = { workspace = true, features = ["process", "time"] }
 anyhow = { workspace = true }
 tracing = { workspace = true }
