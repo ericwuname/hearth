@@ -8,9 +8,13 @@ use tracing::info;
 
 use agent_types::{Budget, Message, MessageContent, Role, ToolCall, ToolResult, Turn};
 use llm_gateway::{ChatRequest, LlmProvider};
-use lsp_bridge::{Diagnostic, LspBridge};
+// P1-04：`LspBridge` trait 曾用于已删除的 `lsp_bridge` 字段；`Diagnostic` 仍被
+// `Event::LspDiagnostics` 使用，保留。
+use lsp_bridge::Diagnostic;
 use planner::Planner;
-use retriever::{Retriever, SearchResult};
+// P1-04：`Retriever` trait 曾用于已删除的 `retriever` 字段；`SearchResult` 仍被
+// `Event::Retrieval` 使用，保留。
+use retriever::SearchResult;
 use tool_runtime::ToolDispatcher;
 
 use crate::context::ContextManager;
@@ -988,19 +992,12 @@ pub struct AgentLoop {
     /// Node 03 (O-4): init_taskgoal 与 run() 内 ContextManager::new 重建之间的
     /// criteria 传递桥（重建会清 criteria——R2-D 时代无生产者未暴露）。
     pending_acceptance: Vec<String>,
-    /// A4: LSP bridge for diagnostics in observe phase.
-    ///
-    /// ⚠️ **已知死接线（2026-09-30 P1 体检发现）**：本字段**只被赋值、从未被读取**。
-    /// 后果：service 注入 `RustAnalyzerBridge` 后**永不生效**，LSP 诊断全程为空；
-    /// 佐证 = `Event::LspDiagnostics` 全仓**无任何生产者**。
-    /// 处置：**待裁决**（接线 or 删除）——已由 `known_dead_wiring_marker` 测试钉住。
-    lsp_bridge: Arc<dyn LspBridge>,
-    /// A5: Semantic retriever for code context injection.
-    ///
-    /// ⚠️ **已知死接线（2026-09-30 P1 体检发现）**：本字段**只被赋值、从未被读取**。
-    /// 后果：service 注入检索器后**永不生效**；连带 `code-index` 建完索引即废。
-    /// 处置：**待裁决**（接线 or 删除）——已由 `known_dead_wiring_marker` 测试钉住。
-    retriever: Option<Arc<dyn Retriever>>,
+    // P1-04（2026-10-01, traecode）：`lsp_bridge`（A4）与 `retriever`（A5）两个字段
+    // **已删除**。顶层裁决：删除（原为"接线 or 删除"二选一）。
+    // 依据：P1-01 体检实证两字段"只被赋值、从未被读取"——service 注入后永不生效，
+    // 而 service 侧还要为此**在启动时真的建索引 / 起 rust-analyzer**。
+    // 注：`Event::LspDiagnostics` / `Event::Retrieval` 两个事件变体**仍在**
+    // （全仓无生产者），属另一笔账，已登记 D-40，不在本卡内夹带。
     /// WS5 (v0.1.5): 项目记忆 Hearth.md（等价 AGENTS.md/CLAUDE.md）——
     /// 启动时读一次 {cwd}/Hearth.md（家目录兜底），内容注入系统提示。
     hearth_md: Option<String>,
@@ -1689,8 +1686,6 @@ impl AgentLoop {
             pending_results: Vec::new(),
             pending_user_messages: Vec::new(),
             pending_acceptance: Vec::new(),
-            lsp_bridge: Arc::new(lsp_bridge::NoopLspBridge::new()),
-            retriever: None,
             hearth_md: load_hearth_md(&cwd_for_md),
             env_context: load_env_context(&cwd_for_md, budget_steps),
             experience_store: None,
@@ -2091,16 +2086,6 @@ impl AgentLoop {
                 text: format!("[egress] 审批完成: {host}"),
             });
         }
-    }
-
-    /// A4: Set the LSP bridge (defaults to NoopLspBridge).
-    pub fn set_lsp_bridge(&mut self, bridge: Arc<dyn LspBridge>) {
-        self.lsp_bridge = bridge;
-    }
-
-    /// A5: Set the retriever for semantic code search in context.
-    pub fn set_retriever(&mut self, retriever: Arc<dyn Retriever>) {
-        self.retriever = Some(retriever);
     }
 
     /// v11.0: Inject the experience store for the self-evolution loop.
@@ -5827,36 +5812,14 @@ mod tests {
         );
     }
 
-    /// P1 体检「只写不读」死接线锁（2026-09-30）。
-    ///
-    /// `retriever` / `lsp_bridge` 在 agent-core 内**只有赋值、没有读取**——注入后永不生效
-    /// （见两处字段的 ⚠️ 注释）。本测试把这条"已知债务"钉住，使沉默状态无法悄悄改变：
-    /// 一旦有人**接线**（新增读取点），`赋值数 != 总出现数` → 红，强制其
-    /// ①删除本测试 ②更新字段 ⚠️ 注释 ③同步《P1-01 体检报告》。
-    ///
-    /// 注：探针用拼接构造（`pre + name`），避免本测试自身的字面量被计入统计。
-    #[test]
-    fn known_dead_wiring_marker() {
-        let src = include_str!("loop.rs");
-        let pre = "self.";
-        for name in ["retriever", "lsp_bridge"] {
-            let needle = format!("{pre}{name}");
-            let write_pat = format!("{needle} =");
-            let total = src.matches(needle.as_str()).count();
-            let writes = src.matches(write_pat.as_str()).count();
-            assert!(
-                total >= 1,
-                "字段 `{name}` 已从 AgentLoop 消失（total=0）——若是有意删除，\
-                 请删除本测试并更新《P1-01 体检报告》"
-            );
-            assert_eq!(
-                writes, total,
-                "字段 `{name}` 出现了**读取点**（total={total}, 赋值={writes}）——说明有人接线了。\
-                 请删除本测试、更新字段处 ⚠️ 注释，并同步《P1-01 体检报告》。\
-                 该字段是 P1 体检登记的已知债务（只写不读），不应无声改变。"
-            );
-        }
-    }
+    // P1-04（2026-10-01, traecode）：`known_dead_wiring_marker` 测试**已退役**。
+    //
+    // 它原本的作用是"把 P1 体检发现的已知债务（`retriever` / `lsp_bridge` 只写不读）
+    // 钉住，防其无声变化"。顶层裁决为**删除**该接线 → 债务消失 → 钉住它的测试
+    // 也随之退役（测试的断言 `total >= 1` 已不可能成立，留着只会变成噪声）。
+    //
+    // 退役而非改写是刻意的：这条测试的存在意义就是"等裁决"；裁决已下，
+    // 保留一个"永远为真"的空壳反而会掩盖"这条线已经没人守了"。
 
     /// Windows 测试支撑（S1 同法，tools-builtin/bash.rs 同注释）：system32 WSL
     /// bash 损坏（Bash/Service/0x8007072c），Git Bash 存在则经 HEARTH_BASH_BIN

@@ -6,7 +6,6 @@ use api::{
 };
 use experience::ExperienceStore;
 use llm_gateway::{CostMeter, ProviderRegistry, Usage};
-use lsp_bridge::LspBridge;
 use memory::{MemoryStore, SessionRecord, StoredEvent};
 use planner::DefaultPlanner;
 
@@ -99,7 +98,6 @@ async fn spawn_open(target: &str) -> anyhow::Result<String> {
         "opened: {target} (仅表示已请求外部程序处理，不代表打开成功)"
     ))
 }
-use retriever::Retriever;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -147,12 +145,11 @@ pub struct SessionManager {
     registry: Arc<ProviderRegistry>,
     dispatcher: Arc<ToolDispatcher>,
     ctx: ToolContext,
-    /// A5: Optional retriever injected into each new AgentLoop.
-    retriever: Option<Arc<dyn Retriever>>,
+    // P1-04（2026-10-01, traecode）：`retriever`(A5) / `lsp_bridge`(A4) 字段已删除
+    // —— 顶层裁决「删除」。它们在 agent-core 内**只被赋值、从未被读取**，
+    // 注入后永不生效（详见 loop.rs 同处注释）。
     /// v11.0: Experience store injected into each new AgentLoop.
     experience_store: Option<Arc<ExperienceStore>>,
-    /// A4: Optional LSP bridge injected into each new AgentLoop.
-    lsp_bridge: Option<Arc<dyn LspBridge>>,
     /// P4: CostMeter for session-scoped token accounting.
     cost_meter: Arc<Mutex<CostMeter>>,
     /// P5: MemoryStore for session persistence across restarts.
@@ -174,9 +171,7 @@ impl SessionManager {
             registry,
             dispatcher,
             ctx,
-            retriever: None,
             experience_store: None,
-            lsp_bridge: None,
             cost_meter: Arc::new(Mutex::new(CostMeter::new())),
             memory_store: None,
             civ_writer: None,
@@ -194,18 +189,9 @@ impl SessionManager {
         self.civ_writer = Some(writer);
     }
 
-    /// A5: Set the retriever to inject into each new AgentLoop.
-    pub fn set_retriever(&mut self, retriever: Arc<dyn Retriever>) {
-        self.retriever = Some(retriever);
-    }
     /// v11.0: Set the experience store to inject into each new AgentLoop.
     pub fn set_experience_store(&mut self, store: Arc<ExperienceStore>) {
         self.experience_store = Some(store);
-    }
-
-    /// A4: Set the LSP bridge to inject into each new AgentLoop.
-    pub fn set_lsp_bridge(&mut self, bridge: Arc<dyn LspBridge>) {
-        self.lsp_bridge = Some(bridge);
     }
 
     /// P5: Set the MemoryStore for session persistence.
@@ -349,16 +335,10 @@ impl SessionManager {
             goal,
         );
 
-        // A4/A5: Inject optional retriever and LSP bridge from SessionManager config
-        if let Some(ref retriever) = self.retriever {
-            agent.set_retriever(retriever.clone());
-        }
+        // P1-04：原 A4/A5 的 retriever / lsp_bridge 注入已删除（顶层裁决「删除」）。
         // v11.0: Inject experience store
         if let Some(ref store) = self.experience_store {
             agent.set_experience_store(store.clone());
-        }
-        if let Some(ref lsp) = self.lsp_bridge {
-            agent.set_lsp_bridge(lsp.clone());
         }
         // v13 S3-b: Inject civ writer so do_reflect/do_observe auto-append.
         if let Some(ref cw) = self.civ_writer {

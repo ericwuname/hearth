@@ -18,13 +18,10 @@ llm-cn.workspace = true
 llm-replay.workspace = true
 tool-runtime.workspace = true
 tools-builtin = { path = "../tools-builtin" }
-lsp-bridge.workspace = true
 memory.workspace = true
-retriever.workspace = true
 bridge.workspace = true
 resource-monitor.workspace = true
 toml = "0.8"
-code-index.workspace = true
 planner.workspace = true
 observer.workspace = true
 agent-runtime.workspace = true

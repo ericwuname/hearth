@@ -13,9 +13,7 @@ use utoipa::OpenApi;
 
 use llm_gateway::{FallbackChain, ProviderRegistry};
 use llm_openai::OpenAiProvider;
-use lsp_bridge::{NoopLspBridge, RustAnalyzerBridge};
 use memory::JsonlMemoryStore;
-use retriever::{Retriever, TantivyRetriever};
 use service::routes;
 use service::session;
 use tool_runtime::{ToolContext, ToolDispatcher, ToolRegistry};
@@ -490,66 +488,17 @@ async fn main() -> anyhow::Result<()> {
     let memory_store = Arc::new(JsonlMemoryStore::new(&memory_dir));
     sessions.set_memory_store(memory_store);
 
-    // E1 v5.0: retriever always enabled — semantic with embed provider (key always present).
-    {
-        let embed_model =
-            std::env::var("EMBED_MODEL").unwrap_or_else(|_| "text-embedding-3-small".into());
-        let embed_provider = Arc::new(OpenAiProvider::new(
-            "embed",
-            &embed_model,
-            std::env::var("OPENAI_BASE_URL").ok(),
-            openai_key.clone(),
-        ));
-        let mut retriever = TantivyRetriever::new();
-        retriever.set_embed_provider(embed_provider);
-        // v10.4: Real build — scan source tree for semantic search index
-        let code_dir = std::env::var("CODE_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-            });
-        let mut chunks: Vec<code_index::CodeChunk> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&code_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().is_some_and(|e| e == "rs") {
-                    if let Ok(content) = std::fs::read_to_string(&p) {
-                        let preview = content.chars().take(4096).collect::<String>();
-                        let line_count = preview.lines().count().max(1);
-                        chunks.push(code_index::CodeChunk {
-                            file: p.clone(),
-                            start_line: 1,
-                            end_line: line_count,
-                            content: preview,
-                            symbols: vec![],
-                        });
-                    }
-                }
-            }
-        }
-        tracing::info!(
-            chunk_count = chunks.len(),
-            dir = %code_dir.display(),
-            "retriever: indexed source files"
-        );
-        retriever
-            .build(&chunks, &[])
-            .await
-            .unwrap_or_else(|e| startup_fatal("retriever build failed", e));
-        sessions.set_retriever(Arc::new(retriever));
-        info!("retriever wired (embed model: {embed_model})");
-    }
-
-    // P3: LSP_ENABLED=1 enables real rust-analyzer bridge; else Noop.
-    let lsp_enabled = std::env::var("LSP_ENABLED")
-        .map(|v| v == "1")
-        .unwrap_or(false);
-    if lsp_enabled {
-        tracing::info!("LSP real bridge: rust-analyzer (LSP_ENABLED=1)");
-        sessions.set_lsp_bridge(Arc::new(RustAnalyzerBridge::new()));
-    } else {
-        sessions.set_lsp_bridge(Arc::new(NoopLspBridge::new()));
-    }
+    // P1-04（2026-10-01, traecode）：**删除 retriever 与 LSP 的启动接线**（顶层裁决「删除」）。
+    //
+    // 原实现（E1 v5.0 / P3）：启动时扫描 CODE_DIR 下所有 .rs 建 Tantivy 索引、
+    // 视 LSP_ENABLED 起 rust-analyzer，然后 `sessions.set_retriever(..)` /
+    // `set_lsp_bridge(..)`。但 P1-01 体检实证：这两个注入在 agent-core 内
+    // **只被赋值、从未被读取** —— 即"花真实启动成本（索引 + 可能起一个
+    // rust-analyzer 进程）换一个永不生效的接线"。
+    //
+    // 删除后：不再有 EMBED_MODEL / CODE_DIR / LSP_ENABLED 的启动期副作用；
+    // 三个 env 变量随之失效（保留在文档里作为历史，不在此处虚挂）。
+    // 相关能力若将来要恢复，需**先接线到消费点**再谈注入（单独立卡）。
 
     info!("memory store wired: {memory_dir}");
 

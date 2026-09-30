@@ -9,7 +9,8 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**十二张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62**）：
+**十四张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60**）：
+**顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -26,6 +27,8 @@
 | P0-10 | `e26cf57` | **D-23 专项收敛**：核验 9 处"注释声称的防护层"，**4 处证伪并订正** + D-26；由此暴露 D-35（bash 出网无治理）/D-36 |
 | P0-11 | `c55813e`+`be100f9` | **入库卫生**：D-5 `.hearth-diag` 脱离跟踪（40 文件，内容留盘）+ D-6 **密钥扫描门禁**（三轮红→绿，2255 文件）；修正泄露面积 → 登记 D-37 |
 | P0-12 | `a60dd3a` | **索引路径病态输入防护**：D-38 无界读入（第 5 落点）+ 红检中量出的 **D-39 二次方膨胀**（8 MiB 平原文件 → 挂 2 分钟以上）；新门禁首跑即抓到自己的源码/战报 |
+| P1-03 | `79f0c66` | **裁决3 · 删死 crate**：`project-sync`（12 文件）删除，工作区 62→60 target |
+| P1-04 | （见下文） | **裁决4 · 删死接线**：`retriever`/`lsp_bridge` 三层贯通删除 + 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本**；登记 D-40 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**。
 
@@ -158,10 +161,13 @@
 | D-3 | `sandbox::test_noop_sandbox_echo` 红 | 同上 | **已核**：POSIX `echo` 依赖，非 noop 后端缺陷 | **close（平台门控）** |
 | D-4 | `project-xray::real_workspace_wiring_all_green` 红 | 同上 | **原归类错误**（"读已删除文件"不成立）。真因 = hash 锁未随 `26d760e` 更新 + 3 条能力锁定冲突 | **部分 close**，余项见 D-11 |
 | **D-5** | `.hearth-diag/` 入库卫生 | 本次发现 | **已修**：`.gitignore` + `git rm -r --cached` 40 个文件（**内容留盘**）；`git status` 恢复干净 | **close**（删盘上文件/清历史仍待裁决） |
+| ~~**D-16**~~ | `retriever`/`lsp_bridge` 只写不读死接线 | P1 体检 | **已删除**（顶层裁决「删除」，P1-04）：三层贯通（agent-core/agent-runtime/service）+ 依赖清理 + 退役钉住测试；**顺带停掉"启动时全量扫盘建索引 / 起 rust-analyzer"的真实成本** | **close** |
+| **D-41** | `project-sync` 整 crate 死亡 | P1 体检 | **已删除**（顶层裁决「删除」，P1-03）：12 文件 / ~90 KB，工作区 62→60 target | **close** |
+| **D-40** | `Event::LspDiagnostics` / `Event::Retrieval` 事件变体**全仓无生产者**（`loop.rs:2625` 仍有消费它们的提示词格式化） | P1-04 执行中发现 | 确证（**事件流形状变更，需另立卡**） | 中 · 待修 |
 | **D-6** | 无入库前密钥扫描门禁 | 安全事故根因 | **已建**：`crates/codex-cli/tests/secret_scan_gate.rs`——扫 `git ls-files`、三轮红→绿、白名单 3 项、文件头自报盲区；门禁目标数 61→62 | **close** |
 | **D-38** | `code-index` `parse_rust_file` 无界读入（第 5 个"无界读入"落点；遍历的是会话 workspace） | P0-12 扫描 | **已修**：先 `metadata().len()` 再看要不要读（8 MiB 上限），超限**跳过并留痕** | **close** |
 | **D-39** | `code-index` 索引路径**二次方膨胀**：`for i in 0..child_count() { node.child(i) }`（O(n²)）+ 每 chunk `source.lines().skip(row)`（O(L·k)）——**不给大小守卫就永远看不到**（症状被守卫掩盖） | P0-12 红检实测 | **已修**：`children(&mut cursor)` + 预切行；红侧实测 **>2 分钟 → 2.40s** | **close** |
-| **D-37** | **真 key 的实际落点是 3 个文件**（此前只记 1 个）：`r12-dot-bashrc-anchor.txt`(×4) / `v20-user-transcript-f852f409.jsonl`(×1) / `TUI-polish3…v1.1`(×1)，均属已裁决接受风险 | P0-11 扫描 | 确证（**修正泄露面积判断**） | **登记待裁**（是否清掉当前树里的这三处 → 产品/安全方向抉择） |
+| **D-37** | **真 key 的实际落点是 3 个文件**（此前只记 1 个）：`r12-dot-bashrc-anchor.txt`(×4) / `v20-user-transcript-f852f409.jsonl`(×1) / `TUI-polish3…v1.1`(×1) | P0-11 扫描 | 确证（**修正泄露面积判断**） | **close · 顶层裁决「不清理」（显式风险接受，2026-10-01）**；已入密钥扫描门禁白名单 |
 | D-7 | `.131/.133` VM config 未同步 3.0-flash | 战报申报 1 | **阻塞**（VM 不可达） | 挂起 |
 | D-8 | 执行窗复验 5 项（PC-1/2/3、回归、S12 等） | 战报第九节 | **属执行窗/用户** | 不代办，仅备件 |
 | **D-9** | **`tools-builtin` 四工具路径守卫在 Windows 失效 → 越界写文件（真实安全漏洞）** | **本卡新发现** | **已修**（`is_rooted_path`，5 处） | **close** |
@@ -178,7 +184,7 @@
 | **D-27** | **限流在途计数在 handler panic 时单调泄漏**（尾部手动 `fetch_sub` 在 unwind 中不执行）→ 同一 IP 泄漏 50 次即该 IP 永久 429、全局泄漏 500 次即**整站永久 429** | P0-05 新发现 | **已修**：改 RAII `InflightGuard`（`Drop` 在 unwind 时仍执行）+ 单测锁定 | **close** |
 | **D-28** | `service/src/user.rs`（**每请求鉴权路径**）与 `webhook.rs` 的 `lock().unwrap()`——同 D-24/D-25 缺陷类，残留即全站级失败通道 | P0-05 新发现 | **已修**：`recover` | **close** |
 | **D-26** | `tools-builtin/src/web.rs:9` 注释声称"bash curl 后门治理**依赖全局代理 env**"——**该机制全仓零实现**（与 landlock 案例同型） | P0-04 专项扫描 | **已修**：订正为"出网旁路已知未治理"并指向 D-35 | **close** |
-| **D-35** | **bash 出网无任何治理**：`web_fetch` 有 fail-closed 白名单，但 bash 的 `curl`/`wget` 可直连任意地址（原被 D-26 的虚构机制遮住） | P0-10 专项 | 确证（**真实防护缺口**） | **中高 · 待修** |
+| **D-35** | **bash 出网无任何治理**：`web_fetch` 有 fail-closed 白名单，但 bash 的 `curl`/`wget` 可直连任意地址（原被 D-26 的虚构机制遮住） | P0-10 专项 | 确证（**真实防护缺口**） | **close · 顶层裁决「接受」（显式风险接受，2026-10-01）** |
 | **D-36** | `service/src/webhook.rs:69` `curl … .output()` 无界输出 + `kill_on_drop` 默认 false（超时不收尸），与 D-18/D-32 同类（在 fire-and-forget 任务里） | P0-10 专项 | 确证 | 低 · 待修 |
 | **D-18** | **子进程输出全量入内存 → OOM**（读线程 `read_to_end` 无上限，截断发生在其后） | P0-02 审计 | **已修**：`drain_capped_std`——继续排空到 EOF 但只留前 8 MiB + 留痕 | **close** |
 | **D-29** | **NoopSandbox（Windows 运行时路径）`Command::output()` 无界读** → 同 D-18 的 OOM，且落在**本项目主力平台** | P0-06 新发现 | **已修**：spawn + 两路 `drain_capped_async` 并行有界排空 | **close** |
