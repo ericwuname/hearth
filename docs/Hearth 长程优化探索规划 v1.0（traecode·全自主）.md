@@ -9,7 +9,7 @@
 
 ## 〇、v1.1 修订记录（2026-10-01）
 
-**三十九张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
+**四十一张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
 | 卡 | commit | 战果 |
@@ -53,6 +53,8 @@
 | P1-26 | `f9d820a` | **D-57 收口（删死 pub 项）**：`tools-builtin` 两个**零调用方**项删除——① `is_allowed_absolute`（全仓零调用；且**直读 `std::env`** 绕过 `ctx.env`，与注入纪律相悖）② `coerce_args`（零生产调用；其"防 raw string 降级"意图**已由真实在位的 `extract_str_arg` 覆盖**，被删的是并行且从未接线的旧机制）+ 其 3 条专属测试；原位留注释说明去留理由。**glob.rs 的 `sandbox` 字段经核实后保留**（源码已注明是 `with_sandbox` 测试脚手架，删除需连带改 3 处测试构造，收益不抵改动面） |
 | P1-27 | `5122be8` | **D-58 收口（CLI 侧无界读入，第 10~19 落点）**：`CodexClient` 全部 9 处 `resp.json()/resp.text()` 无上限 + SSE 残行缓冲无上限 → 新增 `json_capped`/`error_body_capped` 全量改走共享原语（`read_body_capped`/`MAX_BODY_BYTES` 提升为 `pub`，**CLI 与工具层共用一份**，D-33 收敛），SSE 缓冲加 1 MiB 上限；**先红后绿**（还原 `resp.text()` 即得"parse json"而非"响应体过大"） |
 | P1-28 | `285004d` | **D-59 收口（xray 假绿根治，系统性）**：锚点原为**纯子串匹配且保留字符串**→ **测试代码的字符串能顶绿生产锚点**。实证：删掉生产 `MUTATING_TOOLS` 里的 `"edit"`，red 级 `readonly-view-strips`（"子智能体只读"）仍绿（靠测试第 558 行的同名数组顶住）。**治本**：新增 `blank_test_modules`（复用 `LexState`，字符串/注释里的 marker 不触发；括号配对；无花括号形态抹到 `;`；找不到右括号保守抹到 EOF）→ 锚点**测试免疫**。**端到端实证**：删 `"edit"` 后门禁如期报 `missing(all): ["\"edit\""]`（此前恒绿）。全仓 14 条 red 锚点**零新增断裂** → 确认此前无"已被顶绿"的现存回归，属潜在假绿，该类缺口自本卡关闭 |
+| P1-29 | `1ba1221` | **D-65 收口（provider 侧无界读入，第 20+ 落点）+ 原语收敛**：`llm-openai`/`llm-cn`/`llm-local` 共 **11 处** `resp.text()` 无上限（另 3 处流式残行缓冲无上限）→ 全部改走有界读；同时把 `read_body_capped`/`MAX_BODY_BYTES`+测试从 `tools-builtin` **整体迁入 `bounded-io`** 并以**可选 feature `reqwest`** 门控（默认不启用 → `memory` 等不被拉入 reqwest），`tools-builtin` 再导出使既有调用点零改动（D-33 收敛：全仓 HTTP 有界读**只剩一份实现**） |
+| P1-30 | `1445fd0` | **D-60/D-61 收口（CLI 输入/展示路径健壮性）**：① `mask_key` 用**字节**切片 → key 含非 ASCII 即 **panic**（`hearth config get api-key` 崩，实测 `byte index 4 is not a char boundary`）→ 改 `chars()`；② URL 只编码空格 → `&`/`#`/`=` 可注入查询参数、`/` 可跳转路径层级 → 新增 `pct_encode`（RFC 3986 unreserved 之外全编码，**零新依赖**）应用 1 处查询值 + 5 处路径段；**先红后绿**（还原字节切片即复现 panic） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -219,12 +221,12 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-57** | **`tools-builtin` 死 pub 项**：`lib.rs` `is_allowed_absolute`（全仓仅定义处；且**直读 `std::env`** 绕过 `ctx.env`，属遗留）、`coerce_args`（仅定义+同文件测试）、`glob.rs` 的 `sandbox` 字段（`#[allow(dead_code)]`，只写不读） | tools-builtin 体检发现 | 确证（"定义了但无人用"；`is_allowed_absolute` 另有"绕过注入 env"隐患） | **已修**（P1-26）：删 `is_allowed_absolute` + `coerce_args`（零生产调用；后者的防线已由 `extract_str_arg` 真实覆盖）及 3 条专属测试；`glob.rs` 的 `sandbox` 字段**核实后保留**（已注明为测试脚手架） | **close** |
 | **D-58** | **CLI 客户端侧无界读入**：`codex-cli/src/client.rs` 全部 9 处 `resp.json()/resp.text()` 无字节上限；SSE 残行 `buf.push_str` 无上限 | codex-cli 体检发现 | **已修**（P1-27）：`json_capped`/`error_body_capped` 全量改走共享 `read_body_capped`（提升为 `pub`）；SSE 缓冲 1 MiB 上限；**先红后绿** | **close** |
 | **D-59** | **xray 锚点"假绿"根因（系统性）**：锚点是**纯子串匹配**且 `strip_comments_and_strings` **保留字符串** → **测试代码的字符串可顶绿生产锚点**。实证：删掉生产 `MUTATING_TOOLS` 的 `"edit"`，red 级 `readonly-view-strips`（子智能体只读）**仍绿**（靠同文件测试第 558 行顶住） | project-xray 体检发现 | **已修**（P1-28，治本）：新增 `blank_test_modules`（复用 `LexState`、括号配对、无花括号形态抹到 `;`、找不到右括号保守抹到 EOF）→ 锚点**测试免疫**；端到端实证删 `"edit"` 即精确报断；全仓 14 条 red 锚点零新增断裂 | **close** |
-| **D-60** | **CLI `mask_key` 多字节 UTF-8 panic**：`codex-cli/src/lib.rs:1331` 用字节切片 `&k[..4]` / `&k[k.len()-4..]`——key 含非 ASCII 时非字符边界 → **直接 panic**（`hearth config get api-key`） | codex-cli 体检发现 | 确证（**可复现崩溃**） | **P1 立卡** |
-| **D-61** | **CLI URL 参数/路径注入**：`lib.rs:1268` 仅 `replace(' ', "%20")`，`&`/`#`/`=` 未编码 → `?search=` 参数注入；用户 `id` 未编码直接拼路径（`lib.rs:1224`、`client.rs:74/108/155/175`） | codex-cli 体检发现 | 确证 | **P1 立卡** |
+| **D-60** | **CLI `mask_key` 多字节 UTF-8 panic**：`codex-cli/src/lib.rs:1331` 用字节切片 `&k[..4]` / `&k[k.len()-4..]`——key 含非 ASCII 时非字符边界 → **直接 panic**（`hearth config get api-key`） | codex-cli 体检发现 | **已修**（P1-30）：改 `chars()` 计数与截取；**先红后绿**回归锁（还原字节切片即复现 `byte index 4 is not a char boundary` panic） | **close** |
+| **D-61** | **CLI URL 参数/路径注入**：`lib.rs:1268` 仅 `replace(' ', "%20")`，`&`/`#`/`=` 未编码 → `?search=` 参数注入；用户 `id` 未编码直接拼路径（`lib.rs:1224`、`client.rs:74/108/155/175`） | codex-cli 体检发现 | **已修**（P1-30）：新增 `pct_encode`（零新依赖），应用 1 处查询值 + 5 处路径段（`lib.rs`×2 / `client.rs`×4） | **close** |
 | **D-62** | **CLI「G-B 拦截」声称 ≠ 实现**：`run_local.rs:869-874` / `1165-1171` 注释称"禁止计入验收通过"，实际只 `render::error` 打印，**未改 `report.ok/status`**（仍 completed）→ 下游按退出码/ok 判定**感知不到**该门 | codex-cli 体检发现 | 确证（与 D-23/D-44 同型） | **P1 立卡** |
 | **D-63** | **出口白名单可被逗号注入**：`config.rs:113-121` `set_field("egress-allowlist")` 仅按 `,` 切分、**零转义**；而 `run_local.rs:449` 批注却称"转义由既有实现负责" → 审批放行的 host 含逗号即可**注入额外白名单项** | codex-cli 体检发现 | 确证（注释与实现不符 + 实际注入面） | **P1 立卡** |
 | **D-64** | **CLI 死 pub 项 + 构建期 panic**：`config.rs:292 require_api_key`、`session_store.rs:27 save_turn`/`:65 save_graph`/`:89 load_graph`/`:205 has_run_state`、`report.rs:107 collect_remaining_from_graph`、`note.rs:128 last_session_had_abnormal_signal` 均**仅测试引用**；`client.rs:35 .expect("reqwest client build")` 构建失败即 panic（TLS/系统环境） | codex-cli 体检发现 | 确证 | **P1 立卡** |
-| **D-65** | **`llm-*` provider 无界读入（第 20+ 落点）**：`llm-openai/src/lib.rs:377,534,589`、`llm-cn/src/lib.rs:431,515`、`llm-local/src/lib.rs:399,471,502,864,949,987` 全部 `resp.text()` 无上限；流式 `buffer.push_str`（openai:546）无行内上限。仓内已有 `bounded-io` 却未引用 | llm-* 体检发现 | 确证（**与 D-55/D-58 同族**） | **P1 立卡** |
+| **D-65** | **`llm-*` provider 无界读入（第 20+ 落点）**：`llm-openai/src/lib.rs:377,534,589`、`llm-cn/src/lib.rs:431,515`、`llm-local/src/lib.rs:399,471,502,864,949,987` 全部 `resp.text()` 无上限；流式 `buffer.push_str`（openai:546）无行内上限。仓内已有 `bounded-io` 却未引用 | llm-* 体检发现 | **已修**（P1-29）：11 处改走有界读 + 3 处流式缓冲加 1 MiB 上限；原语迁入 `bounded-io`（可选 feature `reqwest`）实现**全仓单一实现** | **close** |
 | **D-66** | **`planner` 生产不生效（WP-3 门禁空转）**：`derive_gaps`（注释自称"门禁契约"）**全仓仅本文件测试调用**（`loop.rs:2875` 明载 B 臂已删、生产调用归零）；`Planner` trait 文档称含 `reflect` 但 trait **只有 `decompose`**（`ReflectVerdict` 已删）；`DefaultPlanner::decompose` 生产调用为零；`lib.rs:315/393/457` `fail_cache.lock().unwrap()` 中毒即 panic | planner 体检发现 | 确证（文档≠实现 + 死路径） | **P1 立卡** |
 | **D-67** | **`llm-gateway` 死 API 与未接的分账**：`fallback.rs:103-132,152-171` 固有 `chat()/embed()` 仅测试调用；`fallback.rs:63-66` 注释称"报告标注本轮用哪条通道"，但 `last_used()` **零生产消费者**（S9 通道分账实际未接）；`registry.rs:103 list_aliases()` 全仓零调用 | llm-gateway 体检发现 | 确证（同 D-48 型：注释承诺 vs 未接线） | **P1 立卡** |
 | **D-68** | **`llm-cn` 死类型/死字段 + 超时口径不一致**：`HunyuanEmbeddingRequest/Response/Data` 零构造（`embed()` 直接 `Err`）、`HunyuanErrorDetail.code` 从不读取（被 `#[allow(dead_code)]` 掩盖）；`llm-cn:280` timeout **300s** 而 `llm-openai:315` 已收紧到 **30s** → 挂起防护口径不一致 | llm-* 体检发现 | 确证 | **P1 立卡** |
