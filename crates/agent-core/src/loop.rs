@@ -279,9 +279,6 @@ pub enum Event {
 //   other platforms). This check is the belt to those suspenders.
 // - anything else (read, grep, glob, …): no approval needed.
 
-/// E4 v5.0: max agent nesting depth (main=0, sub=1, sub-sub=2; blocked at ≥2).
-const MAX_DEPTH: u32 = 2;
-
 /// D-75（2026-10-01, traecode）：项目记忆 `Hearth.md` 的**读入**字节上限。
 ///
 /// 该文件取自 cwd（正在被处理的仓库）或家目录，且内容**整段注入系统提示**——
@@ -620,19 +617,18 @@ pub struct WrittenFile {
     pub light_verified: bool,
 }
 
+/// D-83（2026-10-01, traecode）：子代理委派子系统（spawn_sub_agent /
+/// collect_sub_agent_results / active_sub_agent_count / extract_files_from_tool_calls /
+/// merge_file_changes / RunReport.files_changed）已整段删除——delegable 数据源随
+/// TaskGraph 拆除，全仓零调用方；若日后重启子代理能力，随之恢复。
 /// Report from a completed run.
 pub struct RunReport {
     pub steps: u64,
     pub ok: bool,
     pub summary: Value,
-    /// P1: File changes tracked during sub-agent execution.
-    pub files_changed: Vec<agent_types::FileChange>,
     /// P5: Accumulated token usage from all LLM calls during this run.
     pub usage: Option<llm_gateway::CostEntry>,
 }
-
-// P1/H1: Extract file paths and line ranges from tool call args.
-// After execution, also augment with paths found in tool result output.
 
 /// P0-4 (v0.2.4): 从用户文本提取字面提到的文件名 token（带点扩展名的标识符）。
 /// 纯函数（可测）：启发式最粗粒度——只捕捉"字面提到的文件名"，不做语义理解。
@@ -693,116 +689,6 @@ pub(crate) fn write_target_matches(referenced: &[String], path: &str) -> bool {
         .iter()
         .any(|r| r.contains(&basename) || basename.contains(r.as_str()))
 }
-pub fn extract_files_from_tool_calls(
-    pending_tool_calls: &[agent_types::ToolCall],
-    pending_results: &[agent_types::ToolResult],
-    sub_agent: &str,
-) -> Vec<agent_types::FileChange> {
-    use std::collections::HashSet;
-    let mut seen = HashSet::new();
-    let mut file_ranges: std::collections::HashMap<std::path::PathBuf, (usize, usize)> =
-        std::collections::HashMap::new();
-
-    for tc in pending_tool_calls {
-        if let Some(args) = tc.args.as_object() {
-            // H1: extract line ranges from known args
-            let line_start = args
-                .get("start_line")
-                .or_else(|| args.get("line"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-            let mut line_end = args.get("end_line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            if line_end == 0 && line_start > 0 {
-                line_end = line_start; // single-line change
-            }
-
-            for (_key, val) in args {
-                if let Some(s) = val.as_str() {
-                    let p = std::path::PathBuf::from(s);
-                    let has_src_ext = p.extension().is_some_and(|ext| {
-                        ext == "rs"
-                            || ext == "py"
-                            || ext == "js"
-                            || ext == "ts"
-                            || ext == "go"
-                            || ext == "java"
-                    });
-                    if has_src_ext && seen.insert(p.clone()) {
-                        let entry = file_ranges.entry(p).or_insert((0, 0));
-                        if line_start > 0 && line_start > entry.0 {
-                            entry.0 = line_start;
-                            entry.1 = line_end;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // H1: also extract file paths from tool result output
-    for r in pending_results {
-        for line in r.output.lines() {
-            for word in line.split_whitespace() {
-                let word =
-                    word.trim_matches(|c: char| c == '"' || c == '\'' || c == ',' || c == ';');
-                let p = std::path::PathBuf::from(word);
-                let has_src_ext = p.extension().is_some_and(|ext| {
-                    ext == "rs"
-                        || ext == "py"
-                        || ext == "js"
-                        || ext == "ts"
-                        || ext == "go"
-                        || ext == "java"
-                });
-                if has_src_ext && seen.insert(p.clone()) {
-                    file_ranges.entry(p).or_insert((0, 0));
-                }
-            }
-        }
-    }
-
-    file_ranges
-        .into_iter()
-        .map(|(file, (start, end))| agent_types::FileChange {
-            file,
-            start_line: start,
-            end_line: end,
-            sub_agent: sub_agent.to_string(),
-            patch_hint: None,
-            merge_conflict: false,
-        })
-        .collect()
-}
-
-/// P1: Merge FileChanges from multiple sub-agents with conflict detection.
-/// Same file touched by multiple sub-agents → mark all entries merge_conflict.
-pub fn merge_file_changes(changes: &[agent_types::FileChange]) -> Vec<agent_types::FileChange> {
-    use std::collections::HashMap;
-    // Count sub-agents per file
-    let mut file_agents: HashMap<std::path::PathBuf, Vec<String>> = HashMap::new();
-    for c in changes {
-        file_agents
-            .entry(c.file.clone())
-            .or_default()
-            .push(c.sub_agent.clone());
-    }
-    // Build merged: one entry per (file, sub_agent) with conflict flag
-    let mut merged: Vec<agent_types::FileChange> = Vec::new();
-    for c in changes {
-        let agents = file_agents.get(&c.file).unwrap();
-        let has_conflict = agents.iter().any(|a| *a != c.sub_agent);
-        if !merged
-            .iter()
-            .any(|m| m.file == c.file && m.sub_agent == c.sub_agent)
-        {
-            let mut mc = c.clone();
-            mc.merge_conflict = has_conflict;
-            merged.push(mc);
-        }
-    }
-    merged
-}
-
 impl Goal {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
@@ -932,8 +818,12 @@ pub struct AgentLoop {
     pending_tool_calls: Vec<ToolCall>,
     /// Pending tool results (for Reflect phase).
     pending_results: Vec<ToolResult>,
-    /// P1: Accumulated FileChanges from completed sub-agents.
     /// F1: User messages to inject into context after run() initializes ctx_mgr.
+    ///
+    /// D-83（2026-10-01, traecode）：此处原有一行**错位**注释
+    /// （`/// P1: Accumulated FileChanges from completed sub-agents.`）——它描述的
+    /// 是子代理文件改动累积，与 `pending_user_messages` 毫无关系（早期编辑遗留），
+    /// 且该子系统已随本卡整段删除。已清除，避免读者被误导。
     pending_user_messages: Vec<String>,
     /// Node 03 (O-4): init_taskgoal 与 run() 内 ContextManager::new 重建之间的
     /// criteria 传递桥（重建会清 criteria——R2-D 时代无生产者未暴露）。
@@ -1087,11 +977,6 @@ pub struct AgentLoop {
     last_completion_decision: Option<String>,
     /// v0.1.2: workspace 根（轻/重校验用 cwd.join(path)）。
     cwd: std::path::PathBuf,
-    /// P3: Sub-agent handles for delegation, paired with task_id.
-    sub_agent_handles: Vec<(String, tokio::task::JoinHandle<RunReport>)>,
-    /// P3/A4: Agent nesting depth (0 = root, 1 = first-level sub-agent, …).
-    /// Sub-agents at depth ≥ 1 will NOT spawn further sub-agents.
-    depth: u32,
     /// P5: CostMeter for tracking real token usage from ChatResponse.usage.
     cost_meter: std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>>,
     /// D-46（成本治理接通）：token → USD 换算价表。构造时由
@@ -1728,8 +1613,6 @@ impl AgentLoop {
             empty_turn_active: false,
             empty_turn_streak: 0,
             last_completion_decision: None,
-            sub_agent_handles: Vec::new(),
-            depth: 0,
             cost_meter: std::sync::Arc::new(tokio::sync::Mutex::new(llm_gateway::CostMeter::new())),
             session_id: String::new(),
             civ_writer: None,
@@ -2224,118 +2107,6 @@ impl AgentLoop {
         meter: std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>>,
     ) {
         self.cost_meter = meter;
-    }
-
-    /// E4 v5.0: Spawn a sub-agent. Max depth is 2 (main→sub→sub-sub).
-    /// `depth` starts at 1 for first-level sub-agents.
-    pub fn spawn_sub_agent(
-        &mut self,
-        task_id: String,
-        task_desc: String,
-        budget: Budget,
-        depth: u32,
-    ) {
-        // E4 v5.0: Max depth reached at MAX_DEPTH=2 (main→sub→sub-sub).
-        // SBOX-3: enforce the recursion guard inside the spawn function,
-        // not only at the do_plan call site — this is a pub fn, so external
-        // callers must not be able to bypass the depth limit.
-        if self.depth >= MAX_DEPTH {
-            tracing::warn!(
-                "spawn_sub_agent refused: agent at depth {} may not spawn sub-agents (task '{}')",
-                self.depth,
-                task_id
-            );
-            return;
-        }
-        // Child depth is always parent+1 at minimum, regardless of the caller-
-        // supplied value — prevents forging depth=0 grandchildren.
-        let depth = depth.max(self.depth + 1);
-
-        let provider = self.provider.clone();
-        // v12.7: sub-agents are READ-ONLY. They all share the parent's single
-        // workspace directory and run concurrently, so any two of them holding
-        // write tools will clobber the same file from divergent snapshots.
-        // See ToolDispatcher::read_only_view for the failure we hit on T10.
-        let dispatcher = Arc::new(self.scheduler.dispatcher().read_only_view());
-        let ctx = self.scheduler.tool_context().clone();
-        let goal_text = format!(
-            "[sub:{}] {}\n\nYou are a READ-ONLY research sub-agent. You have no \
-             file-writing tools and no shell: only read/grep/glob. Investigate, \
-             then state your findings as plain text. The parent agent applies \
-             every edit — never attempt one yourself.",
-            task_id, task_desc
-        );
-        let sub_goal = Goal::with_budget(goal_text.clone(), budget.clone());
-
-        let tid = task_id.clone();
-        let sub_depth = depth;
-        let handle = tokio::spawn(async move {
-            let mut sub_agent = AgentLoop::new(provider, dispatcher, ctx, sub_goal);
-            sub_agent.depth = sub_depth;
-            // Sub-agents don't emit events to the parent stream.
-            // Inject task_id into the summary so the parent can always find the node.
-            match sub_agent.run(Goal::with_budget(goal_text, budget)).await {
-                Ok(report) => {
-                    // P1: extract file changes from sub-agent's tool calls
-                    let files_changed = extract_files_from_tool_calls(
-                        &sub_agent.pending_tool_calls,
-                        &sub_agent.pending_results,
-                        &tid,
-                    );
-                    RunReport {
-                        ok: report.ok,
-                        steps: report.steps,
-                        summary: serde_json::json!({
-                            "task_id": tid,
-                            "goal": report.summary.get("goal"),
-                            "steps": report.steps,
-                            "ok": report.ok,
-                        }),
-                        files_changed,
-                        usage: report.usage,
-                    }
-                }
-                Err(e) => RunReport {
-                    steps: 0,
-                    ok: false,
-                    summary: serde_json::json!({"error": format!("{e:#}"), "task_id": tid}),
-                    files_changed: Vec::new(),
-                    usage: None,
-                },
-            }
-        });
-
-        self.sub_agent_handles.push((task_id, handle));
-    }
-
-    /// P3/A4: Collect results from completed sub-agents (non-blocking).
-    /// Returns (task_id, report) pairs for finished sub-agents.
-    pub async fn collect_sub_agent_results(&mut self) -> Vec<(String, RunReport)> {
-        let mut results = Vec::new();
-        let mut remaining = Vec::new();
-
-        let handles = std::mem::take(&mut self.sub_agent_handles);
-        for (task_id, handle) in handles {
-            if handle.is_finished() {
-                match handle.await {
-                    Ok(report) => {
-                        results.push((task_id, report));
-                    }
-                    Err(e) => {
-                        tracing::error!("Sub-agent panicked: {e}");
-                    }
-                }
-            } else {
-                remaining.push((task_id, handle));
-            }
-        }
-        self.sub_agent_handles = remaining;
-        results
-    }
-
-    /// P3/A4: Number of active sub-agents.
-    pub fn active_sub_agent_count(&self) -> usize {
-        self.sub_agent_handles.len()
     }
 
     /// Emit an event if a sender is configured.
@@ -4463,7 +4234,6 @@ impl AgentLoop {
                         "verify": { "missing": missing }
                     }),
                     usage,
-                    files_changed: Vec::new(),
                 };
                 return Ok(Some(report));
             }
@@ -4528,7 +4298,6 @@ impl AgentLoop {
                         "reflect_fact_conflict": self.ctx_mgr.get_scratch("reflect_fact_conflict").and_then(|v| v.as_bool()),
                     }),
                     usage,
-                    files_changed: Vec::new(),
                 };
                 return Ok(Some(report));
             }
@@ -4643,7 +4412,6 @@ impl AgentLoop {
                 }),
             }),
             usage,
-            files_changed: Vec::new(),
         };
         Ok(Some(report))
     }
@@ -4676,7 +4444,6 @@ impl AgentLoop {
                     "approval_delegated_cmds": self.delegated_approvals,
                 }),
                 usage,
-                files_changed: Vec::new(),
             };
             self.emit(Event::Done(serde_json::json!({
                 "ok": false,
@@ -4698,7 +4465,6 @@ impl AgentLoop {
                 "approval_delegated": !self.delegated_approvals.is_empty(),
                 "approval_delegated_cmds": self.delegated_approvals}),
             usage,
-            files_changed: Vec::new(),
         };
         self.emit(Event::Done(serde_json::json!({
             "ok": false,
@@ -4738,7 +4504,6 @@ impl AgentLoop {
                 "artifacts": self.written_files.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
             }),
             usage,
-            files_changed: Vec::new(),
         };
         self.emit(Event::Done(serde_json::json!({
             "ok": false,
@@ -4780,7 +4545,6 @@ impl AgentLoop {
                 "resume_hint": resume_hint,
             }),
             usage,
-            files_changed: Vec::new(),
         };
         self.emit(Event::Done(serde_json::json!({
             "ok": false,
@@ -4835,7 +4599,6 @@ impl AgentLoop {
                 "approval_delegated_cmds": self.delegated_approvals,
             }),
             usage,
-            files_changed: Vec::new(),
         };
         self.emit(Event::Done(serde_json::json!({
             "ok": false,
@@ -5407,7 +5170,6 @@ impl Agent for AgentLoop {
                         "steps": steps,
                     }),
                     usage,
-                    files_changed: Vec::new(),
                 };
                 self.emit(Event::Done(serde_json::json!({
                     "ok": false,
@@ -5595,7 +5357,6 @@ impl Agent for AgentLoop {
                         "approval_delegated": !self.delegated_approvals.is_empty(),
                         "approval_delegated_cmds": self.delegated_approvals}),
                     usage,
-                    files_changed: Vec::new(),
                 };
                 self.emit(Event::Done(serde_json::json!({
                     "ok": false,
@@ -6927,76 +6688,6 @@ mod tests {
     fn test_loop_phase_debug() {
         let p = StepNext::Plan;
         assert!(format!("{:?}", p).contains("Plan"));
-    }
-
-    // ── P1: merge_file_changes ──
-
-    #[test]
-    fn test_p1_merge_file_changes() {
-        // Single sub-agent touching a file → no conflict
-        let changes = vec![agent_types::FileChange {
-            file: std::path::PathBuf::from("src/main.rs"),
-            start_line: 10,
-            end_line: 20,
-            sub_agent: "agent-a".into(),
-            patch_hint: None,
-            merge_conflict: false,
-        }];
-        let merged = super::merge_file_changes(&changes);
-        assert_eq!(merged.len(), 1);
-        assert!(!merged[0].merge_conflict, "single agent → no conflict");
-
-        // Two sub-agents touching different files → no conflict
-        let changes = vec![
-            agent_types::FileChange {
-                file: std::path::PathBuf::from("src/main.rs"),
-                start_line: 10,
-                end_line: 20,
-                sub_agent: "agent-a".into(),
-                patch_hint: None,
-                merge_conflict: false,
-            },
-            agent_types::FileChange {
-                file: std::path::PathBuf::from("src/lib.rs"),
-                start_line: 1,
-                end_line: 5,
-                sub_agent: "agent-b".into(),
-                patch_hint: None,
-                merge_conflict: false,
-            },
-        ];
-        let merged = super::merge_file_changes(&changes);
-        assert_eq!(merged.len(), 2);
-        assert!(!merged[0].merge_conflict);
-        assert!(!merged[1].merge_conflict);
-
-        // Two sub-agents touching same file → conflict on both
-        let changes = vec![
-            agent_types::FileChange {
-                file: std::path::PathBuf::from("src/main.rs"),
-                start_line: 10,
-                end_line: 20,
-                sub_agent: "agent-a".into(),
-                patch_hint: None,
-                merge_conflict: false,
-            },
-            agent_types::FileChange {
-                file: std::path::PathBuf::from("src/main.rs"),
-                start_line: 30,
-                end_line: 40,
-                sub_agent: "agent-b".into(),
-                patch_hint: None,
-                merge_conflict: false,
-            },
-        ];
-        let merged = super::merge_file_changes(&changes);
-        assert_eq!(merged.len(), 2, "both entries should remain");
-        assert!(
-            merged.iter().all(|fc| fc.merge_conflict),
-            "both sub-agents on same file → both conflicted"
-        );
-
-        eprintln!("P1 PASS: merge_file_changes handles single/multi/conflict cases");
     }
 
     // ── P1-4 gate (acceptance-gatekeeper-v22 §四-1): civ 告警无 writer 不得静默 ──
@@ -8774,10 +8465,6 @@ mod tests {
             report.ok,
             "R5-11: 疑问句目标文本回答即完成（零写盘 completed 路径存在）"
         );
-        assert!(
-            report.files_changed.is_empty(),
-            "R5-11: 完成路径零写盘（不得被压去写文件）"
-        );
     }
 
     /// D-82 回归锁（**先红后绿**）：civ 条目的"文件改动数"必须取自**本 run 真实产物
@@ -8827,7 +8514,6 @@ mod tests {
             steps: 4,
             ok: true,
             summary: serde_json::json!({}),
-            files_changed: Vec::new(), // 主 run 的该字段恒空——修复前正是这条路径导致恒报 0
             usage: None,
         };
         agent.note_civ_outcome("做个网页", &report);

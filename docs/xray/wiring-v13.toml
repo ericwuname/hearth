@@ -49,15 +49,23 @@ file = "crates/tool-runtime/src/dispatcher.rs"
 any = ["fn read_only_view"]
 meaning = "只读视图构造函数仍在"
 
+# 2026-10-01 退役登记（traecode，D-83）：子代理委派子系统（spawn_sub_agent /
+# collect_sub_agent_results / active_sub_agent_count / extract_files_from_tool_calls /
+# merge_file_changes / RunReport.files_changed）已整段删除——delegable 数据源随 TaskGraph
+# 拆除、全仓零调用方。`spawn_sub_agent` 内对 `read_only_view()` 的**唯一生产调用点**随之
+# 消失，本环**已断裂**；只读视图构造与剥离清单本体（dispatcher.rs，见上方
+# `readonly-view-strips`）仍在，故仅本环退役。
+# 处置同 `sub-budget-not-halved`：保留条目留痕（防删条断言 `==16`）、`severity` 降 `yellow`
+# 不阻断门禁、claim 如实登记退役。若子代理能力日后重启（见 D-83 注），本项将自动转绿。
 [[capability]]
 id = "subagent-uses-readonly"
-claim = "spawn_sub_agent 仍然拿只读分发器（子智能体不能写文件）"
-severity = "red"
+claim = "【已退役·随 D-83】子代理委派子系统已删除，spawn_sub_agent 对只读分发器的调用随之消失；只读视图本体（dispatcher.rs）仍在"
+severity = "yellow"
 
 [[capability.chain]]
 file = "crates/agent-core/src/loop.rs"
 any = ["read_only_view()"]
-meaning = "子智能体构造处调用只读视图"
+meaning = "（历史锚点，已失效——保留留痕：子代理能力若重启，该调用回归即自动转绿）"
 
 # ── v12.7 修复 #3：按下标配对（不信 provider 的 call_id） ────────
 [[capability]]

@@ -71,7 +71,10 @@ fn real_workspace_wiring_all_green() {
         // 2026-10-01 复算（D-75，P1-38）：`constitution-reads-file` 第 1 环锚点随
         // 「constitution.md 改有界读入」同步——`read_to_string` → `read_file_text_capped_std`
         // （能力不变，实现换底；锚点若不改，本门禁会如实报红，见 P1-38 先红过程）。
-        spec_hash == 0xdaa53449f2f0f677, // 2026-10-01 复算（FNV-1a 64；D-75 有界读入）
+        // 2026-10-01 复算（D-83）：`subagent-uses-readonly` 条目退役——子代理委派子系统
+        // 整段删除后，其 `read_only_view()` 唯一生产调用点消失，severity 由 red 降为 yellow
+        // （不阻断门禁）。**纯退役登记 + 条数不变（仍 16）**。
+        spec_hash == 0x726b50655dc2952d, // 2026-10-01 复算（FNV-1a 64；D-83 子代理委派退役）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

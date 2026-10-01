@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use utoipa::ToSchema;
 
 // ── 原 P3 TaskGraph 家族的残留（D-76 已删除其余） ──
@@ -24,24 +23,11 @@ pub enum TaskStatus {
     Skipped,
 }
 
-/// A file modified by a sub-agent, with merge conflict tracking.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileChange {
-    pub file: PathBuf,
-    pub start_line: usize,
-    pub end_line: usize,
-    /// Sub-agent task id that produced this change.
-    pub sub_agent: String,
-    /// Optional description of the change (e.g. summary, patch hint).
-    pub patch_hint: Option<String>,
-    /// True when multiple sub-agents modified the same file (line overlap detected).
-    pub merge_conflict: bool,
-}
-
 // D-76（2026-10-01, traecode）：原 `Observation`（运行观测快照）与 `PlanState`
 // （图执行状态）两类型**已删除**——二者均以已拆除的 TaskGraph 为核心字段，且全仓
-// **零生产消费者**（仅类型定义自身）。`FileChange`（上方）**保留**：它是活的——
-// `agent-core/src/loop.rs` 的 `files_changed` / `merge_file_changes` 在生产使用。
+// **零生产消费者**（仅类型定义自身）。`FileChange` **已随 D-83 删除**——其唯一载体
+// `RunReport.files_changed` 与合并逻辑（`merge_file_changes` /
+// `extract_files_from_tool_calls`）均零生产调用方。
 
 /// WP-3 (v23 phase3): 规划缺口——plan 产出后的可审查缺口记录。
 /// 每条缺口必须带 `from`（来源）+ `why`（原因）；非阻塞缺口必须 `auto_assumed=true`
