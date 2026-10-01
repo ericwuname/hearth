@@ -200,7 +200,6 @@ impl Scheduler {
         &self.dispatcher
     }
 
-    /// v10.4: Expose tool context for orchestrator integration.
     /// P1-LTR-01: 注入任务级绝对截止（Phase 2）——run() 开头调用（H2 同源），
     /// 每轮 continue_turn 重建；None = 无 deadline（旧行为）。
     pub fn set_task_deadline(&mut self, deadline: Option<std::time::Instant>) {
@@ -211,18 +210,10 @@ impl Scheduler {
         &self.ctx
     }
 
-    /// v10.4: Dispatch a single tool and return a JSON value result,
-    /// for use as the runner closure in orchestrator::execute_plan.
-    pub async fn dispatch_single(
-        &self,
-        tool_name: &str,
-        args: serde_json::Value,
-    ) -> Result<String, String> {
-        self.dispatcher
-            .dispatch(tool_name, args, &self.ctx)
-            .await
-            .map_err(|e| format!("{e}"))
-    }
+    // D-85（2026-10-01, traecode）：原 `dispatch_single`（单工具分发）**已整段删除**——
+    // 它存在的唯一理由就是给 `orchestrator::execute_plan` 当 runner closure，而
+    // orchestrator 模块本身已随 TaskGraph 拆除而全仓零消费者（同批删除）。
+    // 需要单工具分发时走 `dispatcher().dispatch(name, args, &ctx)`（现役路径）。
 }
 
 #[cfg(test)]

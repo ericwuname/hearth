@@ -3467,6 +3467,8 @@ impl AgentLoop {
 
         // R7-5/D-4（线C手术）：v10.4 orchestrator 分支已删（条件 = 图非空 +
         // 多工具调用——图本体消失，恒走顺序执行臂）。
+        // D-85（2026-10-01, traecode）：`orchestrator` **模块本体**也已整段删除
+        // （全仓零消费者——它是已拆除的 TaskGraph 的执行器）；本处恒走顺序执行臂。
         // WS8 (v0.2): 每步执行前更新"身体状态"到 scratch["body"]——
         // introspect 工具读取（体感内观：steps/预算/上下文填充/相位/写盘数）。
         self.update_body_state();
