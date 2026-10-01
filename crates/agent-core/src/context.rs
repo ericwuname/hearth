@@ -337,7 +337,6 @@ impl ContextManager {
             self.state.history.push(Turn {
                 index: 0,
                 messages: merged,
-                actions: Vec::new(),
             });
         }
         // H3 (v0.2.4): 摘要头部注入归档检索提示——让模型知道自己有找回历史的手段，
@@ -694,7 +693,6 @@ pub(crate) mod tests {
                     ]),
                 ),
             ],
-            actions: vec![],
         };
         let summary = match super::summarize_turn(7, &turn).content {
             MessageContent::Text(s) => s,
@@ -1053,7 +1051,6 @@ pub(crate) mod tests {
                     agent_types::Role::User,
                     agent_types::MessageContent::Text(text.to_string()),
                 )],
-                actions: vec![],
             })
             .unwrap()
         };

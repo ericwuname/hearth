@@ -2792,7 +2792,9 @@ impl AgentLoop {
         // D-76（2026-10-01, traecode）：`agent-types` 侧的 TaskGraph 类型本体
         //（TaskGraph/TaskNode/TaskResult/PlanContext/Observation/PlanState 及其 impl）
         // 已一并删除（全仓零生产消费者）；仅 `TaskStatus` 因
-        // `SessionLedger::sync_from_task_graph` 的入参形态而保留（见债务 D-79）。
+        // `SessionLedger::sync_from_task_graph` 的入参形态而保留。
+        // D-88（2026-10-01, traecode）：该 `TaskStatus` 与 `sync_from_task_graph`
+        // 也已删除（唯一调用方是单测、生产者 TaskGraph 已消失）——此线全部清完。
         // NOTE: replan_count is NOT reset here — it is only reset on a fresh run().
         // The Replan branch in do_reflect increments it to bound replan attempts
         // (replan_count < 3 before escalating to GiveUp).
@@ -10215,7 +10217,6 @@ mod tests {
                         MessageContent::Text(format!("助手回复 {i}")),
                     ),
                 ],
-                actions: vec![],
             });
         }
         agent.restore_history(turns);
@@ -10305,7 +10306,6 @@ mod tests {
                         MessageContent::Text(format!("助手回复 {i}")),
                     ),
                 ],
-                actions: vec![],
             });
         }
         agent.restore_history(turns);
@@ -10555,37 +10555,11 @@ mod tests {
         );
     }
 
-    /// R2-1 自动派生：task_graph → 账本（Failed → 已知失败 / 未完成 →
-    /// Pending / Completed → 关闭对应条目），去重 = 同栏同前缀已有开放条目。
-    #[test]
-    fn test_r21_sync_from_task_graph() {
-        use agent_types::{LedgerColumn, SessionLedger, TaskStatus};
-        let mut ledger = SessionLedger::default();
-        let nodes = vec![
-            (TaskStatus::Completed, "搭好骨架".to_string()),
-            (TaskStatus::Failed, "FileBrowser 组件渲染".to_string()),
-            (TaskStatus::Pending, "补齐测试".to_string()),
-            (TaskStatus::InProgress, "写文档".to_string()),
-        ];
-        let added = ledger.sync_from_task_graph(&nodes, 5);
-        assert_eq!(added, 3, "Completed 不新增，其余 3 项入账");
-        assert_eq!(ledger.open_in(LedgerColumn::KnownFailing).len(), 1);
-        assert_eq!(ledger.open_in(LedgerColumn::Pending).len(), 2);
-        // 去重：同一图再同步一次，零新增
-        let added2 = ledger.sync_from_task_graph(&nodes, 6);
-        assert_eq!(
-            added2, 0,
-            "同栏同前缀已有开放条目 → 不重复登记（防账本膨胀）"
-        );
-        // 完成 → 关闭（不是删除）
-        let done = vec![(TaskStatus::Completed, "补齐测试".to_string())];
-        let _ = ledger.sync_from_task_graph(&done, 7);
-        assert_eq!(
-            ledger.open_in(LedgerColumn::Pending).len(),
-            1,
-            "Completed 后对应 Pending 条目应被关闭（只 close 不 remove）"
-        );
-    }
+    // D-88（2026-10-01, traecode）：原 `test_r21_sync_from_task_graph` 已随其被测对象
+    // （`SessionLedger::sync_from_task_graph` / `TaskStatus`）一并删除——该方法的唯一
+    // 调用方就是这个单测（生产者 TaskGraph 早已拆除）。账本的去重/关闭语义现由
+    // D-79（`ledger_record_selfcheck`）与 D-81（`ledger_sync_todos`）的真实生产者
+    // 回归锁覆盖（见 `test_d79_*` / `test_d81_*`）。
 
     /// R2-1 落盘通道：ledger 随 RunState serde 往返——**跨重启账本不丢**
     /// （R2-2 归档管早轮 turn 原文，账本管结构化状态；两通道合起来才完整

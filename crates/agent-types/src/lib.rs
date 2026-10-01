@@ -4,24 +4,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
-// ── 原 P3 TaskGraph 家族的残留（D-76 已删除其余） ──
-
-/// 任务节点状态。
-///
-/// D-76（2026-10-01, traecode）：本文件的 `TaskGraph` 家族（`TaskGraph` /
-/// `TaskNode` / `TaskResult` / `PlanContext` 及其 `impl` 与单测）**已删除**——
-/// TaskGraph 子系统随线C手术拆除（见 `agent-core/src/loop.rs` 的相关注释、
-/// P1-32 已删 CLI 残壳），全仓**零生产消费者**。本枚举保留，因为
-/// `SessionLedger::sync_from_task_graph` 的入参形态仍为 `(TaskStatus, String)`
-/// （该方法自身的生产接线归属债务 D-79 的裁决范围）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum TaskStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Failed,
-    Skipped,
-}
+// ── P3 TaskGraph 家族：**已全部清空**（D-76 → D-88） ──
+//
+// TaskGraph 子系统随线C手术拆除后，其在 `agent-types` 的全部残留已逐卡清零：
+//   D-76：`TaskGraph` / `TaskNode` / `TaskResult` / `PlanContext` / `Observation` /
+//         `PlanState`（+ `impl` + 单测）；
+//   D-83：`FileChange`（其唯一载体 `RunReport.files_changed` 与合并逻辑零调用方）；
+//   D-88：`TaskStatus`（此前仅因 `SessionLedger::sync_from_task_graph` 的入参形态而
+//         保留，而该方法的唯一调用方是单测、其生产者 TaskGraph 已消失 ⇒ 一并删除）。
+// 若日后重启"任务图/预规划编排"能力，需先恢复生产链（不是恢复类型）。
 
 // D-76（2026-10-01, traecode）：原 `Observation`（运行观测快照）与 `PlanState`
 // （图执行状态）两类型**已删除**——二者均以已拆除的 TaskGraph 为核心字段，且全仓
@@ -184,19 +175,15 @@ pub struct ToolResult {
 }
 
 /// A single turn in the agent loop.
+///
+/// D-88（2026-10-01, traecode）：原字段 `actions: Vec<Action>` **已删除**——
+/// 全仓**只被写成 `Vec::new()` / `vec![]`（7 处），从不被读取**，即"永为空的
+/// 写-only 字段"（连带其类型 `Action` 一并删除）。会话归档（JSONL）里的旧
+/// `actions` 键由 serde 默认忽略，读取不受影响。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Turn {
     pub index: u64,
     pub messages: Vec<Message>,
-    pub actions: Vec<Action>,
-}
-
-/// An action performed during a turn.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Action {
-    pub name: String,
-    pub outcome: String,
-    pub elapsed_ms: u64,
 }
 
 /// Budget constraints for a run.
@@ -252,15 +239,19 @@ impl Default for Budget {
 
 /// ── R2-1 SessionLedger（对话可用性根治任务书 v1.0，2026-09-04）──
 ///
-/// ⚠️ **D-79（2026-10-01, traecode）取证结论：本账本在生产路径"只读不写"。**
-/// 写入侧只有 [`SessionLedger::add`] / [`SessionLedger::sync_from_task_graph`]，
-/// 而全仓生产代码**从不调用**它们（`add` 仅出现在单测；`sync_from_task_graph`
-/// 的调用方仅 `agent-core` 的单测）——其原生产者为已拆除的 TaskGraph。
-/// 读取侧则是活的且**用户可见**：`agent-core/src/loop.rs:2554` 的 prompt 注入
-/// （`render_for_prompt`）、`ledger_pending_texts()` 进 report、CLI
-/// `run_local.rs` 的 `ledger_pending` 字段。⇒ 当前**账本恒空**，
-/// 注入块恒为 None（即"零遗忘"机制实际不生效）。
-/// 处置归属 **D-79（待裁：重新设计生产者接线 / 整体退役）**，不在本卡夹带。
+/// **生产链现状（D-79「接线」裁决 → D-79/D-81 已落地，2026-10-01, traecode）**：
+/// 读取侧本就活的且**用户可见**——`agent-core` 的 prompt 注入（`render_for_prompt`，
+/// 位于切片之后）、`ledger_pending_texts()` 进 run report、CLI `run_local.rs` 的
+/// `ledger_pending` 字段。写入侧原为"只读不写"（唯一写入路径 `sync_from_task_graph`
+/// 的生产者 TaskGraph 已随线C手术拆除，只剩单测 ⇒ **账本恒空**、"零遗忘"不生效；
+/// 见 D-79 取证），**现有两个由 harness 事实驱动的真实生产者**：
+///   - `AgentLoop::ledger_record_selfcheck`（D-79）：S12 自检未过项 → `KnownFailing`；
+///     复测通过 → 关闭开放项；
+///   - `AgentLoop::ledger_sync_todos`（D-81）：把模型自持的 `todo_write` 清单**全量镜像**
+///     进 `Pending` 栏——清单只活在工具输出里、会被切片裁掉，账本在切片**之后**注入
+///     ⇒ 清单从此**免疫切片**。
+///
+/// （`sync_from_task_graph` 及其专用 `close_by_prefix`、`TaskStatus` 已随 D-88 删除。）
 ///
 /// 会话状态账本：五栏（未完成/已知失败/承诺/已验证事实/待验证）。
 /// 三条硬约束（顶层批复《R1包与R2两件顶层验收批复》§四）：
@@ -330,21 +321,9 @@ impl SessionLedger {
         }
     }
 
-    /// 按文本前缀关闭（agent 语义关闭入口："这项做完了"）。返回关闭的 id。
-    pub fn close_by_prefix(
-        &mut self,
-        column: LedgerColumn,
-        prefix: &str,
-        step: u64,
-    ) -> Option<u64> {
-        let e = self.entries.iter_mut().find(|e| {
-            e.column == column
-                && e.closed_at_step.is_none()
-                && e.text.to_lowercase().starts_with(&prefix.to_lowercase())
-        })?;
-        e.closed_at_step = Some(step);
-        Some(e.id)
-    }
+    // D-88（2026-10-01, traecode）：原 `close_by_prefix`（按文本前缀关闭）**已删除**
+    // ——它只被 `sync_from_task_graph` 调用，而后者已随本卡删除（见下）。
+    // 关闭现役入口是 `close(id, step)`；D-79/D-81 的两个生产者也用 `close`。
 
     pub fn open_in(&self, column: LedgerColumn) -> Vec<&LedgerEntry> {
         self.entries
@@ -435,39 +414,17 @@ impl SessionLedger {
         ))
     }
 
-    /// 从 TaskGraph 派生同步（自动采集）：Failed 节点 → KnownFailing、
-    /// 未完成节点 → Pending、Completed 节点 → 关闭对应开放条目。
-    /// 去重 = 同栏同文本前缀已有开放条目则不重复登记。
-    /// 返回本次新增条目数。
-    pub fn sync_from_task_graph(&mut self, nodes: &[(TaskStatus, String)], step: u64) -> usize {
-        let mut added = 0;
-        for (status, desc) in nodes {
-            match status {
-                TaskStatus::Failed => {
-                    if !self.has_open_prefix(LedgerColumn::KnownFailing, desc) {
-                        self.add(LedgerColumn::KnownFailing, desc.clone(), step);
-                        added += 1;
-                    }
-                }
-                TaskStatus::Pending | TaskStatus::InProgress => {
-                    if !self.has_open_prefix(LedgerColumn::Pending, desc) {
-                        self.add(LedgerColumn::Pending, desc.clone(), step);
-                        added += 1;
-                    }
-                }
-                TaskStatus::Completed | TaskStatus::Skipped => {
-                    // 终结（完成/跳过）→ 关闭对应开放条目（Pending 栏优先，
-                    // KnownFailing 次之）。只 close 不 remove。
-                    if let Some(id) = self.close_by_prefix(LedgerColumn::Pending, desc, step) {
-                        let _ = id;
-                    } else {
-                        let _ = self.close_by_prefix(LedgerColumn::KnownFailing, desc, step);
-                    }
-                }
-            }
-        }
-        added
-    }
+    // D-88（2026-10-01, traecode）：原 `sync_from_task_graph`（从 TaskGraph 节点
+    // 派生同步：Failed→KnownFailing / 未完成→Pending / Completed→关闭）**已整段删除**。
+    //
+    // 删除理由（已逐项取证）：① 其生产者 **TaskGraph 子系统已随线C手术拆除**
+    // （见 loop.rs 原位注释与 D-76）；② 全仓**唯一调用方是 agent-core 的单测**
+    // （`test_r21_sync_from_task_graph`，随本卡一并删除）——即使 `TaskStatus` 也仅是
+    // 为它的入参形态而保留（D-76 曾如此注明）；③ 账本如今已有**两个真实生产者**：
+    // `ledger_record_selfcheck`（S12 自检事实，D-79）与 `ledger_sync_todos`
+    // （`todo_write` 清单镜像，D-81）——覆盖了它的全部三栏语义。
+    // 该"TaskGraph 遗留链"至此清完：TaskGraph/TaskNode/… （D-76）→ 子代理委派（D-83）
+    // → orchestrator/replay（D-85）→ sync_from_task_graph/TaskStatus/close_by_prefix（本卡）。
 }
 
 /// The running state of an agent execution.
@@ -539,7 +496,6 @@ impl Turn {
         Self {
             index,
             messages: Vec::new(),
-            actions: Vec::new(),
         }
     }
 }
