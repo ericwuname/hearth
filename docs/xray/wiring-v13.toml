@@ -109,8 +109,11 @@ severity = "red"
 
 [[capability.chain]]
 file = "crates/agent-core/src/constitution.rs"
-all = ["read_to_string", "constitution.md"]
-meaning = "运行时文件读取逻辑存在（constitution.rs:49/:71）"
+# 2026-10-01 锚点同步（D-75）：运行时读文件的**机制**从无界 `std::fs::read_to_string`
+# 换成共享有界原语 `bounded_io::read_file_text_capped_std`（本仓唯一读文件实现，
+# D-33 收敛口径）——能力（"运行时读 constitution.md"）不变，只是实现换底。
+all = ["read_file_text_capped_std", "constitution.md"]
+meaning = "运行时文件读取逻辑存在（constitution.rs:56 load_constitution_file；已改为有界读入）"
 
 [[capability.chain]]
 file = "crates/agent-core/src/constitution.rs"

@@ -282,6 +282,12 @@ pub enum Event {
 /// E4 v5.0: max agent nesting depth (main=0, sub=1, sub-sub=2; blocked at ≥2).
 const MAX_DEPTH: u32 = 2;
 
+/// D-75（2026-10-01, traecode）：项目记忆 `Hearth.md` 的**读入**字节上限。
+///
+/// 该文件取自 cwd（正在被处理的仓库）或家目录，且内容**整段注入系统提示**——
+/// 无上限时既 OOM 又撑爆上下文。64 KiB 远超正常项目约定文件。
+const MAX_HEARTH_MD_BYTES: u64 = 64 * 1024;
+
 /// R1 (v0.1.3 任务书 B1): 任务意图分类——产物类任务（写/创建/生成/文件/代码…）
 /// 要求 write_file 才算完成；问答/闲聊/内观类任务文本回答即完成（纯问答 ≤3 步）。
 /// 这是"20+20 答对却被强制 replan 3 次 9 步"根因的直接药方。
@@ -293,7 +299,19 @@ fn load_hearth_md(cwd: &std::path::Path) -> Option<String> {
         candidates.push(std::path::PathBuf::from(home).join("Hearth.md"));
     }
     for p in candidates {
-        if let Ok(content) = std::fs::read_to_string(&p) {
+        // D-75：有界读入——Hearth.md 是"项目记忆"，取自 **cwd（正在被处理的仓库）**
+        // 或家目录，属**外部/项目文件**边界；其内容还会**整段注入系统提示**。
+        // 此前无上限：超大 Hearth.md 既 OOM 又撑爆上下文窗口。cap 64 KiB
+        // （远超正常约定文件），截断留痕。
+        if let Ok((content, truncated)) =
+            bounded_io::read_file_text_capped_std(&p, MAX_HEARTH_MD_BYTES)
+        {
+            if truncated {
+                tracing::warn!(
+                    path = %p.display(),
+                    "Hearth.md 超过 {MAX_HEARTH_MD_BYTES} 字节上限，已截断注入（项目记忆）"
+                );
+            }
             let t = content.trim();
             if !t.is_empty() {
                 return Some(t.to_string());
@@ -4006,7 +4024,11 @@ impl AgentLoop {
                     }
                 }
                 "md" | "txt" => {
-                    let content = tokio::fs::read_to_string(&abs).await.unwrap_or_default();
+                    // D-75：有界读入（自检回读——产物可能很大，不为"数行数"整份读入）。
+                    let (content, _) =
+                        bounded_io::read_file_text_capped(&abs, MAX_CAPTURED_BYTES as u64)
+                            .await
+                            .unwrap_or_default();
                     let ok = content.lines().count() > 0 && !content.trim().is_empty();
                     checks.push(
                         serde_json::json!({"path": wf.path, "kind": "doc_readback", "ok": ok,
@@ -4058,7 +4080,10 @@ impl AgentLoop {
             return (ok, detail);
         }
         // 静态降级：非空 + 基本结构（如实标注降级原因，不谎报浏览器验证过）
-        let content = tokio::fs::read_to_string(path).await.unwrap_or_default();
+        // D-75：有界读入（同上——只为判"非空/基本结构"，无需整份入内存）。
+        let (content, _) = bounded_io::read_file_text_capped(path, MAX_CAPTURED_BYTES as u64)
+            .await
+            .unwrap_or_default();
         if content.trim().is_empty() {
             return (false, "HTML 产物为空".into());
         }
@@ -5713,6 +5738,25 @@ mod tests {
             name: name.into(),
             args,
         }
+    }
+
+    // ── P1-38（D-75）：项目文件有界读入 ──
+
+    /// **先红后绿**：`Hearth.md`（项目记忆）读入必须被 `MAX_HEARTH_MD_BYTES` 钳住。
+    ///
+    /// 红侧（原实现 `std::fs::read_to_string`）：保留量 = 整份文件（此处 100 KiB）。
+    /// 绿侧：最多 64 KiB——既防 OOM，也防"整段注入系统提示"撑爆上下文。
+    #[test]
+    fn test_p1_38_load_hearth_md_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        // 100 KiB > 64 KiB 上限。
+        std::fs::write(dir.path().join("Hearth.md"), "H".repeat(100 * 1024)).unwrap();
+        let got = load_hearth_md(dir.path()).expect("cwd 下存在非空 Hearth.md，必须读到");
+        assert_eq!(
+            got.len(),
+            MAX_HEARTH_MD_BYTES as usize,
+            "Hearth.md 必须被读入上限钳住（修复前等于整份文件长度 102400）"
+        );
     }
 
     // ── P0-09（D-32）：S12 自检命令的有限输出 / 可收尸 ──

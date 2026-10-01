@@ -88,6 +88,29 @@ pub async fn read_file_text_capped(path: &Path, cap: u64) -> std::io::Result<(St
     let mut file = tokio::fs::File::open(path).await?;
     let mut raw = Vec::new();
     (&mut file).take(cap + 1).read_to_end(&mut raw).await?;
+    finalize_text(raw, cap)
+}
+
+/// 有界读取文本文件（**同步**版）——语义与 [`read_file_text_capped`] **完全一致**。
+///
+/// 为什么需要同步版：部分读文件调用方本身是同步函数（如 `agent-core` 的
+/// `constitution.md` / `Hearth.md` 载入），若只提供 async 版就得把整条调用链
+/// 染成 async——代价远大于收益。两者共用同一份截断/UTF-8 后处理
+/// （[`finalize_text`]），保证"同步/异步行为一致"这一不变式只有一处定义
+/// （D-33 收敛口径）。
+pub fn read_file_text_capped_std(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
+    let mut file = std::fs::File::open(path)?;
+    let mut raw = Vec::new();
+    (&mut file).take(cap + 1).read_to_end(&mut raw)?;
+    finalize_text(raw, cap)
+}
+
+/// 有界读入的**共同后处理**：原始字节 → `(文本, 是否截断)`。
+///
+/// - 超过 `cap`（多读 1 字节用于判断）→ 截断并置 `truncated=true`；
+/// - 截断时退到最后一个合法 UTF-8 边界（截断点可能切断多字节字符）；
+/// - **未截断**时保持严格语义：非 UTF-8 一律报错（不静默 lossy）。
+fn finalize_text(mut raw: Vec<u8>, cap: u64) -> std::io::Result<(String, bool)> {
     let truncated = raw.len() as u64 > cap;
     if truncated {
         raw.truncate(cap as usize);
@@ -321,6 +344,40 @@ mod tests {
         let p = dir.path().join("bin.dat");
         std::fs::write(&p, [0xff_u8, 0xfe, 0x00, 0x01]).unwrap();
         assert!(read_file_text_capped(&p, 4096).await.is_err());
+    }
+
+    /// P1-38（D-75）：同步版语义必须与异步版一致——有界 + 报告截断 + UTF-8 边界回退。
+    #[test]
+    fn test_read_file_text_capped_std_matches_async_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let big = dir.path().join("big.txt");
+        std::fs::write(&big, "E".repeat(4096 + 100)).unwrap();
+        let (text, truncated) = read_file_text_capped_std(&big, 4096).unwrap();
+        assert_eq!(
+            text.len(),
+            4096,
+            "保留量必须被 cap 钳住（无界读会等于全长）"
+        );
+        assert!(truncated, "超限必须报告截断（不静默）");
+
+        let exact = dir.path().join("exact.txt");
+        std::fs::write(&exact, "F".repeat(4096)).unwrap();
+        let (text, truncated) = read_file_text_capped_std(&exact, 4096).unwrap();
+        assert_eq!(text.len(), 4096);
+        assert!(!truncated, "恰好等于上限不算截断");
+
+        // UTF-8 边界：cap 切在"中"字中间（3 字节/字）→ 退到合法边界。
+        let cjk = dir.path().join("cjk.txt");
+        std::fs::write(&cjk, "中文文件").unwrap();
+        let (text, truncated) = read_file_text_capped_std(&cjk, 4).unwrap();
+        assert!(truncated);
+        assert_eq!(text, "中");
+
+        // 未截断时严格：非 UTF-8 报错。
+        let bin = dir.path().join("bin.dat");
+        std::fs::write(&bin, [0xff_u8, 0xfe, 0x00, 0x01]).unwrap();
+        assert!(read_file_text_capped_std(&bin, 4096).is_err());
     }
 
     /// `kill_process_tree` 本身不做单测：它只能在**真实有子进程**时有意义，

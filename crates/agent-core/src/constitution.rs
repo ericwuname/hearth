@@ -19,6 +19,15 @@ use std::path::PathBuf;
 /// today; the cap keeps a future 10x growth from eating the context window.
 const MAX_CONSTITUTION_CHARS: usize = 6000;
 
+/// D-75（2026-10-01, traecode）：constitution.md 的**读入**字节上限。
+///
+/// 为何需要：`load_constitution_file` 先 `std::fs::read_to_string` **整份**读入，
+/// 再交给 `sanitize()` 截到 6000 字符——超大文件在截断**之前**就已占满内存。
+/// 而该文件来自 **CWD 向上查找**（= 正在被处理的仓库）或 `CODEX_CONSTITUTION_PATH`，
+/// 属外部/项目文件边界。cap = 64 KiB ≫ 6000 字符的字节上限（≤24 KiB），
+/// 故对正常文件**行为完全不变**，只把病态输入从 OOM 退化为"截断 + 留痕"。
+const MAX_CONSTITUTION_FILE_BYTES: u64 = 64 * 1024;
+
 /// Compiled-in fallback (the pre-v13 summary). Used ONLY when
 /// constitution.md cannot be found or is empty.
 const FALLBACK: &str = "## Core Principles (Gene Constitution v1.0)\n\
@@ -46,7 +55,16 @@ pub fn constitution_prompt() -> String {
 
 fn load_constitution_file() -> Option<String> {
     for path in candidate_paths() {
-        if let Ok(text) = std::fs::read_to_string(&path) {
+        // D-75：有界读入（此前为无界的 `std::fs::read_to_string`）。
+        if let Ok((text, truncated)) =
+            bounded_io::read_file_text_capped_std(&path, MAX_CONSTITUTION_FILE_BYTES)
+        {
+            if truncated {
+                tracing::warn!(
+                    path = %path.display(),
+                    "constitution.md 超过 {MAX_CONSTITUTION_FILE_BYTES} 字节上限，已截断读取（sanitize 将再按 {MAX_CONSTITUTION_CHARS} 字符封顶）"
+                );
+            }
             if let Some(s) = sanitize(&text) {
                 return Some(s);
             }

@@ -68,7 +68,10 @@ fn real_workspace_wiring_all_green() {
         // 2026-10-01 复算（D-48 重接线）：`civ-auto-written` 的 claim 与链锚点改为
         // 锚定**真实唯一生产接线点**（run() 收尾 `note_civ_outcome`），修掉"锚点命中
         // 赋值语句"造成的假绿。**纯锚点/文案**——能力条数（仍 16）、severity（仍 red）不变。
-        spec_hash == 0x237a4ecf1a0244cf, // 2026-10-01 复算（FNV-1a 64；D-48 civ 重接线）
+        // 2026-10-01 复算（D-75，P1-38）：`constitution-reads-file` 第 1 环锚点随
+        // 「constitution.md 改有界读入」同步——`read_to_string` → `read_file_text_capped_std`
+        // （能力不变，实现换底；锚点若不改，本门禁会如实报红，见 P1-38 先红过程）。
+        spec_hash == 0xdaa53449f2f0f677, // 2026-10-01 复算（FNV-1a 64；D-75 有界读入）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 
