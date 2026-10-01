@@ -56,50 +56,15 @@ pub fn snapshot(pid: u32) -> ResourceSnapshot {
     }
 }
 
-// ── v10.1: ROI & critical resource checks ──
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RoiReport {
-    pub session_id: String,
-    pub tokens_total: u64,
-    pub cost_est_usd: f64,
-    pub steps: u32,
-    pub roi_score: f64,
-}
-
-pub fn compute_roi(session_id: &str, tokens: u64, steps: u32, lines_changed: u32) -> RoiReport {
-    let cost = (tokens as f64) * 0.000_002;
-    let roi = if cost > 0.001 {
-        ((lines_changed as f64) / cost).min(1.0)
-    } else {
-        1.0
-    };
-    RoiReport {
-        session_id: session_id.into(),
-        tokens_total: tokens,
-        cost_est_usd: (cost * 1000.0).round() / 1000.0,
-        steps,
-        roi_score: (roi * 1000.0).round() / 1000.0,
-    }
-}
-
-impl ResourceSnapshot {
-    pub fn is_critical(&self) -> bool {
-        self.memory_percent > 80.0 || self.disk_free_gb < 1.0
-    }
-}
-
-#[cfg(test)]
-mod roi_tests {
-    use super::*;
-    #[test]
-    fn test_roi() {
-        assert!(compute_roi("s1", 10000, 5, 200).roi_score > 0.0);
-    }
-    #[test]
-    fn test_critical() {
-        let mut s = snapshot(std::process::id());
-        s.memory_percent = 85.0;
-        assert!(s.is_critical());
-    }
-}
+// ── v10.1 死代码清理（D-71，2026-10-01, traecode）──
+//
+// 原 v10.1 计划的 `RoiReport` / `compute_roi`（`GET /api/v1/costs/roi`）与
+// `ResourceSnapshot::is_critical` **从未接线**：全仓零生产调用方（仅自测调用，
+// v10.1 计划落空；`docs/global-panorama-v10.1.md:79` 曾如实记录"仅自测调用"）。
+// 且 `compute_roi` 用**硬编码假价** `tokens * 0.000002` 估算成本——与 D-46
+// 确立的口径（"未知价 → 显式不可用，绝不按 0/粗略值冒充"）正面冲突，故不订正
+// 而是**删除**。真实成本核算的唯一事实源现为 `llm-gateway` 的 `PriceTable` +
+// `CostMeter`（经 `nervous-system::set_cost` 接入）。
+//
+// `ResourceSnapshot` 本身仍现役：`GET /api/v1/resources`（service/routes.rs）与
+// 启动自检（service/main.rs）都消费它。
