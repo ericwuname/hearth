@@ -18,7 +18,11 @@ use service::routes;
 use service::session;
 use tool_runtime::{ToolContext, ToolDispatcher, ToolRegistry};
 
-// ── B3 (trunk-freeze): OpenAPI document (components only; path annotations deferred) ──
+// ── D-90（2026-10-02, traecode）：paths 由 `service::openapi::API_ROUTES` 注入 ──
+//
+// 下面 `ApiDoc` 只声明 schemas（保持原样）；`paths` 由镜像表在运行时注入
+// （见 `crates/service/src/openapi.rs` 的模块注释：病灶、处置、以及由
+// `tests/openapi_route_gate.rs` 兜底的保真机制）。
 #[derive(OpenApi)]
 #[openapi(components(schemas(
     api::AgentEvent,
@@ -35,19 +39,34 @@ use tool_runtime::{ToolContext, ToolDispatcher, ToolRegistry};
 )))]
 struct ApiDoc;
 
-// B3 (trunk-freeze): serve the generated OpenAPI document as JSON.
-// Note: we deliberately avoid `utoipa-swagger-ui` — its build script downloads
-// the Swagger UI bundle from github.com at compile time, which is unavailable
-// in our CI/VM sandbox (no outbound access to github). The JSON endpoint is
-// sufficient to expose the contract; the interactive UI can be vendored later
-// for local dev if desired.
-async fn openapi_json() -> impl IntoResponse {
-    (
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        ApiDoc::openapi()
-            .to_json()
-            .expect("serializing OpenAPI document must not fail"),
-    )
+// B3 (trunk-freeze): 以 JSON 暴露 OpenAPI 文档。
+// 不使用 `utoipa-swagger-ui` 的原因：其 build script 在**编译期**从 github.com 下载
+// Swagger UI bundle，而 CI/VM 沙箱无出网 ⇒ 改为 **vendor 静态 UI**（下方
+// `.nest_service("/swagger-ui", …)`，读的正是本端点）。
+// （原注释称"交互 UI 可日后再 vendor"——已过期：它**早已 vendor**，此处据实订正。）
+//
+// D-90（2026-10-02, traecode）两处收口：
+// ① **注入 paths**：此前 `ApiDoc` 只有 `components(schemas(…))`、**零 paths**，
+//    于是对外提供的是一份"**声明了 0 个端点**的 OpenAPI 文档"，Swagger UI 打开即空列表
+//    （服务实际有 27 条路由）——典型"半接线活特性"。现由 `service::openapi::API_ROUTES`
+//    镜像表注入（保真由 `tests/openapi_route_gate.rs` 双向兜底）。
+// ② **去掉 `expect` panic**：请求路径里不得 panic（D-60 同族），序列化失败如实回 500。
+async fn openapi_json() -> axum::response::Response {
+    match service::openapi::build_openapi_document(ApiDoc::openapi()).to_json() {
+        Ok(body) => (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "OpenAPI 文档序列化失败");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "openapi document unavailable",
+            )
+                .into_response()
+        }
+    }
 }
 
 /// v13 S3-b: Bridges agent-core's `CivWriter` to the concrete
