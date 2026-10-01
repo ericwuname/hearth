@@ -1,0 +1,27 @@
+# D-91（2026-10-02, traecode）：**钉住工具链**，换取"本地 == CI"的可复现门禁。
+#
+# 病灶：CI 用 `dtolnay/rust-toolchain@stable`（跟最新 stable **漂移**），仓库内**无**固定
+# 工具链文件。2026-10-01 stable 从 1.98 滚到 1.99（该版 2026-09-28 发布）后，CI 推上去
+# 35 秒即红：`clippy::double_must_use`（1.99 新增 lint）命中 `llm-gateway/src/provider.rs`
+# 的 `#[async_trait]` 宏产物，而**本地 1.98.1 看不到** ⇒ "本地四件套全绿、CI 红、且本地
+# 无法复现"。这是本项目**第二次** CI 与本地口径分裂（上一次 D-43 是 clippy flags 口径）。
+# 门禁一旦会因"上游发新版"而随机变红，就失去了"可信门禁"的意义——这正是钉版要治的。
+#
+# 升级流程（有意为之的仪式，不可省步）：
+#   ① 改本文件 `channel`；
+#   ② 同步 `.github/workflows/ci.yml` 的 `toolchain:`（由
+#      `crates/codex-cli/tests/toolchain_pin_gate.rs` **强制两者一致**，且禁止工作流
+#      回退到浮动 `@stable` / `@nightly`）；
+#   ③ 本地直接跑 `cargo …` —— rustup 会按本文件自动切换/安装对应工具链；
+#   ④ 跑满门禁四件套，把新工具链暴露的新 lint **修净**（而非加 blanket allow），再提交。
+#
+# **下次升级已知障碍（1.98.1 → 1.99.0）**：1.99.0 新增 `clippy::double_must_use`，会把
+# 工作区内**每一个** `#[async_trait]` + 返回 `Result` 的 trait 方法判为"重复 must_use"
+# （2026-10-02 实测：`subconscious` / `tool-runtime` / `sandbox` / `memory` / `llm-gateway`
+# 全线命中）——属**宏产物误报**。升级时优先看 async-trait 是否已上游修复；若未修复，
+# 再评估"逐 trait 就地豁免 + 写明理由"（**不要**用 crate 级 blanket allow——P1-19/P1-20
+# 正是拆掉那类"门禁真空"的）。
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

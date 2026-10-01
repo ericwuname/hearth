@@ -18,8 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      # D-91（2026-10-02, traecode）：**工具链钉版**——版本必须与仓库根
+      # `rust-toolchain.toml` 的 `channel` 一致（由
+      # `crates/codex-cli/tests/toolchain_pin_gate.rs` 强制）。
+      # **不要改回 `@stable` / `@nightly`**：那会让 CI 跟最新发行漂移，造成
+      # "本地绿、CI 红、且本地不可复现"——2026-10-01 stable 1.98→1.99 时实测过
+      # 一次（新增 `clippy::double_must_use` 命中 async-trait 宏产物）。
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.98.1"
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
