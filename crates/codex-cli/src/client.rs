@@ -57,7 +57,10 @@ impl CodexClient {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .expect("reqwest client build");
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "reqwest client 构建失败，降级为默认 client");
+                reqwest::Client::new()
+            });
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,

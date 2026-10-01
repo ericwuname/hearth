@@ -23,22 +23,6 @@ pub fn sessions_dir() -> PathBuf {
     PathBuf::from(".hearth_sessions")
 }
 
-/// 追加一个 Turn 到会话文件（每轮结束调用一次；幂等追加，重开不丢）。
-pub fn save_turn(session_id: &str, turn: &Turn) -> Result<()> {
-    let dir = sessions_dir();
-    std::fs::create_dir_all(&dir).context("create sessions dir")?;
-    let path = dir.join(format!("{session_id}.jsonl"));
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .context("open session file")?;
-    let line = serde_json::to_string(turn).context("serialize turn")?;
-    writeln!(f, "{line}").context("write turn")?;
-    Ok(())
-}
-
 /// 全量快照写——把完整历史 Turn 列表原子重写（tmp + rename，防半写损坏）。
 /// 连续对话历史累积，追加会重复，故每轮结束用快照覆盖。
 pub fn save_snapshot(session_id: &str, turns: &[Turn]) -> Result<()> {
@@ -59,13 +43,6 @@ pub fn save_snapshot(session_id: &str, turns: &[Turn]) -> Result<()> {
     Ok(())
 }
 
-/// 任务状态持久化 (v0.2): task_graph 单独落盘（<sid>.graph.json，原子写）——
-/// 甘特图反复横跳的根：resume 时恢复任务图，不重新 decompose（agent 知道自己
-/// 已写到哪步、哪些节点 Completed，不再 replan 回旧方案）。
-pub fn save_graph(session_id: &str, graph: &serde_json::Value) -> Result<()> {
-    save_graph_with_revision(session_id, graph, 0)
-}
-
 /// R2-D (批示 2): 带 state_revision 的 graph 落盘——与 taskgoal.json 同值，
 /// resume 时校验一致性（crash 落在两次写盘之间的分叉检测）。
 pub fn save_graph_with_revision(
@@ -81,14 +58,6 @@ pub fn save_graph_with_revision(
     std::fs::write(&tmp, serde_json::to_string_pretty(&wrapped)?).context("write graph tmp")?;
     std::fs::rename(&tmp, &path).context("rename graph file")?;
     Ok(())
-}
-
-/// 读取任务图（无则返回 Null——resume 时无图可恢复）。
-/// R2-D (v0.2.7): 兼容新旧两格式——新版带 state_revision 包装
-/// `{"state_revision": N, "graph": ...}`；旧版裸 graph（revision 视为 0）。
-pub fn load_graph(session_id: &str) -> serde_json::Value {
-    let wrapped = load_graph_with_revision(session_id);
-    wrapped.map(|(_, g)| g).unwrap_or(serde_json::Value::Null)
 }
 
 /// R2-D (批示 2): 读 graph + 其 state_revision（一致性校验用）。
@@ -201,11 +170,6 @@ pub fn load_run_state(run_id: &str) -> Option<serde_json::Value> {
     serde_json::from_str(&s).ok()
 }
 
-/// S8：是否存在可续断点（resume 提示/投影用）。
-pub fn has_run_state(run_id: &str) -> bool {
-    runs_dir().join(format!("{run_id}.json")).exists()
-}
-
 /// PC-2 修复（P0/P1 修复任务书 v1.0）：断点文件 **workspace 镜像**——
 /// `<cwd>/.hearth/runs/<run_id>.json`。主存储在 config 区（`sessions/runs/`，
 /// resume 读它）；镜像让执行窗/用户在项目内可发现断点（实测 PC-2 附带：
@@ -284,7 +248,7 @@ mod tests {
             agent_types::Role::User,
             agent_types::MessageContent::Text("写一个贪吃蛇".into()),
         ));
-        save_turn("test-sid", &turn).unwrap();
+        save_snapshot("test-sid", std::slice::from_ref(&turn)).unwrap();
         let loaded = load_turns("test-sid");
         assert_eq!(loaded.len(), 1, "落盘后应能读回 1 个 Turn");
         assert_eq!(loaded[0].messages.len(), 1);
@@ -294,20 +258,6 @@ mod tests {
         );
         // 不存在的 session → 空（不 panic）
         assert!(load_turns("nope").is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_append_multiple_turns() {
-        let _g = super::ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("hearth_ss_test_{}", uuid::Uuid::new_v4()));
-        std::env::set_var("HEARTH_SESSIONS_DIR", &dir);
-        for i in 0..3 {
-            save_turn("multi", &Turn::new(i)).unwrap();
-        }
-        let loaded = load_turns("multi");
-        assert_eq!(loaded.len(), 3, "追加 3 轮应读回 3 个 Turn");
-        assert_eq!(loaded[2].index, 2, "顺序应保持");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -325,12 +275,10 @@ mod tests {
             "scratch": {"acceptance_result": "passed"}
         });
         save_run_state("run-1", &state).unwrap();
-        assert!(has_run_state("run-1"), "落盘后断点必须存在");
         let back = load_run_state("run-1").expect("断点必须读回");
         assert_eq!(back["steps_used"], 5);
         assert_eq!(back["written_files"][0]["path"], "a.txt");
         assert_eq!(back["scratch"]["acceptance_result"], "passed");
-        assert!(!has_run_state("nope"), "无断点 → 不存在");
         assert!(load_run_state("nope").is_none(), "无断点 → None（不炸）");
         // PC-2：workspace 镜像——`.hearth/runs/<run_id>.json` 可发现（取证面）
         let mirror_dir =

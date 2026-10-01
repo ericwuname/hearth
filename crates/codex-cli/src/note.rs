@@ -123,31 +123,6 @@ pub fn recent_human_abnormal() -> bool {
     false
 }
 
-/// 上次 session 是否有异常信号（重试率高 / give_up / 审批高拒批）——轻探判定。
-/// 扫描 `~/hearth/observer/human-<sid>.jsonl` + 待扩展 AI 侧。
-pub fn last_session_had_abnormal_signal(sid: &str) -> Result<bool> {
-    let dir = observer_dir();
-    let human = dir.join(format!("human-{sid}.jsonl"));
-    if human.exists() {
-        let text = std::fs::read_to_string(&human).unwrap_or_default();
-        // 拒批/负面情绪 = 异常信号
-        for line in text.lines() {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                let mood = v.get("mood").and_then(|m| m.as_str()).unwrap_or("");
-                let verdict = v
-                    .get("observer_verdict")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
-                if matches!(mood, "angry" | "frustrated") || verdict == "n" {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    // 扩展点：AI 侧（~/hearth/observer/<sid>.jsonl）give_up/重试率信号
-    Ok(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,7 +146,6 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .starts_with("human-s1"));
-        assert!(last_session_had_abnormal_signal("s1").unwrap());
         // R6: AI 侧落盘
         let ai = persist_ai_events(
             "s1",
@@ -189,7 +163,6 @@ mod tests {
         .unwrap();
         assert!(ai.exists());
         assert!(ai.file_name().unwrap().to_string_lossy().starts_with("s1"));
-        assert!(!last_session_had_abnormal_signal("s2").unwrap());
         // 清理
         let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("HOME");

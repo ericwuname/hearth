@@ -102,24 +102,6 @@ fn summarize_args(args: &serde_json::Value) -> String {
     String::new()
 }
 
-/// G1-03 (v0.2.5): 从 task_graph 提取未完成节点（remaining work）。
-/// agent 崩溃/无图时返回空——调用方兜底通用指引。
-pub fn collect_remaining_from_graph(graph: &serde_json::Value) -> Vec<String> {
-    let Some(nodes) = graph.get("nodes").and_then(|n| n.as_array()) else {
-        return Vec::new();
-    };
-    nodes
-        .iter()
-        .filter(|n| {
-            n["status"]
-                .as_str()
-                .map(|s| s != "Completed")
-                .unwrap_or(true)
-        })
-        .filter_map(|n| n["title"].as_str().map(String::from))
-        .collect()
-}
-
 /// 从事件流提取审批与反思记录。
 pub fn collect_approvals_and_reflections(
     enveloped: &[api::EnvelopedEvent],

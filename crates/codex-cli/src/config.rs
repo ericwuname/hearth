@@ -287,22 +287,6 @@ pub struct ResolvedConfig {
     pub provider_keys: std::collections::HashMap<String, String>,
 }
 
-impl ResolvedConfig {
-    /// R3（零配置）: 远程 OpenAI 兼容 provider 必须有 key——缺失给可行动错误。
-    pub fn require_api_key(&self) -> anyhow::Result<()> {
-        if self.api_key.is_none() || self.api_key.as_deref() == Some("") {
-            anyhow::bail!(
-                "未配置 API key。\n\
-                 下一步（任选其一）：\n\
-                 1. hearth config set api-key <你的key>      # 写入 ~/.config/hearth/config.toml\n\
-                 2. export HEARTH_API_KEY=<你的key>         # 仅当前 shell 生效\n\
-                 3. hearth init                             # 交互式首次引导"
-            );
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,30 +318,6 @@ mod tests {
         let r = file.resolve(Some("vllm"), None, None, None, None);
         assert_eq!(r.provider, "vllm");
         std::env::remove_var("HEARTH_PROVIDER");
-    }
-
-    /// [自检]: 缺失 key 报错信息可行动（含下一步），非裸 panic。
-    #[test]
-    fn test_require_api_key_error_is_actionable() {
-        let r = ResolvedConfig {
-            provider: "deepseek".into(),
-            model: None,
-            url: None,
-            api_key: None,
-            mode: "auto".into(),
-            feedback_prompt: true,
-            egress_allowlist: Vec::new(),
-            url_warning: None,
-            read_roots: None,
-            providers: Vec::new(),
-            provider_keys: std::collections::HashMap::new(),
-        };
-        let err = r.require_api_key().unwrap_err().to_string();
-        assert!(err.contains("下一步"), "报错必须含下一步动作: {err}");
-        assert!(
-            err.contains("config set api-key"),
-            "必须提示 config set: {err}"
-        );
     }
 
     /// S9（手术包二）：降级链配置解析——config providers 生效 / env 优先 /
