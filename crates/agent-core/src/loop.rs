@@ -1856,6 +1856,70 @@ impl AgentLoop {
         }
     }
 
+    /// D-81（2026-10-01, traecode）：**账本生产者**（`Pending` 栏）——把模型自持的
+    /// `todo_write` 清单同步进账本。
+    ///
+    /// 为什么必须这么做：`todo_write` 的清单只以**工具输出**形式活在对话历史里
+    /// （工具自述"清单回显在工具输出里——历史里可查，无需另行记忆"），而历史会被
+    /// 切片 / 压缩裁掉（`build_messages` 的切片 + `maybe_compact`）⇒ **清单随时可能
+    /// 从上下文里消失**，模型此后就"忘了还剩什么"。账本恰好在**切片之后**注入
+    /// （R2-1 硬约束②）⇒ 把清单同步进 `Pending` 栏 = 让清单**免疫切片**。
+    ///
+    /// 语义：**全量镜像**（与 `todo_write` "每次整体替换清单"的契约对齐）——
+    /// 开放项 = status ∈ {pending, in_progress} 的项；不在开放集里的既有账本条目
+    /// **一律关闭**（已完成，或被模型从清单里删掉 ⇒ 不再是"未完成"）。
+    /// 去重沿用账本既有口径（同栏同文本前缀）。
+    /// 无效 / 被拒 / 未执行的 `todo_write` **不得**污染账本（必须有成功结果）。
+    fn ledger_sync_todos(&mut self) {
+        let Some(open_items) = self.pending_tool_calls.iter().find_map(|tc| {
+            if tc.name != "todo_write" {
+                return None;
+            }
+            let executed_ok = self
+                .pending_results
+                .iter()
+                .any(|r| r.call_id == tc.call_id && !r.is_error);
+            if !executed_ok {
+                return None;
+            }
+            let todos = tc.args.get("todos")?.as_array()?;
+            let items: Vec<String> = todos
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t.get("status").and_then(|s| s.as_str()),
+                        Some("pending") | Some("in_progress")
+                    )
+                })
+                .filter_map(|t| t.get("content").and_then(|c| c.as_str()))
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            Some(items)
+        }) else {
+            return;
+        };
+
+        let step = self.ctx_mgr.state().steps_used;
+        let ledger = &mut self.ctx_mgr.state_mut().ledger;
+        // ① 关闭不再开放的条目（已完成 / 已被模型移出清单）
+        let stale: Vec<u64> = ledger
+            .open_in(agent_types::LedgerColumn::Pending)
+            .iter()
+            .filter(|e| !open_items.iter().any(|t| e.text.starts_with(t.as_str())))
+            .map(|e| e.id)
+            .collect();
+        for id in stale {
+            ledger.close(id, step);
+        }
+        // ② 登记新的开放项
+        for t in &open_items {
+            if !ledger.has_open_prefix(agent_types::LedgerColumn::Pending, t) {
+                ledger.add(agent_types::LedgerColumn::Pending, t.clone(), step);
+            }
+        }
+    }
+
     pub fn set_session_id(&mut self, id: String) {
         self.session_id = id;
         // G3-03 (v0.2.5): 同步绑定 ContextManager——压缩归档按会话隔离
@@ -3712,6 +3776,10 @@ impl AgentLoop {
         }
 
         self.pending_results = results;
+
+        // D-81：账本生产者（Pending 栏）——本轮若调用了 todo_write，把清单**全量
+        // 镜像**进账本，使"还剩什么"免疫后续切片/压缩（账本在切片之后注入）。
+        self.ledger_sync_todos();
 
         // R2-F (v0.2.6): egress 审批——web_fetch 被白名单拒绝且交互模式时，
         // 就地弹 InteractionRequested（T11：不要求用户离开任务去改配置）。
@@ -10551,6 +10619,117 @@ mod tests {
         assert!(
             !rendered.contains("页面自检未过"),
             "已关闭的失败项不得再出现在注入文本里：{rendered}"
+        );
+    }
+
+    /// D-81 回归锁（**先红后绿**）：`todo_write` 清单必须**全量镜像**进账本
+    /// `Pending` 栏，使"还剩什么"免疫后续切片。
+    ///
+    /// 红侧（修复前）：生产者不存在 ⇒ 第 ① 条断言即失败（open 恒 0）。
+    #[test]
+    fn test_d81_todo_list_mirrors_into_pending_column() {
+        use agent_types::LedgerColumn;
+        let mut agent = AgentLoop::new(
+            Arc::new(MockLlm::new(vec![])),
+            Arc::new(ToolDispatcher::new()),
+            tool_runtime::ToolContext::default(),
+            Goal::new("d81 清单镜像"),
+        );
+        let mk = |items: &[(&str, &str)]| {
+            serde_json::json!({
+                "todos": items
+                    .iter()
+                    .map(|(c, s)| serde_json::json!({"content": c, "status": s}))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let call = |id: &str, items: &[(&str, &str)]| ToolCall {
+            call_id: id.into(),
+            name: "todo_write".into(),
+            args: mk(items),
+        };
+        let result = |id: &str, is_error: bool| ToolResult {
+            call_id: id.into(),
+            is_error,
+            output: if is_error {
+                "invalid status".into()
+            } else {
+                "ok".into()
+            },
+            artifacts: vec![],
+            error_kind: None,
+        };
+        let open = |agent: &AgentLoop| -> Vec<String> {
+            agent
+                .ctx_mgr
+                .state()
+                .ledger
+                .open_in(LedgerColumn::Pending)
+                .iter()
+                .map(|e| e.text.clone())
+                .collect()
+        };
+
+        // ① 首次清单：1 completed + 1 in_progress + 1 pending → 未完成栏只该有 2 项
+        agent.pending_tool_calls = vec![call(
+            "t1",
+            &[
+                ("定位 bug", "completed"),
+                ("写补丁", "in_progress"),
+                ("跑测试", "pending"),
+            ],
+        )];
+        agent.pending_results = vec![result("t1", false)];
+        agent.ledger_sync_todos();
+        let o = open(&agent);
+        assert_eq!(
+            o.len(),
+            2,
+            "只镜像 pending/in_progress（completed 不入未完成栏）：{o:?}"
+        );
+        assert!(o.iter().any(|t| t == "写补丁") && o.iter().any(|t| t == "跑测试"));
+
+        // ② 全量镜像：写补丁完成 ⇒ 关闭；新增「加文档」⇒ 登记
+        agent.pending_tool_calls = vec![call(
+            "t2",
+            &[
+                ("定位 bug", "completed"),
+                ("写补丁", "completed"),
+                ("跑测试", "pending"),
+                ("加文档", "pending"),
+            ],
+        )];
+        agent.pending_results = vec![result("t2", false)];
+        agent.ledger_sync_todos();
+        let o = open(&agent);
+        assert_eq!(o.len(), 2, "全量镜像后未完成栏 = {{跑测试, 加文档}}：{o:?}");
+        assert!(
+            !o.iter().any(|t| t == "写补丁"),
+            "已完成项必须从未完成栏关闭（只关不删）"
+        );
+        assert!(o.iter().any(|t| t == "加文档"), "新增项必须登记");
+
+        // ③ 未成功执行的 todo_write（invalid status 等）**不得**污染账本
+        agent.pending_tool_calls = vec![call("t3", &[("胡乱项", "pending")])];
+        agent.pending_results = vec![result("t3", true)];
+        agent.ledger_sync_todos();
+        let o = open(&agent);
+        assert!(
+            !o.iter().any(|t| t == "胡乱项"),
+            "失败的 todo_write 不得污染账本"
+        );
+        assert_eq!(o.len(), 2, "既有清单不受失败调用影响：{o:?}");
+
+        // ④ 端到端：清单经账本在 prompt 里可见（免疫切片的意义所在）
+        let rendered = agent
+            .ctx_mgr
+            .state()
+            .ledger
+            .render_for_prompt()
+            .unwrap_or_default();
+        assert!(
+            rendered.contains("跑测试") && rendered.contains("加文档"),
+            "未完成项必须出现在注入文本里：{rendered}"
         );
     }
 
