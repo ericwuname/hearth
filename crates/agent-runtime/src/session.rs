@@ -84,7 +84,15 @@ pub struct Session {
     pub steps: u64,
     pub budget_remaining: Option<u64>,
     pub event_tx: Option<tokio::sync::broadcast::Sender<AgentEvent>>,
-    /// B1 (trunk-freeze): in-memory ring of broadcast events for history replay.
+    /// B1 (trunk-freeze): 本会话事件的**全量内存缓冲**——供 history 查询
+    /// （`get_history`）与 SSE 断线续传重放（`sse_stream_with_replay`）。
+    ///
+    /// D-74（2026-10-01, traecode）**注释订正**：旧注释称其为 "in-memory **ring**"，
+    /// 与实现不符——它是**无上限 `Vec`**，只推不减（全仓 `events` 有 14 处 push，
+    /// 0 处 clear/truncate/drain）。之所以不能简单改成 ring：该缓冲正是断线续传的
+    /// 重放源（`session.rs` 内 `events.clone()` → `sse_stream_with_replay`），
+    /// 裁掉即丢重放。故此处**如实描述**，"会话期事件缓冲无界增长"作为独立债务登记
+    /// （需先定"重放降级"语义再改，单独立卡）。
     pub events: Vec<AgentEvent>,
     pub running: bool,
     /// The agent instance (wrapped so we can call run).
