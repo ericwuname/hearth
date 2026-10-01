@@ -445,10 +445,22 @@ pub async fn run_local_continue(
     // WS9 (v0.2): CLI 直跑 = 交互模式（预算 ask 需要真人应答）
     agent.set_interactive(true);
     // R2-F (v0.2.6): egress 审批落盘回调——approve 后追加 host 进 config.toml
-    // （复用 config set 既有写入路径 set_field+save——批注 5 坑②；并发/转义由
-    // 既有实现负责）。文件追加后下个进程生效；当前进程 ctx.env 已由 loop 层更新。
+    // （复用 config set 既有写入路径 set_field+save——批注 5 坑②）。文件追加后下个
+    // 进程生效；当前进程 ctx.env 已由 loop 层更新。
+    //
+    // D-63（2026-10-01 订正）：原批注写"并发/转义由既有实现负责"——**不实**：
+    // `egress-allowlist` 是**逗号分隔的纯文本列表、没有任何转义机制**（`config.rs`
+    // `set_field` 直接 `split(',')`）。故此处新增**源头校验**（见
+    // `is_persistable_egress_host`），绝不写入可能被切成多项的值。
     {
         let persist_host: agent_core::EgressPersistFn = Arc::new(move |host, _joined| {
+            if !is_persistable_egress_host(host) {
+                tracing::warn!(
+                    host,
+                    "拒绝持久化含非法字符的 egress host（防白名单注入）——内存白名单不受影响"
+                );
+                return;
+            }
             match crate::config::Config::load() {
                 Ok(mut cfg) => {
                     // env 优先是安全例外（P2-3），但运行时批准的 host 必须落文件
@@ -866,6 +878,11 @@ pub async fn run_local_continue(
                             .collect()
                     })
                     .unwrap_or_default();
+                // D-62 裁决（2026-10-01）：G-B 是**报告层**拦截（**by design**，非缺陷）——
+                // `agent-core/src/loop.rs:4459-4461` 载明"拦截在报告层（任务书指定），
+                // 不改控制流（失败项修不好时不得死锁完成路径）"。故此处**只拒绝外泄裸 ✓**，
+                // 不改 `report.ok`／退出码。若未来要升级为"门失败即非零退出"，属**契约变更**，
+                // 须先改任务书口径再落刀（勿把它当 bug 顺手改）。
                 if !known_failing.is_empty() {
                     render::error(&format!(
                         "  ⚠ Task claims completed（{steps} 步）——⚠️ G-B 拦截：{} 项已知失败未复测通过，本完成声明不可信、禁止计入验收通过：{:?}",
@@ -1162,6 +1179,7 @@ async fn render_agent_event(
                             .collect()
                     })
                     .unwrap_or_default();
+                // D-62 裁决：同上——G-B 为**报告层**拦截（by design），不改 `report.ok`/退出码。
                 if !known_failing.is_empty() {
                     render::error(&format!(
                         "  ⚠ G-B 拦截：{} 项已知失败未复测通过，本完成声明不可信、禁止计入验收通过：{:?}",
@@ -1427,9 +1445,55 @@ pub fn registry_smoke(cfg: &ResolvedConfig) -> Result<()> {
     Ok(())
 }
 
+/// D-63（2026-10-01）：egress host **持久化前**的注入防护。
+///
+/// 白名单落地为 `config.toml` 里**逗号分隔的纯文本列表**（读侧 `HEARTH_EGRESS_ALLOWLIST`
+/// 同样按 `,` 切分），**不存在任何转义机制**。因此一个含 `,` 的 host 值被 join 后再 split
+/// 会变成**两项**——等于在用户只批准一个域名的情况下，凭空放行另一个域名（白名单注入）。
+///
+/// 该值来自工具调用（URL 主机），而工具调用可被"取回的网页内容"里的提示注入影响；
+/// 用户看到的也只是那个畸形字符串。故此处**源头收紧**：只接受"像主机名"的值
+/// （`[A-Za-z0-9._:-]`，覆盖域名/IPv4/带端口与 IPv6 冒号写法），其余**拒绝落盘并留痕**。
+/// 注意：拒绝的是**持久化**，内存白名单不受影响（当次仍按 loop 层判定执行）。
+fn is_persistable_egress_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 255
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 先红后绿（D-63）：含 `,` 的 host **必须**被拒绝持久化。
+    /// 修复前无此校验 → `"evil.com,good.com"` 会被 `set_field` 切成两项（凭空多放行一个域）。
+    #[test]
+    fn test_d63_egress_host_injection_rejected() {
+        // 注入载荷：逗号 + 空白是最直接的"切分出额外条目"手法。
+        assert!(
+            !is_persistable_egress_host("evil.com,good.com"),
+            "含逗号必须拒（否则被切成两项 → 白名单注入）"
+        );
+        assert!(!is_persistable_egress_host("a.com b.com"), "含空白必须拒");
+        assert!(!is_persistable_egress_host("a.com\nb.com"), "含换行必须拒");
+        assert!(!is_persistable_egress_host("a.com/x"), "含斜杠必须拒");
+        assert!(!is_persistable_egress_host(""), "空值必须拒");
+        assert!(!is_persistable_egress_host(&"a".repeat(256)), "超长必须拒");
+
+        // 正常主机名照常放行（不误伤）。
+        for ok in [
+            "example.com",
+            "docs.example.com",
+            "127.0.0.1",
+            "example.com:8443",
+            "my-host_1.internal",
+            "::1",
+        ] {
+            assert!(is_persistable_egress_host(ok), "正常主机名不得误拒：{ok}");
+        }
+    }
 
     /// 回归 WS9 (v0.2): 目标方向启发式打档——设计/游戏类 premium(100)，
     /// 超短问答 economy(20)，常规 standard(50)。无打档时此测试红。
