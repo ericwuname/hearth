@@ -2,7 +2,7 @@
 // 语义检索（embedding/cosine）、环境适用性匹配、reinforce 等死代码已随 D-47 删除。
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Experience entry with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +16,15 @@ pub struct Experience {
     pub reference_count: u32,
     pub created_at: String,
 }
+
+/// D-70（2026-10-01）：经验库 JSONL 单文件**读入上限**（与 memory 的 MEM-3 同值
+/// 64 MiB）。
+///
+/// 该文件是**只增追加**的（每次 run 收尾追加一条，见 `agent-core` 的 condense
+/// 块），长期运行可无限增长；`set_path` 此前用 `tokio::fs::read_to_string` 把
+/// **整份文件**读进内存（无界读入新落点）——服务重启、文件已涨到 GB 级时即 OOM。
+/// 现最多保留前 `MAX_EXPERIENCE_FILE_BYTES` 字节并**留痕**（不静默）。
+const MAX_EXPERIENCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Experience store.
 pub struct ExperienceStore {
@@ -38,13 +47,31 @@ impl ExperienceStore {
         }
     }
 
+    /// D-70：有界读入经验库文件，返回 `(内容, 是否被截断)`。
+    ///
+    /// 走共享原语 [`bounded_io::read_file_text_capped`]——排空到 EOF 但只保留前
+    /// `cap` 字节，截断点退到合法 UTF-8 边界；截断**必须留痕**（不静默）。
+    /// `cap` 显式传入以便单测用小上限验证截断路径（无需造 64 MiB 文件）。
+    async fn read_file_bounded(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
+        let (text, truncated) = bounded_io::read_file_text_capped(path, cap).await?;
+        if truncated {
+            tracing::warn!(
+                path = %path.display(),
+                cap,
+                "experience 文件超过上限，已截断读取——尾部（较新）条目不会加载"
+            );
+        }
+        Ok((text, truncated))
+    }
+
     /// v16.0: Enable JSONL file persistence at the given path.
     /// Loads existing records from disk on first call.
     /// Safe to call on `&self` (uses std::sync::Mutex for interior mutability).
     pub async fn set_path(&self, path: PathBuf) -> std::io::Result<()> {
         // Load existing records if the file exists.
         if path.exists() {
-            let content = tokio::fs::read_to_string(&path).await?;
+            // D-70：有界读入（此前为无界的 `tokio::fs::read_to_string`）。
+            let (content, _) = Self::read_file_bounded(&path, MAX_EXPERIENCE_FILE_BYTES).await?;
             let mut loaded: Vec<Experience> = Vec::new();
             for line in content.lines() {
                 if let Ok(exp) = serde_json::from_str::<Experience>(line) {
@@ -173,6 +200,33 @@ mod tests {
             reference_count: 0,
             created_at: "2026-01-01".into(),
         }
+    }
+
+    /// D-70 回归锁（先红后绿）。
+    ///
+    /// 红侧：修复前 `set_path` 用 `tokio::fs::read_to_string` 把**整份文件**读进
+    /// 内存——保留量等于文件全长（此处 4096+100 字节）。
+    /// 绿侧：保留量必须被 `cap` 钳住，且必须**报告截断**（不静默）。
+    #[tokio::test]
+    async fn read_file_bounded_caps_and_reports_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("experience.jsonl");
+        std::fs::write(&p, "x".repeat(4096 + 100)).unwrap();
+
+        let (text, truncated) = ExperienceStore::read_file_bounded(&p, 4096).await.unwrap();
+        assert_eq!(
+            text.len(),
+            4096,
+            "保留量必须被 cap 钳住（修复前等于整份文件长度）"
+        );
+        assert!(truncated, "超限必须报告截断（不静默）");
+
+        // 边界：恰好等于上限 → 不算截断。
+        let exact = dir.path().join("exact.jsonl");
+        std::fs::write(&exact, "y".repeat(4096)).unwrap();
+        let (text, truncated) = ExperienceStore::read_file_bounded(&exact, 4096).await.unwrap();
+        assert_eq!(text.len(), 4096);
+        assert!(!truncated, "恰好等于上限不算截断");
     }
 
     #[tokio::test]

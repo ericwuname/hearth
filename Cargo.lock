@@ -577,9 +577,11 @@ dependencies = [
 name = "experience"
 version = "0.2.27"
 dependencies = [
+ "bounded-io",
  "chrono",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]

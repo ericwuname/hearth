@@ -10,3 +10,8 @@ serde_json.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+# D-70：有界读入原语（与 memory / sandbox / tools-builtin / agent-core 共用一份）
+bounded-io.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
