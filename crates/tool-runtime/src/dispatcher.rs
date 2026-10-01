@@ -108,7 +108,12 @@ pub struct ToolDispatcher {
 }
 
 /// R2-C (§8): 资源记账——per_tool 累计 + 全局累计，阈值 warn（actionable signal）。
-/// 57G 事故回答：异常"从哪个工具、哪一步开始"此后有数据可查。
+/// 57G 事故回答：异常"哪个工具、多少字节"此后有数据可查——**经 `record()` 的
+/// `tracing::warn!`**（per-call >10MB / 累计 >1GB），这才是现役的观测出口。
+///
+/// D-73 订正：`snapshot()`（per_tool 明细的唯一读取口）**全仓零生产消费者**
+/// （仅自测）——原来所谓"introspect/报告消费"无对应接线。per-tool 明细数据仍
+/// 在累积，但**当前取不到**；若要用，需先把它接到一个 introspect/报告面（单独立卡）。
 #[derive(Default)]
 pub struct ResourceLedger {
     per_tool_bytes: HashMap<String, u64>,
@@ -142,7 +147,10 @@ impl ResourceLedger {
         }
     }
 
-    /// 快照（introspect/报告消费）。
+    /// 快照（per_tool 明细 + 总计）。
+    ///
+    /// D-73：**当前无语义上的生产消费者**（仅 `r2c_resource_tests` 断言累计正确）。
+    /// 保留以固定记账语义并支撑该单测；接线到 introspect/报告面须单独立卡。
     pub fn snapshot(&self) -> (u64, u64, Vec<(String, u64)>) {
         let mut per: Vec<(String, u64)> = self
             .per_tool_bytes
