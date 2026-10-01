@@ -426,6 +426,12 @@ pub(crate) fn archive_path(session_id: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(".hearth_archive").join(name)
 }
 
+/// D-86（2026-10-01, traecode）：归档文件（`.hearth_archive/*.jsonl`）的**读入**字节上限。
+///
+/// 归档随会话**只增**（压缩把旧轮追加进去）；`archive_digest` 只需**开头**若干条
+/// turn，故按头截断即可保持语义。8 MiB 远超正常会话的归档规模。
+const MAX_ARCHIVE_READ_BYTES: u64 = 8 * 1024 * 1024;
+
 /// R5-6（智能性根治长程任务包 v1.0）：archive 读回通道——归档清单（digest）。
 /// 根因七读侧：R2-2 落盘后"读侧全仓为 0"——事实换个地方销毁。本函数把
 /// 已归档轮次解析回结构化清单（turn 索引 + 首条用户消息摘要），让模型在
@@ -436,7 +442,21 @@ pub(crate) fn archive_path(session_id: &str) -> std::path::PathBuf {
 /// 同一 turn 多次归档（切片边界前移重写）按 index 去重——清单不膨胀。
 pub(crate) fn archive_digest(session_id: &str, max_turns: usize) -> Option<String> {
     let path = archive_path(session_id);
-    let content = std::fs::read_to_string(&path).ok()?;
+    // D-86（2026-10-01, traecode）：**有界读入**（无界读入新落点）。
+    // 归档文件随会话**只增**（压缩把旧轮追加进来），而本函数只取**前 `max_turns`
+    // 条**——此前却先 `std::fs::read_to_string` 把**整份**读进内存：只留 8 条却付
+    // 全量内存代价（与 D-51 session / D-70 experience 同族；本函数自述"清单不膨胀"
+    // ——膨胀的是**读**）。cap 8 MiB 远超 8 条 turn 所需，截断留痕（best-effort，
+    // 不阻断：拿到多少解析多少）。
+    let (content, truncated) =
+        bounded_io::read_file_text_capped_std(&path, MAX_ARCHIVE_READ_BYTES).ok()?;
+    if truncated {
+        tracing::warn!(
+            session_id,
+            cap = MAX_ARCHIVE_READ_BYTES,
+            "归档文件超过读取上限，archive digest 仅基于前一段（best-effort，不阻断）"
+        );
+    }
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut lines: Vec<String> = Vec::new();
     for line in content.lines() {
@@ -1010,6 +1030,52 @@ pub(crate) mod tests {
         );
         std::env::remove_var("HEARTH_ARCHIVE_FILE");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// D-86 回归锁（**先红后绿**）：`archive_digest` 必须**有界读入**归档文件——
+    /// 落在读取上限**之外**的 turn **不得**进入 digest。
+    ///
+    /// 构造：头 1 条 turn → 9 MiB 不可解析噪声（模拟"归档只增"）→ 尾 1 条 turn。
+    /// 红侧（修复前：整份 `read_to_string`）：尾部 turn 也会被解析进 digest ⇒
+    /// 第二条断言（不得包含"尾部事实"）失败。绿侧（头截断 8 MiB）：尾部读不到。
+    #[test]
+    fn test_d86_archive_digest_reads_bounded_head_only() {
+        let _env_ser = ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("d86-archive.jsonl");
+
+        let mk_turn = |index: u64, text: &str| {
+            serde_json::to_string(&agent_types::Turn {
+                index,
+                messages: vec![agent_types::Message::new(
+                    format!("m{index}"),
+                    agent_types::Role::User,
+                    agent_types::MessageContent::Text(text.to_string()),
+                )],
+                actions: vec![],
+            })
+            .unwrap()
+        };
+        let head = mk_turn(1, "头部事实");
+        let tail = mk_turn(2, "尾部事实");
+        // 9 MiB > MAX_ARCHIVE_READ_BYTES(8 MiB)：把尾部挡在读取上限之外。
+        let junk = "!".repeat(9 * 1024 * 1024);
+        std::fs::write(&archive, format!("{head}\n{junk}\n{tail}\n")).unwrap();
+
+        std::env::set_var("HEARTH_ARCHIVE_FILE", &archive);
+        let digest = archive_digest("d86sid", 10);
+        std::env::remove_var("HEARTH_ARCHIVE_FILE");
+
+        let digest = digest.expect("头部有可解析 turn ⇒ digest 必须非 None（best-effort 不误伤）");
+        assert!(
+            digest.contains("头部事实"),
+            "头部 turn 必须进 digest：{digest}"
+        );
+        assert!(
+            !digest.contains("尾部事实"),
+            "超过读取上限的尾部 turn **不得**被读进 digest（修复前会包含 ⇒ 无界读入）：{digest}"
+        );
     }
 
     /// G3-03 (v0.2.5): 归档按会话隔离——archive/<sid>.jsonl 每会话独立，
