@@ -1765,10 +1765,24 @@ impl AgentLoop {
         };
         // 目标可能很长（多行/超长 prompt）——截断到 200 字符，避免文明线条目膨胀。
         let goal: String = goal_text.chars().take(200).collect();
+        // D-82（2026-10-01, traecode）：**"文件改动数"此前恒为 0**。
+        // 原实现取 `report.files_changed.len()`，但主 run 的 `RunReport.files_changed`
+        // **处处是 `Vec::new()`**（该字段只在**子代理**路径由
+        // `extract_files_from_tool_calls` 填充）⇒ `hearth civ feed` /
+        // `GET /api/v1/civilization` 里每条**主 run** 记录都写"0 个文件改动"——真写了
+        // 产物的 run 也是 0，与事实不符（也让 P1-17 的接线看起来"报了数"实则报的假数）。
+        // 改用本 run 的**真实产物事实** `written_files`（写盘成功即登记，见 `do_act`），
+        // 按**去重路径**计数（同一文件多次写算 1 个）。
+        let changed_files = {
+            let mut paths = std::collections::BTreeSet::new();
+            for w in &self.written_files {
+                paths.insert(w.path.as_str());
+            }
+            paths.len()
+        };
         let content = format!(
             "{outcome}：{goal}（{} 步，{} 个文件改动）",
-            report.steps,
-            report.files_changed.len()
+            report.steps, changed_files
         );
         writer.append_civ(
             category,
@@ -8763,6 +8777,72 @@ mod tests {
         assert!(
             report.files_changed.is_empty(),
             "R5-11: 完成路径零写盘（不得被压去写文件）"
+        );
+    }
+
+    /// D-82 回归锁（**先红后绿**）：civ 条目的"文件改动数"必须取自**本 run 真实产物
+    /// 事实**（`written_files`，去重路径），而不是恒空的 `report.files_changed`。
+    ///
+    /// 红侧（修复前）：恒取 `report.files_changed.len()`（主 run 恒 0）⇒ 断言"2 个"失败。
+    #[test]
+    fn test_d82_civ_entry_reports_real_changed_file_count() {
+        use std::sync::Mutex;
+        struct RecordingCiv {
+            entries: Mutex<Vec<String>>,
+        }
+        impl CivWriter for RecordingCiv {
+            fn append_civ(&self, _c: &str, content: &str, _s: &str, _t: Vec<String>) {
+                self.entries.lock().unwrap().push(content.to_string());
+            }
+        }
+
+        let rec = Arc::new(RecordingCiv {
+            entries: Mutex::new(Vec::new()),
+        });
+        let mut agent = make_test_agent(
+            Arc::new(MockLlm::new(vec![])),
+            Arc::new(ToolDispatcher::new()),
+            Goal::new("d82 civ 计数"),
+        );
+        agent.set_civ_writer(rec.clone());
+        // 本 run 真实写了 2 个不同文件（a.html 写两次只算 1 个）
+        agent.written_files = vec![
+            WrittenFile {
+                path: "a.html".into(),
+                content_len: 10,
+                light_verified: true,
+            },
+            WrittenFile {
+                path: "a.html".into(),
+                content_len: 20,
+                light_verified: true,
+            },
+            WrittenFile {
+                path: "b.md".into(),
+                content_len: 30,
+                light_verified: true,
+            },
+        ];
+        let report = RunReport {
+            steps: 4,
+            ok: true,
+            summary: serde_json::json!({}),
+            files_changed: Vec::new(), // 主 run 的该字段恒空——修复前正是这条路径导致恒报 0
+            usage: None,
+        };
+        agent.note_civ_outcome("做个网页", &report);
+
+        let entries = rec.entries.lock().unwrap();
+        assert_eq!(entries.len(), 1, "必须恰好写 1 条");
+        assert!(
+            entries[0].contains("2 个文件改动"),
+            "必须报**去重后**的真实文件数：{}",
+            entries[0]
+        );
+        assert!(
+            !entries[0].contains("0 个文件改动"),
+            "不得再恒报 0（修复前行为）：{}",
+            entries[0]
         );
     }
 
