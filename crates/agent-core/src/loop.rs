@@ -8,7 +8,6 @@ use tracing::info;
 
 use agent_types::{Budget, Message, MessageContent, Role, ToolCall, ToolResult, Turn};
 use llm_gateway::{ChatRequest, LlmProvider};
-use planner::Planner;
 use tool_runtime::ToolDispatcher;
 
 use crate::context::ContextManager;
@@ -908,8 +907,6 @@ use bounded_io::{drain_capped_async, kill_process_tree, MAX_CAPTURED_BYTES};
 
 pub struct AgentLoop {
     provider: Arc<dyn LlmProvider>,
-    /// P3: Planner for task decomposition and reflection.
-    planner: Arc<dyn Planner>,
     scheduler: Scheduler,
     ctx_mgr: ContextManager,
     events_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
@@ -930,7 +927,7 @@ pub struct AgentLoop {
     // P1-10（2026-10-01, traecode）D-40 收口：残链一并删除——
     // `Event::LspDiagnostics`/`Event::Retrieval` 两个变体（全仓无生产者）、
     // `build_messages` 里对应的两个 scratch 注入块（同样无写入方）、
-    // Planner 侧 `PlanContext.retrieval_context`/`lsp_diagnostics` 两字段与注入，
+    // `PlanContext.retrieval_context`/`lsp_diagnostics` 两字段与注入，
     // 以及仅剩"类型宿主"作用的 `retriever` / `lsp-bridge` 两个 crate。
     /// WS5 (v0.1.5): 项目记忆 Hearth.md（等价 AGENTS.md/CLAUDE.md）——
     /// 启动时读一次 {cwd}/Hearth.md（家目录兜底），内容注入系统提示。
@@ -1013,8 +1010,8 @@ pub struct AgentLoop {
     /// GiveUp 一并删除——同图不再是框架自擒的证据（判定权归还）。
     /// v20.0: Whether the agent has ever executed a mutating (write) tool call
     /// during THIS run. The all_done gate refuses Done until a real edit has
-    /// happened — fixes the T13/T19 failure mode where the planner marked
-    /// read-only nodes Completed and the agent "finished" without writing.
+    /// happened — fixes the T13/T19 failure mode where read-only nodes were
+    /// marked Completed and the agent "finished" without writing.
     /// R7-5/D-8: `acted` 计数器已随 v22 门删除（唯一消费者在删块内）——
     /// bash/apply_patch 的"执行过"语义由 made_edit/write_attempted 承载。
     /// v0.1.2: 本轮写盘记录（验证层数据源——写盘后轻校验 + 完成时重校验）。
@@ -1037,7 +1034,7 @@ pub struct AgentLoop {
     on_pre_write_snapshot: Option<PreWriteSnapshotFn>,
     /// C-1/C-12（P5-FOUNDATION-01）：run 全程出现过 ≥1 条"实际验证命令"
     /// （读/列目录不算——is_verification_command 确定性规则）→ VERIFIED；
-    /// 否则 completed 终态投影为"目标达成（未验证）"。纯字段，不进 planner
+    /// 否则 completed 终态投影为"目标达成（未验证）"。纯字段，不进入持久化
     /// schema（STOP-1/2 防线），Terminal 九态枚举不动（C-12 最小侵入裁定）。
     verification_evidence: bool,
     /// v0.1.2: 完成时重校验 replan 次数（上限 3——防死循环）。
@@ -1591,7 +1588,6 @@ impl AgentLoop {
 
     pub fn new(
         provider: Arc<dyn LlmProvider>,
-        planner: Arc<dyn Planner>,
         dispatcher: Arc<ToolDispatcher>,
         ctx: tool_runtime::ToolContext,
         goal: Goal,
@@ -1600,7 +1596,7 @@ impl AgentLoop {
         // 不能等字段初始化再借用（E0382 use-after-move）。
         let cwd_for_md = ctx.cwd.clone();
         // 天赋核心电路 wiring 断言 (v0.2.2, hearth-meta-capability-genes-final.md §3):
-        // 启动期一次——T4 introspect 工具 / T7 budget 偏离字段 / T1+C9 planner gap
+        // 启动期一次——T4 introspect 工具 / T7 budget 偏离字段 / T1+C9 gap
         // 必须真实在位。缺失 = 天赋电路断裂（wiring 断言语义，warn 不阻断——降级可运行）。
         {
             let wiring_tools: Vec<String> = dispatcher
@@ -1622,7 +1618,6 @@ impl AgentLoop {
             // v0.1.2: 先 clone cwd（ctx 随后被 Scheduler 消费——字段初始化按书写序求值）
             cwd: ctx.cwd.clone(),
             provider,
-            planner,
             scheduler: Scheduler::new(dispatcher, ctx),
             ctx_mgr: ContextManager::new(goal.text, goal.budget),
             events_tx: None,
@@ -1903,7 +1898,7 @@ impl AgentLoop {
 
     /// R2-D (批示 5): verification scope 判定——criteria 空 → "none"
     /// （artifact 验证 ≠ 语义完成，报告必须区分）；非空 → 由 acceptance
-    /// 验证状态决定（本轮无 planner criteria 通道，骨架+测试锁定行为）。
+    /// 验证状态决定（本轮无 criteria 生产通道，骨架+测试锁定行为）。
     pub fn acceptance_verification_status(&self) -> &'static str {
         if self.ctx_mgr.state().acceptance_criteria.is_empty() {
             "none"
@@ -2126,7 +2121,6 @@ impl AgentLoop {
         let depth = depth.max(self.depth + 1);
 
         let provider = self.provider.clone();
-        let planner = self.planner.clone();
         // v12.7: sub-agents are READ-ONLY. They all share the parent's single
         // workspace directory and run concurrently, so any two of them holding
         // write tools will clobber the same file from divergent snapshots.
@@ -2145,7 +2139,7 @@ impl AgentLoop {
         let tid = task_id.clone();
         let sub_depth = depth;
         let handle = tokio::spawn(async move {
-            let mut sub_agent = AgentLoop::new(provider, planner, dispatcher, ctx, sub_goal);
+            let mut sub_agent = AgentLoop::new(provider, dispatcher, ctx, sub_goal);
             sub_agent.depth = sub_depth;
             // Sub-agents don't emit events to the parent stream.
             // Inject task_id into the summary so the parent can always find the node.
@@ -2235,11 +2229,11 @@ impl AgentLoop {
     /// RC52/RC47 统一消费端（P4 Node 14 后补；顶层授权 2026-09-01）。
     ///
     /// 背景：give_up 有**三条生产出口**——①Reflect GiveUp 判定臂、②T4 stall 臂
-    /// （planner 重规划同一 TaskGraph ×2）、③budget exhausted 臂。Node 13 的
+    /// （重规划同一 TaskGraph ×2）、③budget exhausted 臂。Node 13 的
     /// 回填只装在 ①；Node 14 集成测试 RED + B 相 100% 复现实证 ②③ 未覆盖
     /// （失败在 plan/预算阶段终止，根本到不了 reflect）。本 helper 把三臂的
     /// 消费端统一收口：criteria 空 + 0 errors 时，run 边界清空的产物事实从
-    /// session 级记录回填（只读投影，不动 planner schema——STOP-1/2 防线），
+    /// session 级记录回填（只读投影，不动任务图 schema——STOP-1/2 防线），
     /// 有产物即路由 Done——文件存活性由 Done 相位盲区C 确定性校验裁决
     /// （文件被删/为空会被打回，INV-LR03 不变）。
     ///
@@ -2742,7 +2736,7 @@ impl AgentLoop {
         }
     }
 
-    /// Run the plan phase: decompose goal into TaskGraph via planner.
+    /// Run the plan phase.
     async fn do_plan(&mut self) -> Result<StepOutcome> {
         // v12: catch-all error log for Plan phase debugging
         let result = self.do_plan_inner().await;
@@ -2869,17 +2863,17 @@ impl AgentLoop {
 
     async fn do_plan_inner(&mut self) -> Result<StepOutcome> {
         // R7-5/D-3（线C手术）：PlanContext 构建已删——唯一消费者
-        // planner.decompose 调用随 B 臂块删除（检索/LSP scratch 由
+        // 任务分解调用随 B 臂块删除（检索/LSP scratch 由
         // observer/事件流路径承接）。
 
         // R7-5/D-3（线C手术）：B 臂 decompose+derive_gaps 块已删（守卫
-        // !single_loop && (needs_decompose || 空图)——planner.decompose 生产调用
+        // !single_loop && (needs_decompose || 空图)——任务分解生产调用
         // 全仓归零）。规划并入每步唯一模型调用（R6-9 既有语义）；Task Topology
-        // 重建与 TaskGraph 数据结构本体随 D-4 处置。planner crate 的整删与否
-        // 留顶层裁（预研 §二-D-3：trait 字段/构造器编译期依赖仍在）。
+        // 重建与 TaskGraph 数据结构本体随 D-4 处置。规划 crate 的整删随本项落地
+        //（trait 字段/构造器编译期依赖已清除）。
         // NOTE: replan_count is NOT reset here — it is only reset on a fresh run().
-        // The Replan branch in do_reflect increments it; the planner uses it to
-        // bound replan attempts (replan_count < 3 before escalating to GiveUp).
+        // The Replan branch in do_reflect increments it to bound replan attempts
+        // (replan_count < 3 before escalating to GiveUp).
 
         // R7-5/D-4（线C手术）：图驱动委派（delegable 节点 → 子代理）已随
         // TaskGraph 删除——delegable 数据源消失，spawn 块不可达。
@@ -2967,7 +2961,7 @@ impl AgentLoop {
         // Build messages with TaskGraph context for the LLM
         let messages = self.build_messages();
         // P0-ATTRIBUTION Node 02（env-gated 观测，总包 §1.2 唯一许可改动）：
-        // HEARTH_DEBUG_PLANNER_INPUT=1 时 dump planner 实际输入快照到
+        // HEARTH_DEBUG_PLANNER_INPUT=1 时 dump 模型实际输入快照到
         // ~/.config/hearth/debug/<session>/——零控制流影响；未开时零开销零输出。
         if std::env::var("HEARTH_DEBUG_PLANNER_INPUT").as_deref() == Ok("1") {
             let dbg_dir = std::env::var("HOME")
@@ -2985,7 +2979,7 @@ impl AgentLoop {
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
             let mut body = format!(
-                "# planner input snapshot\n# step={}\n# goal={}\n",
+                "# model input snapshot\n# step={}\n# goal={}\n",
                 self.ctx_mgr.steps_used(),
                 self.ctx_mgr.state().goal
             );
@@ -3876,7 +3870,7 @@ impl AgentLoop {
         missing
     }
 
-    /// Run the reflect phase: use planner.reflect for three-way verdict.
+    /// Run the reflect phase.
     /// W3 (D3=C/RC31 轻量): 完成决策事实校验——产品型目标 Done 接受前：
     /// ①必须有写盘（write_attempted 物理检查由调用点保证）；
     /// ②original_goal 提及具体文件名时，written_files 必须命中至少一个
@@ -5707,7 +5701,6 @@ fn strip_ansi(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::{PlanContext, TaskGraph, TaskNode, TaskStatus};
     use futures::stream::{self, BoxStream};
     use llm_gateway::ChatResponse;
     use std::sync::Mutex;
@@ -6196,12 +6189,9 @@ mod tests {
             reasoning_content: None,
         }]));
         let dispatcher = Arc::new(ToolDispatcher::new());
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
 
         let mut agent = AgentLoop::new(
             mock_llm,
-            planner,
             dispatcher,
             tool_runtime::ToolContext::default(),
             Goal::new("rc24 non-interactive deny"),
@@ -6303,12 +6293,9 @@ mod tests {
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::BashTool::new()));
         let dispatcher = Arc::new(dispatcher);
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
 
         let mut agent = AgentLoop::new(
             mock_llm,
-            planner,
             dispatcher,
             bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("rc24 delegate"),
@@ -6379,12 +6366,9 @@ mod tests {
             reasoning_content: None,
         }]));
         let dispatcher = Arc::new(ToolDispatcher::new());
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
 
         let mut agent = AgentLoop::new(
             mock_llm,
-            planner,
             dispatcher,
             tool_runtime::ToolContext::default(),
             Goal::new("rc24 hard redline"),
@@ -6448,12 +6432,9 @@ mod tests {
             reasoning_content: None,
         }]));
         let dispatcher = Arc::new(ToolDispatcher::new());
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
 
         let mut agent = AgentLoop::new(
             mock_llm,
-            planner,
             dispatcher,
             tool_runtime::ToolContext::default(),
             Goal::new("rc24 interactive default"),
@@ -6645,92 +6626,13 @@ mod tests {
         }
     }
 
-    /// MockPlanner: returns controlled TaskGraph for testing.
-    /// R7-5/D-7: ReflectVerdict 已删——reflect 判定面随之拆除（decompose 职能
-    /// 留待 D-3 处置）。
-    struct MockPlanner {
-        task_graph: Mutex<Vec<TaskGraph>>,
-        decompose_calls: Mutex<usize>,
-    }
-
-    impl MockPlanner {
-        fn new(task_graphs: Vec<TaskGraph>) -> Self {
-            Self {
-                task_graph: Mutex::new(task_graphs),
-                decompose_calls: Mutex::new(0),
-            }
-        }
-        fn decompose_count(&self) -> usize {
-            *self.decompose_calls.lock().unwrap()
-        }
-    }
-
-    #[async_trait]
-    impl Planner for MockPlanner {
-        async fn decompose(&self, _goal: &str, _ctx: &PlanContext) -> Result<TaskGraph> {
-            *self.decompose_calls.lock().unwrap() += 1;
-            let mut tgs = self.task_graph.lock().unwrap();
-            if tgs.is_empty() {
-                Ok(TaskGraph { nodes: vec![] })
-            } else {
-                Ok(tgs.remove(0))
-            }
-        }
-    }
-
-    fn make_simple_task_graph() -> TaskGraph {
-        TaskGraph {
-            nodes: vec![TaskNode {
-                id: "do_it".into(),
-                description: "accomplish the goal".into(),
-                deps: vec![],
-                status: TaskStatus::Pending,
-                delegable: false,
-                result: None,
-            }],
-        }
-    }
-
-    /// W3: 两节点图——stall 检测测试专用（单节点图 = 确定性 decompose，
-    /// 同图非停滞证据，已豁免计数）。
-    fn make_two_node_task_graph() -> TaskGraph {
-        TaskGraph {
-            nodes: vec![
-                TaskNode {
-                    id: "do_it".into(),
-                    description: "accomplish the goal".into(),
-                    deps: vec![],
-                    status: TaskStatus::Pending,
-                    delegable: false,
-                    result: None,
-                },
-                TaskNode {
-                    id: "verify".into(),
-                    description: "verify the result".into(),
-                    deps: vec!["do_it".into()],
-                    status: TaskStatus::Pending,
-                    delegable: false,
-                    result: None,
-                },
-            ],
-        }
-    }
-
-    /// Helper: create an AgentLoop for tests with MockPlanner.
+    /// Helper: create an AgentLoop for tests.
     fn make_test_agent(
         llm: Arc<dyn LlmProvider>,
         dispatcher: Arc<ToolDispatcher>,
         goal: Goal,
     ) -> AgentLoop {
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
-        AgentLoop::new(
-            llm,
-            planner,
-            dispatcher,
-            tool_runtime::ToolContext::default(),
-            goal,
-        )
+        AgentLoop::new(llm, dispatcher, tool_runtime::ToolContext::default(), goal)
     }
 
     // ── Existing tests ──
@@ -6746,11 +6648,8 @@ mod tests {
         )
         .unwrap();
         let mock_llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let tg = make_simple_task_graph();
-        let planner = Arc::new(MockPlanner::new(vec![tg]));
         let agent = AgentLoop::new(
             mock_llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -6767,7 +6666,6 @@ mod tests {
         let empty_dir = tempfile::tempdir().unwrap();
         let agent2 = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            Arc::new(MockPlanner::new(vec![make_simple_task_graph()])),
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: empty_dir.path().to_path_buf(),
@@ -6890,11 +6788,9 @@ mod tests {
         std::fs::write(dir.path().join("index.html"), "<html>ok</html>").unwrap();
 
         let provider: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner: Arc<dyn Planner> = Arc::new(MockPlanner::new(vec![]));
         let dispatcher = Arc::new(ToolDispatcher::new());
         let agent = AgentLoop::new(
             provider,
-            planner,
             dispatcher,
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -7746,7 +7642,6 @@ mod tests {
         dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
         AgentLoop::new(
             llm,
-            Arc::new(MockPlanner::new(vec![make_simple_task_graph()])),
             Arc::new(dispatcher),
             tool_runtime::ToolContext {
                 cwd: dir.to_path_buf(),
@@ -8489,20 +8384,11 @@ mod tests {
             resp("w", vec![call("a1", "write_file", &wargs)]),
             resp("DONE", vec![]),
         ]));
-        let tgs: Vec<TaskGraph> = (0..3)
-            .map(|i| {
-                let mut tg = make_simple_task_graph();
-                tg.nodes[0].description = format!("task v{i}");
-                tg
-            })
-            .collect();
-        let planner = Arc::new(MockPlanner::new(tgs));
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
         dispatcher.register(Arc::new(tools_builtin::BashTool::new())); // cmd: criteria 核验通道
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(dispatcher),
             bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("conversation"),
@@ -8577,12 +8463,10 @@ mod tests {
             ),
             fa01_resp("DONE", vec![]),
         ]));
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(dispatcher),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8640,10 +8524,8 @@ mod tests {
             "项目进度：R1-R3 已落地，R4 验收中。",
             vec![],
         )]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8709,7 +8591,6 @@ mod tests {
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            Arc::new(MockPlanner::new(vec![])),
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8759,10 +8640,8 @@ mod tests {
     async fn test_r58_failed_verification_command_does_not_light_verified() {
         let dir = tempfile::tempdir().unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8796,10 +8675,8 @@ mod tests {
     async fn test_r58_successful_verification_command_lights_verified() {
         let dir = tempfile::tempdir().unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8858,10 +8735,8 @@ mod tests {
         crate::context::archive_compacted_turns("r56wiring", &[early1, early2]).unwrap();
 
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8915,10 +8790,8 @@ mod tests {
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/main.rs"), "fn main() {}").unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -8967,10 +8840,8 @@ mod tests {
     fn test_r54_env_context_best_effort_on_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9083,10 +8954,8 @@ mod tests {
     async fn test_r52_error_line_structured_with_class() {
         let dir = tempfile::tempdir().unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9386,7 +9255,7 @@ mod tests {
 
     /// R5-3 反例：单次工具失败（repeat=1，策略 ≠ Replan）不得强制重分解。
 
-    // R6-2: StallPlanner / LoopReadLlm fixture 与 4 个 T4 停滞测试已随 T4
+    // R6-2: 停滞 fixture / LoopReadLlm fixture 与 4 个 T4 停滞测试已随 T4
 
     // ── Node 12 (P1-EXECUTION-DECISION-01): Architecture Fitness / INV 断言 ──
     // 选型（守门员约束 6）：INV-A/G 纯函数单测；INV-C 由 P1-LTR T1/T4
@@ -9400,10 +9269,8 @@ mod tests {
         // （核验器只读 criteria；改写需用户显式新 GoalMutation 输入）。
         let dir = tempfile::tempdir().unwrap();
         let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
-        let planner = Arc::new(MockPlanner::new(vec![]));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9467,22 +9334,12 @@ mod tests {
             resp("DONE", vec![]),
         ]));
 
-        // 防干扰：decompose 序列交替不同描述（Tier3 T4 同图签名不触发）
-        let mut tgs = Vec::new();
-        for i in 0..5 {
-            let mut tg = make_simple_task_graph();
-            tg.nodes[0].description = format!("do the thing v{i}");
-            tgs.push(tg);
-        }
-        let planner = Arc::new(MockPlanner::new(tgs));
-
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::EditTool::new())); // write_file
         dispatcher.register(Arc::new(tools_builtin::BashTool::new()));
 
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(dispatcher),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9570,10 +9427,8 @@ mod tests {
                 usage: None,
                 reasoning_content: None,
             }]));
-            let planner = Arc::new(MockPlanner::new(vec![]));
             let mut agent = AgentLoop::new(
                 mock_llm,
-                planner,
                 Arc::new(ToolDispatcher::new()),
                 tool_runtime::ToolContext::default(),
                 Goal::new("写一个贪吃蛇游戏"),
@@ -9614,13 +9469,11 @@ mod tests {
                 reasoning_content: None,
             },
         ]));
-        let planner1 = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut dispatcher = ToolDispatcher::new();
         // write_file 工具 = EditTool（edit.rs: name="write_file"）
         dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
         let agent1 = AgentLoop::new(
             llm1,
-            planner1,
             Arc::new(dispatcher),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9647,10 +9500,8 @@ mod tests {
         // turns+taskgoal——申报待批）。
         let saved_history = agent1.history_turns();
         let llm2: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![])); // 只回 DONE——无任何工具调用
-        let planner2 = Arc::new(MockPlanner::new(vec![])); // decompose 返回空图
         let agent2 = AgentLoop::new(
             llm2,
-            planner2,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -9875,10 +9726,8 @@ mod tests {
     async fn test_r12_chinese_goal_wrong_file_guard_rejects() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("wrong_output.txt"), "wrong").unwrap();
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut agent = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -10043,7 +9892,7 @@ mod tests {
     }
 
     /// T6 (批示 5 + 补充 4, R2-D): criteria 空 → "none"（绝不冒充 passed）；
-    /// 非空 → "pending"（确认通道待 planner 扩展单）。
+    /// 非空 → "pending"（确认通道待扩展单）。
     #[test]
     fn test_t6_acceptance_verification_scope() {
         let llm = Arc::new(MockLlm::new(vec![]));
@@ -10096,7 +9945,6 @@ mod tests {
         let dispatcher = Arc::new(ToolDispatcher::new());
         let mut agent = AgentLoop::new(
             llm.clone(),
-            Arc::new(MockPlanner::new(vec![make_simple_task_graph()])),
             dispatcher,
             tool_runtime::ToolContext::default(),
             Goal::new("t2 fatal test"),
@@ -10121,7 +9969,6 @@ mod tests {
         let dispatcher = Arc::new(ToolDispatcher::new());
         let mut agent = AgentLoop::new(
             llm.clone(),
-            Arc::new(MockPlanner::new(vec![make_simple_task_graph()])),
             dispatcher,
             tool_runtime::ToolContext::default(),
             Goal::new("t2 transient test"),
@@ -10294,12 +10141,10 @@ mod tests {
             }
         }
         let llm: Arc<dyn LlmProvider> = Arc::new(LoopSeqLlm);
-        let planner = Arc::new(MockPlanner::new(vec![make_two_node_task_graph(); 4]));
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::BashTool::new()));
         let mut agent = AgentLoop::new(
             llm,
-            planner,
             Arc::new(dispatcher),
             bash_tool_ctx(dir.path().to_path_buf()),
             Goal::new("创建探测结果标记"),
@@ -10362,10 +10207,8 @@ mod tests {
         unsafe {
             std::env::set_var("HEARTH_ARCHIVE_FILE", &archive_file);
         }
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut agent = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext::default(),
             Goal::new("r22 硬切片归档"),
@@ -10458,10 +10301,8 @@ mod tests {
     #[test]
     fn test_r21_injection_after_slice() {
         use agent_types::LedgerColumn;
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut agent = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext::default(),
             Goal::new("r21 账本切片后注入"),
@@ -10607,10 +10448,8 @@ mod tests {
     /// 条目（"还剩什么"——事实生成非模型自报；W-E 进度可问）。
     #[test]
     fn test_r31_ledger_pending_texts() {
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut agent = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext::default(),
             Goal::new("r31 收尾三行数据源"),
@@ -10706,12 +10545,10 @@ mod tests {
         // 回调捕获每次触发时的 history 长度
         let fired: Arc<std::sync::Mutex<Vec<usize>>> = Arc::new(std::sync::Mutex::new(vec![]));
         let fired_c = fired.clone();
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut dispatcher = ToolDispatcher::new();
         dispatcher.register(Arc::new(tools_builtin::EditTool::new()));
         let mut agent = AgentLoop::new(
             Arc::new(WriteOnce),
-            planner,
             Arc::new(dispatcher),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -10835,11 +10672,8 @@ mod tests {
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let planner = Arc::new(MockPlanner::new(vec![]));
-        let planner_handle = planner.clone();
         let mut agent = AgentLoop::new(
             Arc::new(ScriptedLlm),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -10894,13 +10728,8 @@ mod tests {
                 .is_some_and(|s| s.contains("任务总结")),
             "S14: 总结块必须随 report 交还（收尾默认可见）"
         );
-        assert_eq!(
-            planner_handle.decompose_count(),
-            0,
-            "R6-9 A 臂: 单循环零 decompose"
-        );
         // R7-5/D-7: reflect_count 断言已随 ReflectVerdict 删除——A 臂不进
-        // reflect 由类型系统结构性保证（planner.reflect 方法已不存在）。
+        // reflect 由类型系统结构性保证（reflect 方法已不存在）。
     }
 
     /// R6-9 A 臂判据②：唯一护栏 = 预算——模型一直调工具就跑到预算耗尽，
@@ -10953,11 +10782,8 @@ mod tests {
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let planner = Arc::new(MockPlanner::new(vec![]));
-        let planner_handle = planner.clone();
         let mut agent = AgentLoop::new(
             Arc::new(AlwaysToolLlm),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -10992,11 +10818,6 @@ mod tests {
             crate::normalize_terminal_state(report.ok, reason),
             "paused",
             "R6-9 A 臂: 护栏触发 ≠ 判定失败（R6-6 优雅降级）"
-        );
-        assert_eq!(
-            planner_handle.decompose_count(),
-            0,
-            "R6-9 A 臂: 全程零 planner 调用（无自擒出口）"
         );
     }
 
@@ -11109,10 +10930,8 @@ mod tests {
             }
         }
         let dir = tempfile::tempdir().unwrap();
-        let planner = Arc::new(MockPlanner::new(vec![make_simple_task_graph()]));
         let mut agent = AgentLoop::new(
             Arc::new(WriteOnly),
-            planner,
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext {
                 cwd: dir.path().to_path_buf(),
@@ -11144,7 +10963,6 @@ mod tests {
     fn test_history_slice_marker_present() {
         let mut agent = AgentLoop::new(
             Arc::new(MockLlm::new(vec![])),
-            Arc::new(MockPlanner::new(vec![])),
             Arc::new(ToolDispatcher::new()),
             tool_runtime::ToolContext::default(),
             Goal::new("slice marker probe"),

@@ -17,12 +17,12 @@ impl Default for TodoWriteTool {
 }
 
 /// R6-3（判定权归还长程任务书 v1.0）：TodoWrite——模型自持任务清单。
-/// 判定权归还范式下的关键工具：框架不再用 planner 分解/T4 停滞计数替模型
+/// 判定权归还范式下的关键工具：框架不再用自动任务分解/T4 停滞计数替模型
 /// 管任务，模型用本工具**自己维护**清单（Claude Code TodoWrite 语义）。
 ///
 /// 状态设计：**无框架状态**——每次调用回显格式化清单进 tool result（对话
 /// 历史），清单活在上下文里，模型自己读写。框架零记账、零停滞检测输入源
-/// （T4 自擒链条从源头断一截），planner 独立分解调用随之减少。
+/// （T4 自擒链条从源头断一截），独立分解调用随之减少。
 #[async_trait]
 impl Tool for TodoWriteTool {
     fn name(&self) -> &str {

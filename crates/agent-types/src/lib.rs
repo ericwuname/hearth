@@ -45,7 +45,7 @@ pub struct TaskGraph {
     pub nodes: Vec<TaskNode>,
 }
 
-/// Context passed into planner.decompose().
+/// Context for task planning.
 ///
 /// P1-10（2026-10-01, traecode）D-40 收口：`retrieval_context`（语义检索）与
 /// `lsp_diagnostics`（LSP 诊断）两字段**已删除**——其生产方（`retriever` /
@@ -72,7 +72,7 @@ pub struct FileChange {
     pub merge_conflict: bool,
 }
 
-/// Observation fed into planner.reflect().
+/// Observation of a run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Observation {
     /// Recent tool results (last N).
@@ -283,7 +283,7 @@ pub struct Budget {
     pub max_tokens: Option<u64>,
     pub max_time_secs: Option<u64>,
     /// WS9 (v0.2): 预算档位 "premium"|"standard"|"economy"（默认 standard）。
-    /// 按目标方向倾斜分配（planner 打标）；非全局硬杀数——跨偏离阈值走预警+ask。
+    /// 按目标方向倾斜分配（规划阶段打标）；非全局硬杀数——跨偏离阈值走预警+ask。
     #[serde(default = "default_budget_tier")]
     pub tier: String,
     /// WS9 (v0.2): 本档分配单元（相对单位，上策100/中策50/下策20）。
@@ -396,7 +396,7 @@ impl TaskGraph {
     /// R2-D (批示 6): **deterministic** next_action 派生——同一 TaskGraph 状态
     /// 永远返回同一节点。排序键 = (拓扑深度, node id)：
     /// 深度 = 该节点依赖链的最长路径（拓扑层级——优先推进浅层）；
-    /// tie-break = node id 字典序（planner 生成的稳定标识）。
+    /// tie-break = node id 字典序（规划阶段生成的稳定标识）。
     /// 禁止依赖 HashMap/Vec 遍历偶然序（批示 6 红线）。
     pub fn next_action_deterministic(&self) -> Option<&TaskNode> {
         let completed: std::collections::HashSet<&str> = self
@@ -691,7 +691,7 @@ pub struct RunState {
     /// InteractionRequest 用户答复，不做自由文本推断）。
     #[serde(default)]
     pub constraints: Vec<String>,
-    /// R2-D: 验收标准（planner 显式产出或用户显式指定；空 = 退化到
+    /// R2-D: 验收标准（规划阶段显式产出或用户显式指定；空 = 退化到
     /// artifact-level verification，acceptance_verification 恒 "none"——批示 5）。
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
@@ -765,7 +765,7 @@ pub const MAX_INJECTED_CHARS: usize = 4096;
 /// 内部 query 构造与纯 UI 摘要豁免（见 docs 截断清单登记）。
 /// 修复 4（手术包二 P0）：最大输出 token 数统一取参。
 /// 背景：agnes-3.0-flash 的 thinking 与正文**共享输出预算**（评估报告 c16d133 实测：
-/// max_tokens=2048 时正文 0 字）；8192 硬编码（loop.rs:2855/2994、planner:387）
+/// max_tokens=2048 时正文 0 字）；8192 硬编码（loop.rs:2855/2994 等）
 /// 会导致重推理轮正文被截断（真机复现："模型输出残缺"）。env `HEARTH_MAX_TOKENS`
 /// 覆盖，默认 65536（3.0-flash 约束）；下限 256 防呆（过小回退默认并告警），
 /// 上限 131072（防误配）。

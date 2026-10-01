@@ -304,7 +304,6 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
     let snap_cwd = workspace.clone();
     let mut agent: Option<agent_core::AgentLoop> = Some(agent_core::AgentLoop::new(
         provider.clone(),
-        std::sync::Arc::new(planner::DefaultPlanner::new(provider)),
         dispatcher.clone(),
         tool_runtime::ToolContext {
             cwd: workspace,

@@ -26,7 +26,6 @@ observer.workspace = true
 llm-gateway.workspace = true
 llm-openai.workspace = true
 llm-local.workspace = true
-planner.workspace = true
 tool-runtime.workspace = true
 tools-builtin.workspace = true
 sandbox.workspace = true

@@ -194,7 +194,7 @@ fn provider_key_or_bail(name: &str, api_key: &Option<String>) -> Result<String> 
 }
 
 /// R2-C 采集器 v2（守门员补充 1）: provider 构造出口统一包 TelemetryProvider——
-/// loop 的 plan-chat 与 planner 直连 chat（decompose/reflect）共用同一实例，
+/// loop 的规划 chat 与直连 provider chat 共用同一实例，
 /// 一处装饰覆盖全部出口（v1 只接 plan 出口，57.6% 是有偏下界）。
 /// env HEARTH_CACHE_TELEMETRY 开关（默认关零开销）。
 fn wrap_telemetry(p: Arc<dyn llm_gateway::LlmProvider>) -> Arc<dyn llm_gateway::LlmProvider> {
@@ -221,7 +221,6 @@ pub(crate) fn rebuild_agent(
     let snap_cwd = workspace.clone();
     let mut fresh = agent_core::AgentLoop::new(
         provider.clone(),
-        Arc::new(planner::DefaultPlanner::new(provider)),
         dispatcher,
         ToolContext {
             cwd: workspace,
@@ -393,7 +392,6 @@ pub async fn run_local(
     );
     let mut agent = AgentLoop::new(
         provider.clone(),
-        Arc::new(planner::DefaultPlanner::new(provider)),
         dispatcher.clone(),
         ToolContext {
             cwd: workspace.clone(),

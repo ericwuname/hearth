@@ -12,7 +12,6 @@ agent-types.workspace = true
 experience.workspace = true
 llm-gateway.workspace = true
 memory.workspace = true
-planner.workspace = true
 tool-runtime.workspace = true
 observer.workspace = true
 bridge.workspace = true

@@ -25,7 +25,6 @@ resource-monitor.workspace = true
 # P1-13（D-36）：webhook 的 curl 改走有界排空 + 超时树杀
 bounded-io.workspace = true
 toml = "0.8"
-planner.workspace = true
 observer.workspace = true
 agent-runtime.workspace = true
 axum.workspace = true

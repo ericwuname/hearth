@@ -142,7 +142,7 @@ pub fn record_with_exit(rec: CacheTelemetryRecord, exit: &str) {
         "chain_head": rec.msg_chain.last().cloned().unwrap_or_default(),
         "tools_hash": rec.tools_hash,
         // 补充 1/补充 4 固定分析口径：phase 为 msgs_count 推导（主链 = msgs>=3
-        // 的正式组装请求；planner decompose/reflect 独立调用 msgs<=2 = aux）。
+        // 的正式组装请求；独立分解/反思调用 msgs<=2 = aux）。
         //gateway 层拿不到真实 phase——此推导与离线分段口径一致，防混统计。
         "phase": if rec.msgs_count >= 3 { "main" } else { "aux" },
     });

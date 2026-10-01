@@ -95,7 +95,7 @@ impl LlmProvider for MockProvider {
 fn build_script() -> MockScript {
     MockScript {
         chat_responses: vec![
-            // P3: planner.decompose() — LLM response for task planning
+            // P3: task planning — LLM response
             ChatResponse {
                 content: Some("[{\"id\":\"execute\",\"description\":\"run the echo command\",\"deps\":[],\"delegable\":false}]".into()),
                 tool_calls: vec![],
@@ -115,7 +115,7 @@ fn build_script() -> MockScript {
                 usage: Some(Usage { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
             reasoning_content: None,
             },
-            // P3: planner.reflect() — LLM response for reflection
+            // P3: reflection — LLM response
             ChatResponse {
                 content: Some("continue".into()),
                 tool_calls: vec![],
@@ -123,7 +123,7 @@ fn build_script() -> MockScript {
                 usage: Some(Usage { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23, prompt_cache_hit_tokens: None, prompt_cache_miss_tokens: None }),
             reasoning_content: None,
             },
-            // P3: planner.decompose() second call
+            // P3: task planning second call
             ChatResponse {
                 content: Some("[{\"id\":\"execute\",\"description\":\"run the echo command\",\"deps\":[],\"delegable\":false}]".into()),
                 tool_calls: vec![],

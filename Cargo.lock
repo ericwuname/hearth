@@ -15,7 +15,6 @@ dependencies = [
  "futures",
  "llm-gateway",
  "nervous-system",
- "planner",
  "serde",
  "serde_json",
  "sha2",
@@ -44,7 +43,6 @@ dependencies = [
  "llm-gateway",
  "memory",
  "observer",
- "planner",
  "serde",
  "serde_json",
  "tempfile",
@@ -408,7 +406,6 @@ dependencies = [
  "llm-local",
  "llm-openai",
  "observer",
- "planner",
  "reedline",
  "reqwest",
  "rpassword",
@@ -1360,21 +1357,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "planner"
-version = "0.2.27"
-dependencies = [
- "agent-types",
- "anyhow",
- "async-trait",
- "futures",
- "llm-gateway",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1854,7 +1836,6 @@ dependencies = [
  "llm-replay",
  "memory",
  "observer",
- "planner",
  "resource-monitor",
  "serde",
  "serde_json",

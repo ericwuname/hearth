@@ -8,7 +8,6 @@ agent-types.workspace = true
 bounded-io.workspace = true
 llm-gateway.workspace = true
 tool-runtime.workspace = true
-planner.workspace = true
 nervous-system.workspace = true
 experience.workspace = true
 subconscious.workspace = true

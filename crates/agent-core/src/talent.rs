@@ -228,11 +228,11 @@ pub fn inject_text(goal: &str) -> String {
 
 /// 核心电路 wiring 断言（§3）——启动期检查各机制真实在位。
 /// 返回未接线项列表（空 = 全接）。任一缺失 = 天赋电路断裂（wiring 断言语义）。
-/// 可查项（真实可验证的机制）：T4 introspect 工具 / T7 budget 偏离字段 / T1+C9 planner gap。
+/// 可查项（真实可验证的机制）：T4 introspect 工具 / T7 budget 偏离字段 / T1+C9 gap。
 pub fn core_circuit_wiring(
     dispatcher_tools: &[String],
     budget_has_deviation: bool,
-    planner_gap_types: &[&str],
+    gap_types: &[&str],
 ) -> Vec<String> {
     let mut missing = Vec::new();
     // T4 体感：introspect 工具必须注册（LLM 可查身体状态）
@@ -243,12 +243,12 @@ pub fn core_circuit_wiring(
     if !budget_has_deviation {
         missing.push("T7 减速: Budget.deviation_warn_at 未启用".to_string());
     }
-    // T1 认知谦逊：planner 必须产出 unverified_claim gap
-    if !planner_gap_types.contains(&"unverified_claim") {
+    // T1 认知谦逊：必须产出 unverified_claim gap
+    if !gap_types.contains(&"unverified_claim") {
         missing.push("T1 认知谦逊: unverified_claim gap 未接线".to_string());
     }
-    // C9 价值澄清：planner 必须产出 ambiguous_option gap（意图模糊必反问）
-    if !planner_gap_types.contains(&"ambiguous_option") {
+    // C9 价值澄清：必须产出 ambiguous_option gap（意图模糊必反问）
+    if !gap_types.contains(&"ambiguous_option") {
         missing.push("C9 价值澄清: ambiguous_option gap 未接线".to_string());
     }
     // T3 四阶段 / T10 目标锚定：架构拓扑级（相位钩子 + goal 判定），无法启动期

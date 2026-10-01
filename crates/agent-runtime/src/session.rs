@@ -9,7 +9,6 @@ use bounded_io::{read_file_text_capped, MAX_CAPTURED_BYTES};
 use experience::ExperienceStore;
 use llm_gateway::{CostMeter, ProviderRegistry, Usage};
 use memory::{MemoryStore, SessionRecord, StoredEvent};
-use planner::DefaultPlanner;
 
 /// B3-3 (backend taskbook #01): URL 直开判定（http/https → 浏览器）。
 fn is_http_url(s: &str) -> bool {
@@ -291,7 +290,6 @@ impl SessionManager {
 
         let mut agent = AgentLoop::new(
             provider.clone(),
-            Arc::new(DefaultPlanner::new(provider)),
             self.dispatcher.clone(),
             ToolContext {
                 cwd: if self.ctx.cwd.as_os_str() == "." || self.ctx.cwd.as_os_str().is_empty() {

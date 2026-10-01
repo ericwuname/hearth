@@ -523,7 +523,7 @@ mod execdec_node06_tests {
         // 停止通道：资源耗尽（INV-FA01-E：reserve 不得变成无限免费预算）
         assert_eq!(failure_strategy(F::ResourceFailure), S::Stop);
         // Replan ≠ GiveUp：Replan 策略的终点不是直接放弃——GiveUp 只能由
-        // 资源耗尽（Stop）或既有 planner caps 触发，映射层不含 GiveUp 语义。
+        // 资源耗尽（Stop）或既有 caps 触发，映射层不含 GiveUp 语义。
         assert_ne!(failure_strategy(F::VerificationFailure), S::Stop);
         assert_ne!(failure_strategy(F::PlanFailure), S::Stop);
     }
