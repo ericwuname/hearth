@@ -132,7 +132,7 @@ fn check_link(root: &Path, link: &ChainLink) -> LinkResult {
     // `readonly-view-strips`（red）锚 `dispatcher.rs` 的 `MUTATING_TOOLS`，
     // 生产数组删掉 `"edit"` 后，测试行 `["…","write_file","edit","bash"]` 仍命中 → 假绿。
     // 先 strip（注释里的 `#[cfg(test)]` 已随之消失）再 blank，双保险。
-    let content = blank_test_modules(&strip_comments_and_strings(&content));
+    let content = blank_test_modules(&strip_comments_keep_strings(&content));
 
     if link.any.is_empty() && link.all.is_empty() {
         return LinkResult {
@@ -211,6 +211,12 @@ fn is_char_literal(b: &[u8], i: usize) -> bool {
 
 /// 剥离行注释与块注释，**保留字符串字面量与其余代码**。
 ///
+/// D-69（2026-10-01）订正：本函数原名 `strip_comments_and_strings`——**名与行为不符**
+/// （"strip ... strings" 读起来像"把字符串也剥掉"，实际是**保留**）。这个误导正是
+/// D-59「假绿」的认知来源：读者以为字符串已被剥掉、不会再参与锚点匹配，于是没人去想
+/// "测试里的字符串能顶绿生产锚点"。**改名为 `strip_comments_keep_strings`**，名实一致。
+/// （真正需要"连字符串一起屏蔽"的场景由 [`blank_test_modules`] 负责。）
+///
 /// 历史修复（均为 traecode，2026-09-30）：
 /// 1. **UTF-8 缺陷**：原实现 `out.push(c as char)` 把 u8 当码点，多字节字符（中文）被拆成
 ///    乱码 → 含非 ASCII 的锚点永远匹配不上（门禁假阴性）。现改为原始字节收集、结尾整体还原。
@@ -218,7 +224,7 @@ fn is_char_literal(b: &[u8], i: usize) -> bool {
 ///    `/*` 会开启"块注释"并吞掉其后一切。现引入 [`LexState`] 跟踪普通/原始字符串与字符字面量。
 ///
 /// 语义保持不变：只剥注释，字符串与代码原样保留。
-fn strip_comments_and_strings(src: &str) -> String {
+fn strip_comments_keep_strings(src: &str) -> String {
     let b = src.as_bytes();
     let n = b.len();
     let mut out: Vec<u8> = Vec::with_capacity(n);
@@ -603,30 +609,30 @@ mod tests {
         // 纯注释里的调用子串必须被剥离（P0-4 核心：注释掉调用 ≠ 存在）
         let only_line_comment = "// self.record_tool_exchange();\nlet x = 1;";
         assert!(
-            !strip_comments_and_strings(only_line_comment).contains("record_tool_exchange"),
+            !strip_comments_keep_strings(only_line_comment).contains("record_tool_exchange"),
             "行注释中的调用不应命中"
         );
         let only_block_comment = "/* self.record_tool_exchange(); */";
         assert!(
-            !strip_comments_and_strings(only_block_comment).contains("record_tool_exchange"),
+            !strip_comments_keep_strings(only_block_comment).contains("record_tool_exchange"),
             "块注释中的调用不应命中"
         );
         // 字符串字面量必须保留（wiring 断言含工具名/文件名等字符串匹配）
         let only_string = "let m = MUTATING_TOOLS: &[\"write_file\", \"bash\"];";
         assert!(
-            strip_comments_and_strings(only_string).contains("write_file"),
+            strip_comments_keep_strings(only_string).contains("write_file"),
             "字符串字面量中的断言目标应保留"
         );
         // 真实代码里的调用必须保留
         let real = "fn f() { self.record_tool_exchange(); }";
         assert!(
-            strip_comments_and_strings(real).contains("record_tool_exchange"),
+            strip_comments_keep_strings(real).contains("record_tool_exchange"),
             "真实调用应保留"
         );
         // 混合：注释 + 真实调用 → 真实调用命中
         let mixed = "// self.record_tool_exchange();\nself.record_tool_exchange();";
         assert!(
-            strip_comments_and_strings(mixed).contains("record_tool_exchange"),
+            strip_comments_keep_strings(mixed).contains("record_tool_exchange"),
             "混合场景应命中真实调用"
         );
     }
@@ -643,19 +649,19 @@ mod tests {
         let cjk_in_string =
             r#"let s = String::from("[lints] 编译错误结构化提取（read_lints）:\n");"#;
         assert!(
-            strip_comments_and_strings(cjk_in_string).contains("编译错误结构化提取（read_lints）"),
+            strip_comments_keep_strings(cjk_in_string).contains("编译错误结构化提取（read_lints）"),
             "字符串字面量中的中文必须原样保留——修复前会被拆成乱码导致锚点静默失效"
         );
         // ② 注释中的中文仍须被剥离（修复不得误放行）
         let cjk_in_comment = "// 编译错误结构化提取（read_lints）\nlet x = 1;";
         assert!(
-            !strip_comments_and_strings(cjk_in_comment).contains("编译错误结构化提取"),
+            !strip_comments_keep_strings(cjk_in_comment).contains("编译错误结构化提取"),
             "注释中的中文仍须剥离"
         );
         // ③ 中英混排：代码/字符串区保留，注释区剥离
         let mixed = "fn f() { /* 中文注释 */ let s = \"中文断言\"; }";
-        assert!(strip_comments_and_strings(mixed).contains("中文断言"));
-        assert!(!strip_comments_and_strings(mixed).contains("中文注释"));
+        assert!(strip_comments_keep_strings(mixed).contains("中文断言"));
+        assert!(!strip_comments_keep_strings(mixed).contains("中文注释"));
     }
 
     /// 2026-09-30 修复回归（**先红后绿**）：字符串里的 `/*` 不得被误判为块注释开头。
@@ -666,7 +672,7 @@ mod tests {
     #[test]
     fn strip_does_not_open_block_comment_inside_string() {
         let src = "let re = \"a/* b\";\nlet anchor = \"SHOULD_SURVIVE\";";
-        let out = strip_comments_and_strings(src);
+        let out = strip_comments_keep_strings(src);
         assert!(
             out.contains("SHOULD_SURVIVE"),
             "字符串里的 /* 不得吞掉其后代码（修复前必红）：{out}"
@@ -680,17 +686,17 @@ mod tests {
         // ① 原始字符串里的 `/*` 不得开启块注释
         let raw = "let p = r#\"x/*y\"#;\nlet k = \"AFTER_RAW\";";
         assert!(
-            strip_comments_and_strings(raw).contains("AFTER_RAW"),
+            strip_comments_keep_strings(raw).contains("AFTER_RAW"),
             "原始字符串里的 /* 不得吞后续"
         );
         // ② 行注释仍须被剥离（修复不得误放行）
         let commented = "let a = 1;\n// GONE_LINE\nlet b = 2;";
-        let out = strip_comments_and_strings(commented);
+        let out = strip_comments_keep_strings(commented);
         assert!(!out.contains("GONE_LINE"), "行注释仍须剥离：{out}");
         assert!(out.contains("let b = 2;"));
         // ③ 生命周期 `'a` 不是字符字面量：不得干扰其后的注释剥离
         let life = "fn f<'a>(x: &'a str) {}\n// LIFETIME_LINE\nlet y = 1;";
-        let out2 = strip_comments_and_strings(life);
+        let out2 = strip_comments_keep_strings(life);
         assert!(
             !out2.contains("LIFETIME_LINE"),
             "生命周期不得干扰注释剥离：{out2}"
@@ -698,7 +704,7 @@ mod tests {
         assert!(out2.contains("let y = 1;"));
         // ④ 块注释仍须被剥离
         let blk = "/* BLOCK_GONE */\nlet z = 3;";
-        let out3 = strip_comments_and_strings(blk);
+        let out3 = strip_comments_keep_strings(blk);
         assert!(!out3.contains("BLOCK_GONE"), "块注释仍须剥离：{out3}");
     }
 
@@ -885,7 +891,7 @@ mod tests {
         assert!(out.contains("\"apply_patch\""), "生产元素仍应保留");
         // 对照：不抹除时（只 strip）确实会命中——证明本测试揭示的正是假绿路径。
         assert!(
-            strip_comments_and_strings(src).contains("\"edit\""),
+            strip_comments_keep_strings(src).contains("\"edit\""),
             "对照：未抹测试区时 \"edit\" 会被测试行命中（假绿根源）"
         );
     }
