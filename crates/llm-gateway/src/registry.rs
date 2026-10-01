@@ -98,14 +98,6 @@ impl ProviderRegistry {
             .map(|(name, p)| (name.clone(), p.model().to_string()))
             .collect()
     }
-
-    /// 6A: List all aliases.
-    pub fn list_aliases(&self) -> Vec<(String, String)> {
-        self.aliases
-            .iter()
-            .map(|(a, k)| (a.clone(), k.clone()))
-            .collect()
-    }
 }
 
 impl std::fmt::Debug for ProviderRegistry {

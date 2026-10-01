@@ -150,32 +150,9 @@ struct HunyuanErrorResponse {
 }
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code)]
 struct HunyuanErrorDetail {
     #[serde(rename = "Message")]
     message: String,
-    #[serde(rename = "Code")]
-    code: Option<String>,
-}
-
-#[derive(Serialize)]
-#[allow(dead_code)]
-struct HunyuanEmbeddingRequest {
-    model: String,
-    input: Vec<String>,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct HunyuanEmbeddingResponse {
-    data: Vec<HunyuanEmbeddingData>,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct HunyuanEmbeddingData {
-    index: usize,
-    embedding: Vec<f32>,
 }
 
 // ── SSE parsing ──
@@ -291,9 +268,10 @@ impl HunyuanProvider {
             name: name.into(),
             model: model.into(),
             // LLM-1: default reqwest client has no timeout.
+            // 与 llm-openai 口径一致（防挂起；超时快速失败交给 FallbackChain）。
             client: Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(300))
+                .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             // URL-1: trim trailing '/' to avoid double slashes in endpoints.

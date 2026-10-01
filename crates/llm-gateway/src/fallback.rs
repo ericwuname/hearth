@@ -38,8 +38,6 @@ pub struct FallbackChain {
     providers: Vec<(String, Arc<dyn LlmProvider>)>,
     /// S9：切换通知（可选）。
     on_switch: Option<SwitchFn>,
-    /// S9：最近一次成功通道名（分账/报告标注"本轮实际用哪条通道"）。
-    last_used: std::sync::Mutex<Option<String>>,
 }
 
 impl FallbackChain {
@@ -50,7 +48,6 @@ impl FallbackChain {
         Self {
             providers,
             on_switch: None,
-            last_used: std::sync::Mutex::new(None),
         }
     }
 
@@ -58,17 +55,6 @@ impl FallbackChain {
     pub fn with_switch_callback(mut self, cb: SwitchFn) -> Self {
         self.on_switch = Some(cb);
         self
-    }
-
-    /// S9：最近一次成功通道（None = 尚未成功调用）——分账标注用。
-    pub fn last_used(&self) -> Option<String> {
-        self.last_used.lock().ok().and_then(|g| g.clone())
-    }
-
-    fn note_success(&self, name: &str) {
-        if let Ok(mut g) = self.last_used.lock() {
-            *g = Some(name.to_string());
-        }
     }
 
     fn fire_switch(&self, from: &str, to: &str) {
@@ -100,37 +86,6 @@ impl FallbackChain {
             .collect()
     }
 
-    /// Execute a chat completion through the fallback chain.
-    ///
-    /// Returns the first successful response, or the last error.
-    pub async fn chat(&self, req: ChatRequest) -> Result<(String, ChatResponse)> {
-        let mut last_err: Option<anyhow::Error> = None;
-
-        for (idx, (name, provider)) in self.providers.iter().enumerate() {
-            match provider.chat(req.clone()).await {
-                Ok(resp) => {
-                    self.note_success(name);
-                    return Ok((name.clone(), resp));
-                }
-                Err(e) => {
-                    let class = classify_anyhow(&e);
-                    tracing::warn!(provider = %name, error = %e, class = ?class, "fallback: provider failed");
-                    let has_next = idx + 1 < self.providers.len();
-                    // S9：transient 交回上层 S7 长退避（同通道等待重试）；只有
-                    // fatal/param（通道级不可恢复）且存在下一通道时才切换。
-                    if matches!(class, ErrorClass::Transient) || !has_next {
-                        return Err(e);
-                    }
-                    let next = self.providers[idx + 1].0.clone();
-                    self.fire_switch(name, &next);
-                    last_err = Some(e);
-                }
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("fallback chain is empty")))
-    }
-
     /// Execute a streaming chat completion through the fallback chain.
     ///
     /// Streaming fallback is NOT transparent — we return the stream
@@ -147,27 +102,6 @@ impl FallbackChain {
                 Err(anyhow::anyhow!("fallback chain is empty"))
             }))
         }
-    }
-
-    /// Execute embedding through the fallback chain.
-    pub async fn embed(&self, inputs: &[String]) -> Result<(String, Vec<Embedding>)> {
-        let mut last_err: Option<anyhow::Error> = None;
-
-        for (name, provider) in &self.providers {
-            match provider.embed(inputs).await {
-                Ok(resp) => return Ok((name.clone(), resp)),
-                Err(e) => {
-                    tracing::warn!(
-                        provider = %name,
-                        error = %e,
-                        "fallback: embed failed, trying next"
-                    );
-                    last_err = Some(e);
-                }
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("fallback chain is empty")))
     }
 }
 
@@ -212,7 +146,6 @@ impl LlmProvider for FallbackChain {
             match provider.chat(req.clone()).await {
                 Ok(resp) => {
                     tracing::debug!(provider = %name, "fallback: chat succeeded via {}", name);
-                    self.note_success(name);
                     return Ok(resp);
                 }
                 Err(e) => {
@@ -388,8 +321,7 @@ mod tests {
             ),
         ]);
 
-        let (name, resp) = chain.chat(test_req()).await.unwrap();
-        assert_eq!(name, "primary");
+        let resp = chain.chat(test_req()).await.unwrap();
         assert_eq!(resp.content.unwrap(), "response from primary");
     }
 
@@ -406,8 +338,7 @@ mod tests {
             ),
         ]);
 
-        let (name, resp) = chain.chat(test_req()).await.unwrap();
-        assert_eq!(name, "fallback");
+        let resp = chain.chat(test_req()).await.unwrap();
         assert_eq!(resp.content.unwrap(), "response from fallback");
     }
 
@@ -437,13 +368,12 @@ mod tests {
             ("b".into(), Arc::new(MockProvider::new("b", false))),
         ]);
 
-        let (name, embeds) = chain.embed(&["test".into()]).await.unwrap();
-        assert_eq!(name, "b");
+        let embeds = chain.embed(&["test".into()]).await.unwrap();
         assert_eq!(embeds[0].values, vec![0.1, 0.2]);
     }
 
     /// S9（手术包二）：fatal（401/通道级不可恢复）→ 自动切下一通道 + 切换回调
-    /// 触发（[fallback] 投影源）+ last_used 记录实际通道（分账标注）。
+    /// 触发（[fallback] 投影源）。
     #[tokio::test]
     async fn test_s9_fatal_switches_next_with_callback() {
         let switches = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
@@ -459,16 +389,11 @@ mod tests {
             s.lock().unwrap().push((a.to_string(), b.to_string()));
         }));
 
-        let (_name, resp) = chain.chat(test_req()).await.unwrap();
+        let resp = chain.chat(test_req()).await.unwrap();
         assert_eq!(
             resp.content.unwrap(),
             "response from zhipu",
             "fatal 后必须切到次通道完成任务（单通道死等=全挂的病灶）"
-        );
-        assert_eq!(
-            chain.last_used().as_deref(),
-            Some("zhipu"),
-            "分账必须记录实际使用通道"
         );
         let sw = switches.lock().unwrap().clone();
         assert_eq!(sw.len(), 1, "切换必须触发回调（[fallback] 投影源）");
@@ -491,7 +416,6 @@ mod tests {
             err.to_string().contains("timed out"),
             "transient 必须原样上抛（不切换通道）: {err:#}"
         );
-        assert!(chain.last_used().is_none(), "未成功调用 → 无实际通道记录");
     }
 
     #[test]
