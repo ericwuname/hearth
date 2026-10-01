@@ -2889,6 +2889,10 @@ impl AgentLoop {
         // 全仓归零）。规划并入每步唯一模型调用（R6-9 既有语义）；Task Topology
         // 重建与 TaskGraph 数据结构本体随 D-4 处置。规划 crate 的整删随本项落地
         //（trait 字段/构造器编译期依赖已清除）。
+        // D-76（2026-10-01, traecode）：`agent-types` 侧的 TaskGraph 类型本体
+        //（TaskGraph/TaskNode/TaskResult/PlanContext/Observation/PlanState 及其 impl）
+        // 已一并删除（全仓零生产消费者）；仅 `TaskStatus` 因
+        // `SessionLedger::sync_from_task_graph` 的入参形态而保留（见债务 D-79）。
         // NOTE: replan_count is NOT reset here — it is only reset on a fresh run().
         // The Replan branch in do_reflect increments it to bound replan attempts
         // (replan_count < 3 before escalating to GiveUp).
