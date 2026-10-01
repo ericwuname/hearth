@@ -1821,6 +1821,41 @@ impl AgentLoop {
             .collect()
     }
 
+    /// D-79（2026-10-01, traecode）：**账本生产者**（`KnownFailing` 栏）。
+    ///
+    /// 取证病灶：`SessionLedger` 此前**生产侧全仓零调用**（唯一写入路径
+    /// `sync_from_task_graph` 的生产者 TaskGraph 已随线C手术拆除，只剩单测）
+    /// ⇒ 账本恒空：`render_for_prompt()` 恒 `None`（"零遗忘"注入**不生效**），
+    /// run report 的 `known_failing_open` 恒空（文档化的 G-B「未清已知失败 ⇒
+    /// 拒绝裸 ✓」门**失去依据**）。
+    ///
+    /// 现补**由 harness 事实驱动**的最小生产者（业界通行：任务态由 harness 追踪后
+    /// 每轮重注入，见驱动文档 D-79）：
+    /// - 自检**未过**项 → 登记为 `KnownFailing`（同文本前缀去重，防重复轮次膨胀）；
+    /// - 本轮自检**通过** ⇒ 视为复测通过 ⇒ **关闭**全部开放 `KnownFailing`
+    ///   （遵守 R2-1 约束③"只关不删"：关闭是状态迁移，条目留档）。
+    fn ledger_record_selfcheck(&mut self, failures: &[String]) {
+        // 步骤号取事实层口径（RunState.steps_used），不用自检轮次（那是另一维度）。
+        let step = self.ctx_mgr.state().steps_used;
+        let ledger = &mut self.ctx_mgr.state_mut().ledger;
+        if failures.is_empty() {
+            let open_ids: Vec<u64> = ledger
+                .open_in(agent_types::LedgerColumn::KnownFailing)
+                .iter()
+                .map(|e| e.id)
+                .collect();
+            for id in open_ids {
+                ledger.close(id, step);
+            }
+        } else {
+            for f in failures {
+                if !ledger.has_open_prefix(agent_types::LedgerColumn::KnownFailing, f) {
+                    ledger.add(agent_types::LedgerColumn::KnownFailing, f.clone(), step);
+                }
+            }
+        }
+    }
+
     pub fn set_session_id(&mut self, id: String) {
         self.session_id = id;
         // G3-03 (v0.2.5): 同步绑定 ContextManager——压缩归档按会话隔离
@@ -4205,6 +4240,9 @@ impl AgentLoop {
                     "selfcheck_result",
                     k1_mismatch_fact(self.self_check_rounds, &missing),
                 );
+                // D-79：同一事实也登记进账本（否则 run report 的已知失败栏仍空，
+                // G-B「拒绝裸 ✓」门无依据）。
+                self.ledger_record_selfcheck(&[format!("交付物类型核对未过——缺：{missing}")]);
                 return Ok(SelfCheckGate::Proceed);
             }
             self.self_check_rounds += 1;
@@ -4222,6 +4260,8 @@ impl AgentLoop {
                 "selfcheck_result",
                 k1_mismatch_fact(self.self_check_rounds, &missing),
             );
+            // D-79：回喂修复期间也算"已知失败"（修好后由 pass 分支关闭）。
+            self.ledger_record_selfcheck(&[format!("交付物类型核对未过——缺：{missing}")]);
             return Ok(SelfCheckGate::Replan);
         }
         if self.written_files.is_empty() {
@@ -4242,6 +4282,8 @@ impl AgentLoop {
                 "skipped_any": skipped_any,
             }),
         );
+        // D-79：账本生产者——自检未过项登记为 KnownFailing；通过则关闭开放项。
+        self.ledger_record_selfcheck(&failures);
         if passed {
             self.emit(Event::ThinkSummary {
                 phase: "selfcheck".to_string(),
@@ -10429,6 +10471,86 @@ mod tests {
         assert!(
             ledger_pos > note_pos,
             "账本注入必须在切片提示之后（注入时点硬约束），note={note_pos} ledger={ledger_pos}"
+        );
+    }
+
+    /// D-79 回归锁（**先红后绿**）：账本生产者必须把"已知失败"事实真的写进去，
+    /// 并在复测通过后关闭。
+    ///
+    /// 红侧（修复前）：`SessionLedger` 生产侧全仓零调用 ⇒ 第 1 条断言即失败
+    /// （`open_in(KnownFailing)` 恒 0），且 `render_for_prompt()` 恒 `None`
+    /// ⇒ 上面那条"早轮登记项经账本可见"只能靠**测试自己手工 add** 才成立。
+    #[test]
+    fn test_d79_ledger_producer_records_and_closes_known_failing() {
+        use agent_types::LedgerColumn;
+        let mut agent = AgentLoop::new(
+            Arc::new(MockLlm::new(vec![])),
+            Arc::new(ToolDispatcher::new()),
+            tool_runtime::ToolContext::default(),
+            Goal::new("d79 账本生产者"),
+        );
+
+        // ① 自检未过 → 登记 KnownFailing
+        agent.ledger_record_selfcheck(&["a.html 页面自检未过: 内容为空".to_string()]);
+        assert_eq!(
+            agent
+                .ctx_mgr
+                .state()
+                .ledger
+                .open_in(LedgerColumn::KnownFailing)
+                .len(),
+            1,
+            "自检未过项必须登记进账本（修复前恒 0）"
+        );
+
+        // ② 同前缀重复登记 → 去重（防每轮回喂膨胀）
+        agent.ledger_record_selfcheck(&["a.html 页面自检未过: 内容为空".to_string()]);
+        assert_eq!(
+            agent
+                .ctx_mgr
+                .state()
+                .ledger
+                .open_in(LedgerColumn::KnownFailing)
+                .len(),
+            1,
+            "同文本前缀必须去重"
+        );
+
+        // ③ 注入面真的可见（修复前恒 None ⇒ "零遗忘"机制实际不生效）
+        assert!(
+            agent.ctx_mgr.state().ledger.render_for_prompt().is_some(),
+            "账本有开放项 ⇒ render_for_prompt 必须非 None（修复前恒 None）"
+        );
+
+        // ④ 复测通过 → 关闭（只关不删：条目仍在档，只是 closed）
+        agent.ledger_record_selfcheck(&[]);
+        assert_eq!(
+            agent
+                .ctx_mgr
+                .state()
+                .ledger
+                .open_in(LedgerColumn::KnownFailing)
+                .len(),
+            0,
+            "复测通过必须关闭开放项"
+        );
+        assert_eq!(
+            agent.ctx_mgr.state().ledger.open_count(),
+            0,
+            "关闭后无开放条目"
+        );
+        // ⑤ 已关闭的失败项不得再出现在注入里（`render_for_prompt` 的既有契约：
+        // 账本非空但无未结项 → 返回"无未结条目（历史已关闭 N 条）"提示行，
+        // 而不是 None——这是**设计如此**，故此处断言"文本不再含该项"）。
+        let rendered = agent
+            .ctx_mgr
+            .state()
+            .ledger
+            .render_for_prompt()
+            .unwrap_or_default();
+        assert!(
+            !rendered.contains("页面自检未过"),
+            "已关闭的失败项不得再出现在注入文本里：{rendered}"
         );
     }
 
