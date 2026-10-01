@@ -141,9 +141,14 @@ impl CircuitBreak {
 
 /// R7 (hearth-cli D5): 人类反审记录——纠偏 Observer 判定（`hearth note --observer-verdict n`）。
 ///
-/// **零执行权铁律**：反审只**落盘**为可审计记录（供下次 `run` 的 bias 输入），
-/// **绝不自动修改** `rules.rs` 判定权重/规则/内核控制流。纠偏是"下次评估时
-/// 调用方参考"而非"Observer 自改"——Observer 保持纯函数式零业务状态。
+/// **零执行权铁律**：反审只**落盘**为人类可审计的纠偏档
+/// （`rebuttals/<session>.jsonl`），**绝不自动修改** `rules.rs` 判定权重/规则/
+/// 内核控制流——Observer 保持纯函数式零业务状态。
+///
+/// D-72（2026-10-01, traecode）：旧文案称该记录"供**下次 run 的 bias 输入**"，
+/// 但**不存在任何自动消费者**（原读取入口 `rebuttals_for` 全仓零调用方，已删）。
+/// 如实口径：本记录是**人可读的审计档**，供人查阅 / 外部工具消费；若将来要闭环为
+/// "下次评估的 bias"，须**先接线到消费点**（单独立卡），不得靠注释许诺。
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RebuttalRecord {
     pub ts: String,
@@ -186,17 +191,6 @@ pub fn apply_rebuttal(
     f.write_all(line.as_bytes())
         .map_err(|e| anyhow!("append rebuttal: {e}"))?;
     Ok(path)
-}
-
-/// R7: 读取某 session 的全部反审记录（供下次 run 的 bias——调用方决定如何用）。
-pub fn rebuttals_for(dir: &Path, session: &str) -> Vec<RebuttalRecord> {
-    let path = dir.join("rebuttals").join(format!("{session}.jsonl"));
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter_map(|l| serde_json::from_str::<RebuttalRecord>(l).ok())
-        .collect()
 }
 
 #[cfg(test)]
@@ -263,7 +257,10 @@ mod tests {
         eprintln!("WP-4 PASS: L2 fail-closed（seq 断档 → Err）");
     }
 
-    /// R7 [自检]: 反审落盘 + 可读回 + 不修改规则（Observer::run 结果不变——零执行权）。
+    /// R7 [自检]: 反审落盘 + 内容正确 + 不修改规则（Observer::run 结果不变——零执行权）。
+    ///
+    /// D-72：读回改用**直接读档**（原 `rebuttals_for` 零调用方已删）——断言仍是
+    /// "写入的记录可读且内容正确"，并保留零执行权铁律的验证。
     #[test]
     fn test_r7_rebuttal_persists_without_mutating_rules() {
         let dir = std::env::temp_dir().join(format!("obs-rebuttal-{}", uuid::Uuid::new_v4()));
@@ -271,10 +268,15 @@ mod tests {
         let path =
             apply_rebuttal(&dir, "s1", "n", "Observer 误判——这不是异常").expect("反审必须落盘");
         assert!(path.exists());
-        let recs = rebuttals_for(&dir, "s1");
+        let text = std::fs::read_to_string(&path).expect("反审记录必须可读");
+        let recs: Vec<RebuttalRecord> = text
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].verdict, "n");
-        assert!(rebuttals_for(&dir, "s2").is_empty(), "不同 session 不串");
+        // 不同 session 落不同文件（不串）
+        assert!(!dir.join("rebuttals").join("s2.jsonl").exists());
         // 零执行权：反审不影响 Observer::run 输出（规则未被修改）
         let events = vec![env_event(
             1,

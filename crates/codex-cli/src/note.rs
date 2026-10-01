@@ -2,7 +2,8 @@
 //!
 //! - `hearth note "..."` 落盘 `~/hearth/observer/human-<session>.jsonl`
 //! - `--self` 人类侧自我标注 / `--observer-verdict n` 反审 Observer / `--mood`
-//! - 红线：绝不自动改用户配置/内核（反审只落盘，供下次 run bias）
+//! - 红线：绝不自动改用户配置/内核（反审只落盘为**人可读审计档**；当前无自动消费者，
+//!   见 observer 的 D-72）
 
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -52,7 +53,8 @@ pub fn note(
     f.write_all(line.as_bytes()).context("append note")?;
 
     // R7 (D5): --observer-verdict n "理由" → 同步落盘 Observer 反审（rebuttals/）。
-    // 零执行权：observer::apply_rebuttal 只写记录供下次 run bias，不改规则。
+    // 零执行权：observer::apply_rebuttal 只写记录（人可读审计档），不改规则；
+    // 注意当前**无自动消费者**，不构成"下次 run 自动 bias"（见 observer 的 D-72）。
     if let Some(ov) = observer_verdict {
         if !ov.is_empty() && observer::apply_rebuttal(&dir, sid, ov, content).is_err() {
             // 反审落盘失败不阻断 note 主流程（主素材已落盘），但提示
