@@ -224,7 +224,9 @@ mod tests {
         // 边界：恰好等于上限 → 不算截断。
         let exact = dir.path().join("exact.jsonl");
         std::fs::write(&exact, "y".repeat(4096)).unwrap();
-        let (text, truncated) = ExperienceStore::read_file_bounded(&exact, 4096).await.unwrap();
+        let (text, truncated) = ExperienceStore::read_file_bounded(&exact, 4096)
+            .await
+            .unwrap();
         assert_eq!(text.len(), 4096);
         assert!(!truncated, "恰好等于上限不算截断");
     }
