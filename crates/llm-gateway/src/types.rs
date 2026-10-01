@@ -197,18 +197,10 @@ pub struct ToolSchema {
     pub parameters: Value,
 }
 
-/// A JSON schema property.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PropertySchema {
-    #[serde(rename = "type")]
-    pub prop_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<std::collections::HashMap<String, PropertySchema>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required: Option<Vec<String>>,
-}
+// P1-42（D-78，2026-10-01, traecode）：原 `PropertySchema` 已删除——它**只被自身
+// 字段引用**（`properties: HashMap<String, PropertySchema>`），全仓无任何构造/读取方；
+// 工具 schema 实际走 `ToolSchema.parameters: serde_json::Value`（见上）。
+// 保留只会让读者误以为存在"类型化 JSON-schema 通道"。
 
 #[cfg(test)]
 mod tests {

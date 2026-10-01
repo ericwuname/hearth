@@ -47,12 +47,11 @@ where
     }
 }
 
-/// Create an SSE stream from a broadcast receiver.
-pub fn sse_stream(
-    rx: Receiver<AgentEvent>,
-) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
-    sse_stream_with_replay(rx, Vec::new(), 0)
-}
+// P1-42（D-78，2026-10-01, traecode）：原 `sse_stream(rx)`（= `sse_stream_with_replay(rx,
+// Vec::new(), 0)` 的无 replay 便捷版）**全仓零调用方**——所有 SSE 出口
+// （`GET /api/v1/events`、`GET /api/v1/sessions/:id/stream`）都用带 `Last-Event-ID`
+// 的 `sse_stream_with_replay`。已删除；若将来要无 replay 版本，直接调
+// `sse_stream_with_replay(rx, Vec::new(), 0)` 即可，无需单独 API。
 
 /// WP-2 (v23 phase3): SSE 流——断线续传支持。
 /// `replay` = 会话事件缓冲；`last_event_id` = 客户端 Last-Event-ID。
