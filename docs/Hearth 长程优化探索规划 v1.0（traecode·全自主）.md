@@ -12,6 +12,14 @@
 **四十六张卡已收官**（每卡独立 commit + 全量门禁 + 推送，门禁目标数 **61 → 62 → 60 → 62 → 58**）：
 **顶层七项裁决已下（2026-10-01）**——见《P1-03·04 战报》第一节。
 
+**第二批六张卡（P1-36 ~ P1-41，D-70 ~ D-75）亦已收官**（2026-10-01，见下表与第九节）——
+主题=**"用户/项目文件边界"的第二轮体检**：新开 `experience` / `resource-monitor` /
+`observer` / `tool-runtime` / `agent-runtime` / `agent-core` / `agent-types` /
+`service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
+产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
+`constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
+**累计卡数 52**。
+
 | 卡 | commit | 战果 |
 |---|---|---|
 | P0-01 | `8ad4822` | Windows 路径逃逸（**真实安全漏洞**）+ xray 引擎 UTF-8 缺陷 + hash 锁欠账 + 4 项平台门控 |
@@ -60,6 +68,12 @@
 | P1-33 | `e86c74d` | **D-66 收口（删死协作者 planner，净 −1073/+47）**：`crates/planner` 是线C手术删 B 臂后的**死协作者**——`Arc<dyn Planner>` 被存字段、`new()` 收参、子 agent 传递，但 **`decompose()` 全仓零调用**；生产侧只在 4 处构造后即无下文。贯通移除整个 crate + 构造参数 + 5 处依赖声明（含**声明了却从未使用的 `service`**）；测试侧删 `MockPlanner` 与其专用图构造辅助。**wiring spec 无需改**（相关锚点均在 `loop.rs` 且已 yellow 退役） |
 | P1-34 | `b754933` | **D-69 收口（xray 改名，名实一致）**：`strip_comments_and_strings` → `strip_comments_keep_strings`（17 处）——旧名读起来像"把字符串也剥掉"，正是 D-59「假绿」的**认知来源**；补文档点明因果与职责边界（"连字符串一起屏蔽"归 `blank_test_modules`）。纯改名 + 文档，**零行为变更** |
 | P1-35 | `2053522` | **D-67/D-68 收口（provider 层死代码 + 口径统一，净 −113/+7）**：① `llm-gateway` 删"只写不读"的 S9 分账残留（`last_used` 字段/方法/`note_success`）并**订正两处不实注释**（该能力未接线）；删仅测试调用的固有 `chat()/embed()`——**关键核验**：其内 S9 切换逻辑在 trait 实现里完整保留，**生产行为零变化**；删 `list_aliases()`。**保留** `with_switch_callback` 一族（复核发现 `run_local.rs:85` 有真实生产调用）。② `llm-cn` 删零构造死类型与不读取的 `code` 字段；**超时 300s → 30s**，与 `llm-openai` 口径一致 |
+| P1-36 | `44212c2` `a7361a9` | **D-70 收口（无界读入第 21 落点，experience crate 首命中）**：`ExperienceStore::set_path` 用 `tokio::fs::read_to_string` 整份读 `experience.jsonl`——该文件**只增追加**（每 run 一条），长期运行可涨到 GB 级，重启即 OOM。改走 `bounded_io::read_file_text_capped`（64 MiB，与 memory MEM-3 同值）+ 截断留痕；**先红后绿**（还原即 4196≠4096）。`a7361a9` 为 **fmt 补丁**——见本节末"门禁教训" |
+| P1-37 | `6e80c3e` | **D-71 收口（resource-monitor 从未接线的 ROI/critical 死项，净 −47/+12）**：`RoiReport`/`compute_roi`（原计划 `GET /api/v1/costs/roi`）与 `ResourceSnapshot::is_critical` 全仓**零生产调用方**（仅自测；`global-panorama-v10.1.md:79` 早已如实记录）。**裁决=删除**（非订正）：`compute_roi` 用**硬编码假价** `tokens*0.000002`，与 D-46 口径（"未知价→显式不可用"）正面冲突；真实成本唯一事实源已是 `PriceTable`+`CostMeter` |
+| P1-38 | `09d2e5d` | **D-72 收口（observer「只写不读」+ 不实文案）**：`hearth note --observer-verdict n` 经 `apply_rebuttal` 落盘反审档（写侧现役），但读侧 `observer::rebuttals_for` **全仓零调用方**；而 observer 模块头与 CLI 均称该档"供**下次 run 的 bias**"——文档错误（D-45 同族）。**裁决=删死读取口 + 如实订正**（闭环 bias 需先**设计**机制，而 observer 有零执行权铁律 ⇒ 属新增特性，非补管道）；写侧保留（人可读审计档）；测试改为直接读档保覆盖 |
+| P1-39 | `0378fab` | **D-73 收口（tool-runtime 安全声称订正，纯文案）**：模块自称 "secure tool installation"/"…and verification"、`install()` 文档称 "verifying SHA-256 if a file path is provided" ——**全不实**（无校验、无 file path 参数）；`ToolManifest.sha256`/`.command` 全仓**零读取**；`ResourceLedger::snapshot()` 零生产调用方（注释却称 "introspect/报告消费"）。纯订正（同 D-45/D-54/D-63 口径）。**核验保留**：`ToolRegistry` 本体现役（三个 API 面在用） |
+| P1-40 | `4d2e043` | **D-74 收口（agent-runtime `events` "ring" 失实注释）**：注释称 "in-memory **ring**"，实为**无上限 `Vec`**（14 处 push / 0 处 clear）。**不能**改 ring——它是**断线续传重放源**（`sse_stream_with_replay` + `get_history`）。如实订正 + 无界增长登记为债（改前须先定"重放降级"语义） |
+| P1-41 | `6231956` | **D-75 收口（agent-core 项目文件无界读入，第 22~25 落点）**：三处读的是**正在被处理的仓库/cwd** 的文件（外部边界），两处内容**整段注入系统提示**——`constitution.md`（先整份读再截 6000 字符 ⇒ 截断前先 OOM）、`Hearth.md`（**完全无上限**，cwd 或家目录）、S12 自检回读 ×2。处置：`bounded-io` 补**同步原语** `read_file_text_capped_std`（与 async 版共用 `finalize_text`，语义严格一致 = D-33 收敛）→ constitution 64 KiB（≫6000 字符 ⇒ 正常文件行为不变）/ Hearth.md 64 KiB / 自检 8 MiB，均截断留痕。**先红后绿**。**xray 门禁如实报红**：`constitution-reads-file` 锚定 `read_to_string`，实现换底即断 → 同步锚点 + 复算 FNV（`0x237a4ecf1a0244cf` → `0xdaa53449f2f0f677`，已用 HEAD 版复算比对验证算法一致），能力条数仍 16 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -113,6 +127,17 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 
 **注意**：`cargo test --workspace` 存在**已知 flaky**（D-42，`HEARTH_ARCHIVE_FILE`
 进程全局竞态，约 1/3 概率出现）——报"全绿"时须注明"本次跑"。
+
+> **教训（P1-36，新增，务必遵守）**：不许把四件套**串成一条命令**再只看整体退出码。
+> 本轮曾写成 `fmt; clippy; test; check` 一条链——PowerShell/`Select-Object` 的退出码
+> **只反映最后一条命令**，导致 `cargo fmt --check` 的失败被 clippy 的 0 掩盖，
+> 于是一个 fmt 不干净的提交被推了上去（CI 23 秒即红）。**每一步必须单独取
+> `$LASTEXITCODE` 并打印**（本轮已改为 `GATE FMT=? CLIPPY=? TEST=? LINUX=?` 一行汇总）。
+> 同理：`Select-Object -Last N` 只截显示、不改变退出码，别拿它当"通过"的证据。
+
+> **运行环境注意（P1-36 实测）**：本机 `C:` 盘一度 **0 字节可用**（`target/debug/incremental`
+> 已涨到 **29.8 GB**）→ 编译直接报"磁盘空间不足"。清 `incremental` 后恢复（26 GB）。
+> **跑门禁前建议** `CARGO_INCREMENTAL=0`，避免缓存再涨破盘。
 
 - **每轮 = 1 张卡**（小步、单一主题、可独立回滚）
 - **每阶段 = 一组卡 + 一份阶段报告**
@@ -235,6 +260,15 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-66** | **`planner` 生产不生效（WP-3 门禁空转）**：`derive_gaps`（注释自称"门禁契约"）**全仓仅本文件测试调用**（`loop.rs:2875` 明载 B 臂已删、生产调用归零）；`Planner` trait 文档称含 `reflect` 但 trait **只有 `decompose`**（`ReflectVerdict` 已删）；`DefaultPlanner::decompose` 生产调用为零；`lib.rs:315/393/457` `fail_cache.lock().unwrap()` 中毒即 panic | planner 体检发现 | **已修**（P1-33）：整 crate 贯通删除（含构造参数与 5 处依赖声明），净 −1073/+47；`fail_cache.lock().unwrap()` 等缺陷随 crate 一并消失 | **close** |
 | **D-67** | **`llm-gateway` 死 API 与未接的分账**：`fallback.rs:103-132,152-171` 固有 `chat()/embed()` 仅测试调用；`fallback.rs:63-66` 注释称"报告标注本轮用哪条通道"，但 `last_used()` **零生产消费者**（S9 通道分账实际未接）；`registry.rs:103 list_aliases()` 全仓零调用 | llm-gateway 体检发现 | **已修**（P1-35）：删 `last_used` 一族（只写不读）+ 订正不实注释；删仅测试调用的固有 `chat()/embed()` 与 `list_aliases()`；**保留** `with_switch_callback`（有真实生产调用） | **close** |
 | **D-68** | **`llm-cn` 死类型/死字段 + 超时口径不一致**：`HunyuanEmbeddingRequest/Response/Data` 零构造（`embed()` 直接 `Err`）、`HunyuanErrorDetail.code` 从不读取（被 `#[allow(dead_code)]` 掩盖）；`llm-cn:280` timeout **300s** 而 `llm-openai:315` 已收紧到 **30s** → 挂起防护口径不一致 | llm-* 体检发现 | **已修**（P1-35）：删死类型与不读取的 `code` 字段；超时 300s → 30s 对齐 `llm-openai` | **close** |
+| **D-70** | **`experience` 经验库无界读入（无界读入第 21 落点）**：`ExperienceStore::set_path` 用 `tokio::fs::read_to_string` 整份读 `experience.jsonl`（**只增追加**，长期运行无上限）→ 重启 OOM | experience 体检 | **已修**（P1-36）：改走 `bounded_io::read_file_text_capped`（64 MiB）+ 截断留痕；先红后绿 | **close** |
+| **D-71** | **`resource-monitor` ROI/critical 从未接线**：`RoiReport`/`compute_roi`/`is_critical` 全仓零生产调用方（仅自测），且 `compute_roi` 用**硬编码假价**估成本，与 D-46 口径冲突 | resource-monitor 体检 | **已修**（P1-37）：**删除**（不订正） | **close** |
+| **D-72** | **`observer::rebuttals_for` 只写不读 + "供下次 run bias"文档错误**：写侧 `apply_rebuttal` 现役（CLI `hearth note --observer-verdict`），读侧零调用方 | observer 体检 | **已修**（P1-38）：删死读取口 + 如实订正两处文案（写侧审计档保留） | **close** |
+| **D-73** | **`tool-runtime` 安全声称不实**：自称 "secure …verification"、`install()` 称 "verifying SHA-256 if a file path is provided"（无校验、无 file path 参数）；`sha256`/`command` 零读取；`ResourceLedger::snapshot()` 零生产调用方（注释称 "introspect/报告消费"） | tool-runtime 体检 | **已订正**（P1-39）：纯文案（零行为变更）；注册表本身现役（3 个 API 面） | **close** |
+| **D-74** | **`agent-runtime` 会话事件缓冲无界增长**：`Session.events` 注释称 "ring"，实为无上限 `Vec`（14 push / 0 clear）；且它是**断线续传重放源**，不能简单裁剪 | agent-runtime 体检 | 注释已**如实订正**（P1-40）；**增长处置开放**——须先定"重放降级"语义（丢哪些重放、是否落盘再读回），单独立卡 | **登记·待裁** |
+| **D-75** | **`agent-core` 读"正在处理的仓库/cwd"文件无界**（第 22~25 落点，性质高于配置读）：`constitution.md`（整份读后再截 6000 字符 ⇒ 截断前先 OOM）、`Hearth.md`（**完全无上限**，且整段注入系统提示）、S12 自检回读 ×2 | agent-core 体检 | **已修**（P1-41）：`bounded-io` 补同步原语；64 KiB / 64 KiB / 8 MiB，均截断留痕；先红后绿；xray 锚点+FNV 同步 | **close** |
+| **D-76** | **`agent-types` 死类型簇（TaskGraph 残族）**：`TaskStatus`/`TaskNode`/`TaskResult`/`TaskGraph`(+impl)/`PlanContext`/`FileChange`/`Observation`/`PlanState`/`ContentSource` 全仓**零生产读取方**（`TaskGraph` 子系统已随线C手术拆除，P1-32 已删 CLI 残壳）；另 `format_injected_content`/`MAX_INJECTED_CHARS`（**提示注入来源标注**）零调用方——防护**未接线** | agent-types 体检 | **登记·待裁**：删死类型簇（机械、面较大，需逐符号复核）＋ 注入标注须先接线到消费点（属特性）；两者宜**分开立卡** | **登记** |
+| **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **登记**（低危：均为**本机/操作者可控**的文件，非远程可触发）——处置目标=**D-33 收敛**（全仓文件读只剩 `bounded-io` 一份），非安全止血 | **登记** |
+| **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **登记**（低价值、需逐项核验；`CostMeter` 几项因测试断言覆盖 `record()` 语义，删除会降覆盖，倾向保留） | **登记** |
 | **D-69** | **`project-xray` 函数名与行为不符**：`wiring.rs` `strip_comments_and_strings` 实际**只剥注释、保留字符串**（名与文档均称"字符串"） → 误导维护者（也正是 D-59 假绿的认知来源） | project-xray 体检发现 | **已修**（P1-34）：改名 `strip_comments_keep_strings` + 文档点明因果，零行为变更 | **close** |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
 | **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
