@@ -1,5 +1,13 @@
 # Failure → Strategy Matrix — Node 03（P1-FAILURE-ADAPTATION-01）
 
+> **D-114（2026-10-02, traecode）退役说明**：本表对应的**代码实现**（`terminal.rs` 的
+> `classify_failure` / `failure_strategy` / `strategy_suggestion`）**已整段退役删除**
+> ——全仓零消费者，且唯一下游通道（R5-1 scratch 中转注入块）早于 R6-5 依"判定权归还
+> 范式"主动删除（失败事实改为直接内联于 `ERROR[class=…]` 工具结果消息，class 取自
+> 调度层 `error_kind` 的结构化投影）。本文作为**设计期审计交付物**保留作历史依据；
+> 第 3 节"与 loop 消费端的接线"所述接线**已不存在**，不再代表现役代码。若日后要恢复
+> 失败分类/恢复策略能力，须重新设计并接线（勿复活旧 scratch 通道）。
+
 日期：2026-08-30　依据：Node 01 源码审计（docs/failure-adaptation-flow.md）+ Node 02 taxonomy（terminal.rs F1-F10）+ 历史真机证据。
 
 ## 1. 最终矩阵（v1 定稿）

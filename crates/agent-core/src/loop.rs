@@ -1284,11 +1284,12 @@ impl AgentLoop {
     /// scratch 走白名单：只带有续语义的决策/核验事实，不带过程噪声（body 等）。
     pub fn run_state_snapshot(&self) -> serde_json::Value {
         let st = self.ctx_mgr.state();
-        const SCRATCH_KEYS: [&str; 6] = [
+        // D-114（2026-10-02, traecode）：原含 `last_failure_class`/
+        // `last_recovery_strategy` 两键——它们的生产者（R5-1 中转注入块）已随
+        // R6-5 主动删除，全仓再无写入方 ⇒ 恒空、无续跑语义，一并移除。
+        const SCRATCH_KEYS: [&str; 4] = [
             "acceptance_result",
             "budget_stop_unverified",
-            "last_failure_class",
-            "last_recovery_strategy",
             "reflect_fact_conflict",
             "rerouted_unverified",
         ];
@@ -2475,9 +2476,11 @@ impl AgentLoop {
         // （R6-5 已确立"事实不绕行 scratch 中转"的范式，勿复活旧通道）。
         // R6-5（判定权归还长程任务书 v1.0）：R5-1 的"scratch 中转注入块"已删除
         // ——失败事实不再绕行 scratch/独立 System 块，改为**直接附着在工具结果
-        // 消息上**（class 内联于 ERROR 行=R5-2；strategy/suggestion 由 Reflect
-        // 分类后回写同一条工具消息，见 do_reflect 分类块）。工具结果即反馈，
-        // 信息不再丢一份中转副本（判定权归还范式：模型直接看到原始事实）。
+        // 消息上**（class 内联于 ERROR 行=R5-2）。工具结果即反馈，信息不再丢一份
+        // 中转副本（判定权归还范式：模型直接看到原始事实）。
+        // D-114：原注释续称"strategy/suggestion 由 Reflect 分类后回写工具消息（见
+        // do_reflect 分类块）"——`do_reflect` 已随线C手术（D-10）整段删除，该下游
+        // 亦不存在 ⇒ 据实删去，避免指向已不存在的生产者。
         // 方案 X（批准书口径 1）: experience 按既有真实语义（连续错误≥3 的降级通道、
         // 每轮清空重填——:1983/:3089 不动）注入 L4——先空后填是 expected-dynamic，
         // 不污染 stable prefix；B 层 prefix 链测量须将"experience 出现/消失"标为
@@ -2569,9 +2572,10 @@ impl AgentLoop {
                         // R5-2（智能性根治长程任务包 v1.0）：错误回喂结构化——
                         // 裸 `ERROR: {raw}` 只有原始输出，恢复引导缺位（根因十）。
                         // class 取自调度层 downcast 投影的 error_kind（RC20 纪律：
-                        // 结构化字段，禁错误文本解析）；strategy/suggestion 由
-                        // R5-1 事实注入块在下一轮同程送达（分类在 Reflect 相位
-                        // 产出，此处只携带记录时点已确证的 class——时序诚实）。
+                        // 结构化字段，禁错误文本解析）。
+                        // D-114：原注释称"strategy/suggestion 由 R5-1 事实注入块
+                        // 送达（Reflect 相位分类）"——该块已随 R6-5 删除、Reflect
+                        // 分类块亦随线C手术消失 ⇒ 已据实删去（不复活旧通道）。
                         let class = match r.error_kind {
                             Some(ref k) => format!("{k:?}"),
                             None => "Unclassified".to_string(),
@@ -4463,8 +4467,6 @@ impl AgentLoop {
             ok: false,
             summary: serde_json::json!({"error": "loop error", "error_detail": err_detail, "goal": goal_text, "steps": steps,
                 "budget_stop_unverified": self.ctx_mgr.get_scratch("budget_stop_unverified"),
-                "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class"),
-                "last_recovery_strategy": self.ctx_mgr.get_scratch("last_recovery_strategy"),
                 "approval_delegated": !self.delegated_approvals.is_empty(),
                 "approval_delegated_cmds": self.delegated_approvals}),
             usage,
@@ -5340,7 +5342,6 @@ impl Agent for AgentLoop {
                         }
                     ),
                     "pending": handover_pending,
-                    "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class").cloned(),
                     "suggestion": format!(
                         "预算护栏触发（非任务失败）。可：①继续本任务（`hearth resume {sid}` 或追加预算 HEARTH_MAX_STEPS）；②按上述未完成项调整目标方向；③若已满足需求，直接验收现有产物。",
                         sid = self.session_id
@@ -5354,8 +5355,6 @@ impl Agent for AgentLoop {
                         "original_goal": self.ctx_mgr.state().original_goal,
                         "completion_decision": self.last_completion_decision.clone().unwrap_or_default(),
                         "budget_stop_unverified": self.ctx_mgr.get_scratch("budget_stop_unverified"),
-                        "last_failure_class": self.ctx_mgr.get_scratch("last_failure_class"),
-                        "last_recovery_strategy": self.ctx_mgr.get_scratch("last_recovery_strategy"),
                         "handover": handover,
                         "approval_delegated": !self.delegated_approvals.is_empty(),
                         "approval_delegated_cmds": self.delegated_approvals}),

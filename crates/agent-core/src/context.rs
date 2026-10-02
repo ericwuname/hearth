@@ -1242,7 +1242,9 @@ pub(crate) mod tests {
             "acceptance_result",
             serde_json::json!({"status": "passed", "failures": []}),
         );
-        ctx.set_scratch("last_failure_class", serde_json::json!("AssertionFailure"));
+        // D-114：原用 retired 键 `last_failure_class`——该概念已退役（无生产者）。
+        // 本测只需一个"压缩必须保住的 scratch 事实"，改用中性键名，避免引用已删概念。
+        ctx.set_scratch("test_scratch_marker", serde_json::json!("AssertionFailure"));
 
         // history 层：6 个旧轮（每轮含 artifact 事实 FACT-i、verification 结果、用户决策），
         // 大填充文本确保超 32k est 口径触发压缩
@@ -1329,9 +1331,9 @@ pub(crate) mod tests {
                 ctx.get_scratch("acceptance_result").unwrap().to_string(),
             ),
             (
-                "failure_class",
+                "test_marker",
                 "scratch",
-                ctx.get_scratch("last_failure_class").unwrap().to_string(),
+                ctx.get_scratch("test_scratch_marker").unwrap().to_string(),
             ),
             ("fact_0", "history→archive", "FACT-0=value-0".into()),
             ("fact_5", "history→archive", "FACT-5=value-5".into()),
@@ -1376,9 +1378,9 @@ pub(crate) mod tests {
             "acceptance_result (Verification) preserved"
         );
         assert_eq!(
-            ctx.get_scratch("last_failure_class").unwrap(),
+            ctx.get_scratch("test_scratch_marker").unwrap(),
             &serde_json::json!("AssertionFailure"),
-            "failure_class (Fact) preserved"
+            "test_marker (Fact) preserved"
         );
 
         // archive（B 档）：旧轮（前 4 轮，COMPACT_KEEP_TURNS=2 保留后 2 轮）原文落盘
