@@ -283,6 +283,30 @@ pub(crate) fn resume_budget(steps_used: u64, extra: u64) -> u64 {
     steps_used.saturating_add(extra)
 }
 
+/// H2 (v0.2.4)：任务级墙钟默认上限（秒）——`HEARTH_TASK_TIMEOUT_SECS` 未设/非法时用。
+pub(crate) const DEFAULT_TASK_TIMEOUT_SECS: u64 = 900;
+
+/// H2 (v0.2.4) / D-121（2026-10-02, traecode）：解析 `HEARTH_TASK_TIMEOUT_SECS`。
+///
+/// **用户可见契约**：未设 / 非法 → [`DEFAULT_TASK_TIMEOUT_SECS`]；`0` = **显式关闭**
+/// （不限时 → `None`）；`N>0` → 上限 `N` 秒。
+///
+/// 为什么 `0` 必须在这里翻成 `None`：`ContextManager::deadline_exceeded()` 的判据是
+/// `run_elapsed_secs() >= cap`——`Some(0)` **恒真**（`elapsed >= 0` 永远成立），
+/// 会让 run 在**第一步**就判超时。而原注释写的是"0 = 显式关闭（不建议）"，
+/// 即**声称的语义与实现正好相反**（D-121：照注释做的用户会拿到"立刻失败"）。
+///
+/// 不改 `agent-core` 的 `Some(0)` 语义：那里 `Some(0)` 是**测试夹具**用来构造
+/// "起点即超时"（见 `agent-core/src/loop.rs` deadline 用例），属内部用法；
+/// 用户可触达的关闭开关只在 CLI 边界翻译一次。
+pub(crate) fn parse_task_timeout_secs(raw: Option<&str>) -> Option<u64> {
+    match raw.map(str::trim).and_then(|s| s.parse::<u64>().ok()) {
+        Some(0) => None, // 0 = 显式关闭（不限时）
+        Some(secs) => Some(secs),
+        None => Some(DEFAULT_TASK_TIMEOUT_SECS), // 未设 / 非法 → 默认
+    }
+}
+
 /// S3（P5-FOUNDATION-01 N13）：turn 级 checkpoint——每个工具交换原子落盘。
 /// 此前快照只在 run() Ok 收尾（下方 Ok 分支），Ctrl-C/panic/kill 丢整轮进度；
 /// 回调内部 save_snapshot 为 tmp+rename 原子写，失败不阻断主路径。
@@ -546,12 +570,18 @@ pub async fn run_local_continue(
         run_budget.allocated_units = Some(min_steps);
     }
     // H2 (v0.2.4): 任务级 wall-clock deadline——CLI 每轮默认 15 分钟。
-    // env HEARTH_TASK_TIMEOUT_SECS 可覆盖；0 = 显式关闭（不建议）。
+    // env HEARTH_TASK_TIMEOUT_SECS 可覆盖；**0 = 显式关闭（不限时）**——
+    // D-121（2026-10-02）：此前此处把 0 原样写进 `Some(0)`，而 `deadline_exceeded()`
+    // 判据是 `elapsed >= cap`（恒真）⇒ 第一步即超时，与"关闭"意图正好相反；
+    // 现统一经 `parse_task_timeout_secs` 在 CLI 边界把 0 翻成 `None`。
     // 步数预算管"轮次"，deadline 管"时间"——两层独立（P1-4 分层重设计的顶层半边）。
-    run_budget.max_time_secs = std::env::var("HEARTH_TASK_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .or(Some(900));
+    run_budget.max_time_secs =
+        parse_task_timeout_secs(std::env::var("HEARTH_TASK_TIMEOUT_SECS").ok().as_deref());
+    if run_budget.max_time_secs.is_none() {
+        render::info(
+            "  ⚠ 任务级墙钟上限已关闭（HEARTH_TASK_TIMEOUT_SECS=0）——本 run 不再有超时兜底",
+        );
+    }
     // R2-C 采集器 v2: session_id 侧通道（TelemetryProvider 从 env 读——
     // gateway 层不可知会话，jsonl 每行仍可归属会话）
     std::env::set_var("HEARTH_TELEMETRY_SID", session_id);
@@ -947,7 +977,7 @@ pub async fn run_local_continue(
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
                 render::error(&format!(
-                    "  ✗ Task failed — deadline exceeded（{cap}s 上限，用时 {}s）——可提高 HEARTH_TASK_TIMEOUT_SECS 后 resume 继续",
+                    "  ✗ Task failed — deadline exceeded（{cap}s 上限，用时 {}s）——可提高 HEARTH_TASK_TIMEOUT_SECS（0=不限时）后 resume 继续",
                     run_started.elapsed().as_secs()
                 ));
             }
@@ -1601,6 +1631,48 @@ mod tests {
             super::resume_budget(u64::MAX, 5),
             u64::MAX,
             "饱和加法（防溢出回绕成小预算）"
+        );
+    }
+
+    /// 先红后绿（D-121）：`HEARTH_TASK_TIMEOUT_SECS=0` 必须被解释为**关闭**
+    /// （`None`，不限时），而不是 `Some(0)`。
+    ///
+    /// 红侧：修复前该 env 直接 `.parse().or(Some(900))` 落成 `Some(0)`，而
+    /// `ContextManager::deadline_exceeded()` 判据是 `run_elapsed_secs() >= cap`——
+    /// `Some(0)` **恒真**，run 在第一步就 `deadline_exceeded`：注释声称的
+    /// "0 = 显式关闭"与实现**正好相反**（用户照注释做 = 立刻失败）。
+    #[test]
+    fn test_d121_timeout_zero_means_disabled_not_instant_fail() {
+        assert_eq!(
+            super::parse_task_timeout_secs(Some("0")),
+            None,
+            "0 = 显式关闭（不限时）——不得落成 Some(0)（那会让 deadline 恒真）"
+        );
+        assert_eq!(
+            super::parse_task_timeout_secs(Some(" 0 ")),
+            None,
+            "容忍空白"
+        );
+        assert_eq!(
+            super::parse_task_timeout_secs(Some("00")),
+            None,
+            "数值零的其它写法同样必须关闭（不能只认字面量 \"0\"）"
+        );
+        assert_eq!(
+            super::parse_task_timeout_secs(Some("1800")),
+            Some(1800),
+            "显式秒数照常生效"
+        );
+        // 旧语义在"未设 / 非法"两个分支上零变化。
+        assert_eq!(
+            super::parse_task_timeout_secs(None),
+            Some(super::DEFAULT_TASK_TIMEOUT_SECS),
+            "未设 → 默认 900s（旧语义不变）"
+        );
+        assert_eq!(
+            super::parse_task_timeout_secs(Some("abc")),
+            Some(super::DEFAULT_TASK_TIMEOUT_SECS),
+            "非法 → 默认 900s（旧语义不变）"
         );
     }
 }

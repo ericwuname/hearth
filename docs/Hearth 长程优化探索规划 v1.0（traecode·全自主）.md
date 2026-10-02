@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 96**（含 P1-85）。最新五轮 **P1-56 ~ P1-85 ＝ D-92 ~ D-120**（2026-10-02）：
+**累计卡数 97**（含 P1-86）。最新五轮 **P1-56 ~ P1-86 ＝ D-92 ~ D-121**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -40,8 +40,12 @@ CLI 只认 `HEARTH_*`、不认 `.env` 里的 `AGNES_*` ⇒ 照模板配好仍"�
 ⑫**D-119/D-120 打通基准语料链**（CLI 接经验库 + 延迟加载；并修掉"落盘静默丢条"
 与 fire-and-forget 竞态——**实测**发现 CLI 跑完 exit 0 但经验文件根本没生成）；
 ⑬**D-116 A/B 实测裁决**（T07 fixture + `agnes-3.0-flash`，N=5/臂、注入 5/5 ⇒
-过检率两臂同为 5/5、步数未降反略升 ⇒ **保持默认关**）。
-共 **29** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+过检率两臂同为 5/5、步数未降反略升 ⇒ **保持默认关**）；
+⑭**"未体检面"第四轮体检**（`bridge` 端到端核实已挂载 / `nervous-system` / `resource-monitor` /
+`bounded-io` / `llm-replay` / `api` / `codex-cli/src/run_local.rs`）——命中 **D-121**
+（`HEARTH_TASK_TIMEOUT_SECS=0` 注释称"显式关闭"，实现却是"第一步即超时"，
+**声称与实现正好相反**）。
+共 **30** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
 开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
 唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
@@ -142,6 +146,7 @@ LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 | P1-83 | `6378dc5` | **D-116 实现 + D-118 收口（经验复用的**前置**：真教训 + 真质量 + 默认关的注入）**：① **D-118 新缺陷**——条目 `solution` 只有 `steps=N ok=<bool>`、`effectiveness` 恒为 ok?0.7:0.3 ⇒ 常量质量让"质量过滤"形同虚设（D-107 退役结构 0 指标同族），且无可行动信息 ⇒ 复用即噪声（正是 v18"全局注入害强模型 −5pt"）。修法：失败条目落 `report_failure_signature`（只读报告既有 reason/error/status/*_detail 字段，按字符截断并标注；不编造），质量由"是否捕获到信号"决定（捕获不到 = **0.0**，不按常数冒充）。② **D-116 实现**：`experience` 新增 `recent_failures`（失败专属 + 质量过滤 + **有界窗口**取最新；**刻意不做相似度匹配**——MemGate 实证纯相似度检索是信任边界）；`agent-core` 的 `experience_hint` 重接线——时机门改用**存活**的 `same_tool_repeat >= 2`（原 `consecutive_errors` 门维护者已随 B 臂删除，注入点沦为无生产者死码），注入带**来源 + 权威序**（D-80），开关 `HEARTH_EXPERIENCE_REUSE` **默认关**（构造期读一次存字段）。③ 测试：取数口三前置 / 签名只读事实+截断标注 / 门控+来源+质量下限 |
 | P1-85 | （见下） | **D-116 A/B 基准验证（实测，2026-10-02）——裁决：保持默认关**。**设置**：任务 = `bench/tasks/T07-fix-logic-invert`（真实 fixture，`cargo test` 计分）；模型 = `agnes-3.0-flash`；主通道固定（agnes）；语料 = 2 条**失败**条目（同目标、`失败原因=budget_exhausted`、effectiveness 0.6，由 D-118 生产者真实产出）。**第一轮（N=2/臂）**：B 臂 `INJECTED=0/2` ⇒ 未触发失败时刻、对照无效（该模型一次修好）。**第二轮（N=5/臂，B 臂 `INJECTED=5/5`，`count=2 same_tool_repeat=2`）**：**过检率两臂同为 5/5**；步数均值 A=10.4 / B=11.2（**复用未降步数、略升**）；墙钟均值 A=59.7s / B=73.2s（B 更慢，由单个 120.6s 离群值驱动）。**裁决**：**保持 `HEARTH_EXPERIENCE_REUSE` 默认关**——未观察到收益、步数略升，与 v18"无门控注入害强模型（−5pt）"方向一致。**限制（如实）**：N=5、单任务、单模型 ⇒ 统计功效不足，结论是"**不足以支持默认开启**"，不等于"证明有害"。**后续**：语料教训偏弱（只有"预算耗尽"事实、无可行动细节）是主要限制；机制已就位，可用 D-118 已能捕获的**真实错误细节**（`verify_failed` + 编译/测试错误文本）重建语料后重测 |
 | P1-84 | `7e1f2e1` | **D-119 收口 + D-120 收口（打通基准语料链）**：① **D-119**——`codex-cli` 全仓零 `ExperienceStore` 引用 ⇒ 经验写入/复用**只在 service 侧存在**，而 `bench/` 跑 CLI ⇒ D-116 的 A/B **语料产不出来**。处置：CLI 增 `experience` 依赖 + `run_local::attach_experience`，在**三处** AgentLoop 构造点接线（`HEARTH_EXPERIENCE_FILE`，默认 `<cwd>/memory/experience.jsonl`）；因构造点混有同步上下文而 `set_path` 是 async ⇒ 新增 `set_path_deferred` **延迟加载**（仅登记路径，首次 `append`/`recent_failures` 才读盘、只读一次）。② **D-120（实测新发现，两处）**——(a) `append_to_disk` 用 `if let Ok(open)` + `let _ = writeln` ⇒ 父目录不存在时**静默丢条**（实测：CLI 跑完 answer 正确、exit 0，但 `experience.jsonl` 根本没生成；`memory/` 默认不存在）⇒ 改**自动建父目录 + 逐处 warn 留痕**；(b) run 收尾的经验追加原为 `tokio::spawn` fire-and-forget，短命 CLI 进程可能在落地前退出 ⇒ 改 **awaited**。**实证**：活体探针（`agnes-3.0-flash`）指向**不存在的嵌套目录**，跑完后目录与条目均按预期生成（含 D-118 真教训字段） |
+| P1-86 | （本卡） | **D-121 收口（`HEARTH_TASK_TIMEOUT_SECS=0`：「显式关闭」与实现正好相反）**：CLI 直跑的墙钟上限注释写"env 可覆盖；**0 = 显式关闭**（不建议）"，而解析是 `parse::<u64>().ok().or(Some(900))` ⇒ `0` 落成 **`Some(0)`**；`ContextManager::deadline_exceeded()` 的判据是 `run_elapsed_secs() >= cap`，**`Some(0)` 恒真** ⇒ run 在**第一步**就 `deadline_exceeded`：照注释做的用户得到的不是"不限时"，而是"立刻失败"（用户可见面 ★）。处置：把解析抽成纯函数 `parse_task_timeout_secs`，在**CLI 边界**把 `0`（含 `"00"`/空白）翻译成 `None`（不限时）+ 关闭时**打印一行风险提示**（非静默）；`None`（未设）/非法 仍回落 900，**旧语义在这两个分支零变化**。**刻意不动 `agent-core`**：那里 `Some(0)` 是**测试夹具**用来构造"起点即超时"（`loop.rs` deadline 用例），属内部用法——用户可触达的关只翻译一次。**先红后绿**：临时把该分支改回 `Some(0)` ⇒ 断言如实 `left: Some(0), right: None`。同步 `docs/configuration.md` 内核行为表补该旋钮（含 `0=不限时`），`config_doc_gate` 复跑绿；`deadline exceeded` 的收尾提示补上"（0=不限时）"可行动指引 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
