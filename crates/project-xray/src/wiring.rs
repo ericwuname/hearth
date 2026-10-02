@@ -34,8 +34,22 @@ pub struct Capability {
 }
 
 fn default_severity() -> String {
-    "red".to_string()
+    SEVERITY_RED.to_string()
 }
+
+/// 允许的 severity 取值（**封闭集**）。
+///
+/// 为什么要显式取常量而不是散落的字面量：判"是否阻断门禁"的地方有两处
+/// （本文件 [`has_red_break`]、`main.rs` 的计数行），它们都写死比较 `== "red"`。
+/// 而 spec 是**手写 TOML**——一旦写成 `"Red"`/`"RED"`/`"rde"`，两处比较**同时**
+/// 不成立 ⇒ 该能力被当作"非 red = 不阻断"**静默放行**：一条 red 红线就此失守，
+/// 而输出仍照常打印 `(Red)` 与 "0 red"，看不出异常（**门禁 fail-open**）。
+///
+/// 处置（D-123，2026-10-02）：把取值收敛到这两个常量，并在 [`load_spec`]
+/// **fail-closed**——不认识的值直接拒绝加载（含大小写变体），把"静默失守"
+/// 换成"载入即报错，且报错信息指出正确写法"。
+pub const SEVERITY_RED: &str = "red";
+pub const SEVERITY_YELLOW: &str = "yellow";
 
 #[derive(Debug, Deserialize)]
 pub struct ChainLink {
@@ -70,6 +84,10 @@ pub struct CapabilityResult {
 }
 
 /// 读取并解析规格文件。
+///
+/// D-123（2026-10-02）：除 schema / 非空两条既有 fail-closed 外，**每条 capability 的
+/// `severity` 必须落在 [`SEVERITY_RED`] / [`SEVERITY_YELLOW`] 的封闭集里**——取值写错
+/// （含仅大小写不同）会让 `has_red_break` 静默失效，等于门禁被一行 typo 关掉。
 pub fn load_spec(path: &Path) -> Result<WiringSpec> {
     let text = fs::read_to_string(path).with_context(|| format!("read spec {}", path.display()))?;
     let spec: WiringSpec =
@@ -83,6 +101,16 @@ pub fn load_spec(path: &Path) -> Result<WiringSpec> {
         !spec.capabilities.is_empty(),
         "wiring spec has zero capabilities — refusing a vacuous green gate"
     );
+    for cap in &spec.capabilities {
+        anyhow::ensure!(
+            cap.severity == SEVERITY_RED || cap.severity == SEVERITY_YELLOW,
+            "capability `{}` 的 severity 非法：{:?}——只接受 \"red\" | \"yellow\"。\
+             （D-123 fail-closed：大小写/拼写不符会被下游按『非 red = 不阻断』静默放行，\
+             一条 red 红线就此失守，故此处拒绝加载而不是照常跑绿）",
+            cap.id,
+            cap.severity
+        );
+    }
     Ok(spec)
 }
 
@@ -595,8 +623,13 @@ fn blank_test_modules(src: &str) -> String {
 }
 
 /// 是否存在 severity=red 的断裂（决定 exit code）。
+///
+/// D-123：与 spec 取值比对共用 [`SEVERITY_RED`] 常量（不再散落字面量）；
+/// 非法 severity 已在 [`load_spec`] 被 fail-closed 拒掉，走不到这里。
 pub fn has_red_break(results: &[CapabilityResult]) -> bool {
-    results.iter().any(|r| r.broken && r.severity == "red")
+    results
+        .iter()
+        .any(|r| r.broken && r.severity == SEVERITY_RED)
 }
 
 #[cfg(test)]
@@ -807,6 +840,44 @@ any = ["nonexistent-pattern"]
             load_spec(&spec_path).is_err(),
             "vacuous green gate rejected"
         );
+    }
+
+    /// 先红后绿（D-123）：severity 取值写错（尤其只是大小写不同）**必须加载即报错**。
+    ///
+    /// 红侧：修复前 `load_spec` 完全不看 severity ⇒ `"Red"` 照常加载，而
+    /// `has_red_break`（`== "red"`）对它判 false ⇒ **一条 red 红线被一行 typo 静默关掉**
+    /// （门禁 fail-open：输出仍打印 `(Red)` 与 "0 red"，看不出异常）。
+    /// 绿侧：拒绝加载，且报错信息点名该 capability 与合法取值。
+    #[test]
+    fn test_d123_unknown_severity_fails_closed() {
+        let body = |sev: &str| {
+            format!(
+                "schema = 1\n[[capability]]\nid = \"demo-cap\"\nseverity = \"{sev}\"\n\
+                 [[capability.chain]]\nfile = \"src/x.rs\"\nany = [\"alpha\"]\n"
+            )
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let spec_path = tmp.path().join("wiring.toml");
+
+        // 合法取值照常加载（不得误伤）。
+        for ok in [SEVERITY_RED, SEVERITY_YELLOW] {
+            fs::write(&spec_path, body(ok)).unwrap();
+            let spec = load_spec(&spec_path).unwrap_or_else(|e| panic!("{ok} 必须合法：{e}"));
+            assert_eq!(spec.capabilities[0].severity, ok);
+        }
+
+        // 大小写变体 / 拼错 ⇒ 一律拒绝，且错误里能看出是哪个 capability、该怎么写。
+        for bad in ["Red", "RED", "rde", "warn", "yellow ", ""] {
+            fs::write(&spec_path, body(bad)).unwrap();
+            let err = load_spec(&spec_path)
+                .err()
+                .unwrap_or_else(|| panic!("severity={bad:?} 必须被 fail-closed 拒绝"))
+                .to_string();
+            assert!(
+                err.contains("demo-cap") && err.contains("red") && err.contains("yellow"),
+                "报错须点名 capability 与合法取值（bad={bad:?}）：{err}"
+            );
+        }
     }
 
     #[test]

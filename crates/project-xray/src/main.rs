@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
                         println!("    x {} — {} [{}]", link.file, link.detail, link.meaning);
                     }
                 }
-                if cap.broken && cap.severity == "red" {
+                if cap.broken && cap.severity == wiring::SEVERITY_RED {
                     broken_red += 1;
                 }
             }

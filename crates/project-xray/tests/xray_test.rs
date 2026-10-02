@@ -107,7 +107,7 @@ fn real_workspace_wiring_all_green() {
 
     let yellow: Vec<String> = results
         .iter()
-        .filter(|r| r.broken && r.severity != "red")
+        .filter(|r| r.broken && r.severity != project_xray::wiring::SEVERITY_RED)
         .map(fmt_break)
         .collect();
     if !yellow.is_empty() {
@@ -119,7 +119,7 @@ fn real_workspace_wiring_all_green() {
 
     let red: Vec<String> = results
         .iter()
-        .filter(|r| r.broken && r.severity == "red")
+        .filter(|r| r.broken && r.severity == project_xray::wiring::SEVERITY_RED)
         .map(fmt_break)
         .collect();
     assert!(
