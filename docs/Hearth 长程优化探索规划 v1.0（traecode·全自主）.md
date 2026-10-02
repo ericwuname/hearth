@@ -34,8 +34,10 @@
 owner 绑定 per-user 档 + 全局档停用 + 行为锁 + xray 锚点复算）。
 共 **26** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **运行期冒烟**一次：`.env`→provider→请求→401 诚实降级全链路正常）；
-开放债仅余**经验复用（设计课题）**：须满足"失败专属 / 质量过滤+有界窗口 / 来源标注"
-三前置并先过基准验证。（D-78 余项 / D-84 / D-109 均已收口。）
+开放债仅余 **D-116 经验复用课题**——设计已定（失败专属 / 质量过滤+有界窗口 / 来源标注
++ 任务条件化准入 + 时效防护，依 2026-10-02 联网核实），**待 A/B 基准验证**；而基准需
+可用 LLM key（本机 `.env` 的 key 被服务端 401 拒）⇒ **暂不接线**。
+（D-78 余项 / D-84 / D-109 均已收口。）
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -351,6 +353,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
 | **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **裁决「不改」（by design，2026-10-01）**——理由：这六处读的是**操作者自己的本机文件**（配置/清单/价表/replay 夹具），既不来自不可信来源、也**不具备无界增长特性**（对比 D-70 的只增日志、D-75 的 cwd 项目文件、D-55/D-58 的网络响应）。给它们加上限**不会带来任何安全收益**，却有**真实的回归风险**：合法的超大 `providers.json`/夹具一旦被截断 → JSON 解析失败 → provider 发现/夹具加载**静默降级**（比"读全"更糟）。故**不改**；"全仓文件读只剩 `bounded-io` 一份"的收敛目标限于**确有边界的读**，不为此把每处配置读都套上 cap | **close · 裁决「不改」** |
 | **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **已全部收口**：P1-42 删 `sse_stream` + `PropertySchema`；P1-80 收口余项——**确认无生产调用方**（仅单测）后删 `fallback` 固有 `stream()`（与 trait 实现逐字重复，是漂移陷阱）；`CostMeter` 四访问器**裁决保留**（其断言承担 `record()` 覆盖） | **close** |
+| **D-116** | **经验"复用"课题（设计已定，待基准验证）**：D-100/D-107 已退役无生产者的复用接口；真正的复用＝**失败时**把过往经验有界注入。**设计**（依 2026-10-02 联网核实，非拍脑袋）——①**失败专属**：仅在出现失败事实（连续错误/失败核验）时检索，**不做**无条件相似度检索；②**质量过滤 + 有界窗口**：只取 `success=false` 且 `effectiveness` 达阈的条目，窗口硬上限 N（防 prompt 膨胀——本仓已有"常驻注入致 prompt 基底 +23.6%"的定量教训）；③**来源标注**：注入文本显式标注"来源=历史经验档（非本次事实）"，与 D-80 同纪律。机制取向对齐业界：把"相似度检索"升级为**任务条件化准入**（MemGate 主张：相似度检索是信任边界，会引入跨域泄漏/漂移），并做**写路径过滤**。④**时效防护**（STALE 提示：过期记忆有害 ⇒ 需时间戳 + 仅失败族限定）。**基准验证方案**：取 `bench/tasks` 中"改错/修复"类（如 T07-fix-logic-invert、T13-fix-index）做 A/B（with-reuse vs without），指标=首次修复成功率/步数/token 成本，主通道固定（D-97 保证同尺）。**当前阻断**：本机 `.env` 的 key 被服务端 401 拒（无法跑活体基准）⇒ **只登记设计、不接线**（口径：先过基准验证） | 承 D-107「复用课题另立」+ 2026-10-02 联网核实 | **登记（设计已定 · 待基准验证）**——验证需可用 LLM key；接线前须先出 A/B 基准数据 | **登记** |
 | **D-84** | **`ToolDispatcher::read_only_view()` 现无生产调用方**：其唯一生产消费者是子代理委派（D-83 已整段删除），现仅单测调用 | D-83 连带发现 | **裁决「保留」**（P1-80）：它是 xray **red 锚点** `readonly-view-strips` 锁定的只读视图**安全原语**（删原语即失去该回归防线），子代理能力若重启可原样复用；已在源码 doc 如实登记"当前无生产消费者" | **close · 裁决保留** |
 | **D-69** | **`project-xray` 函数名与行为不符**：`wiring.rs` `strip_comments_and_strings` 实际**只剥注释、保留字符串**（名与文档均称"字符串"） → 误导维护者（也正是 D-59 假绿的认知来源） | project-xray 体检发现 | **已修**（P1-34）：改名 `strip_comments_keep_strings` + 文档点明因果，零行为变更 | **close** |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
