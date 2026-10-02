@@ -284,6 +284,71 @@ pub fn provider_env(provider: &str, suffix: &str) -> Option<String> {
     })
 }
 
+/// D-128（2026-10-02, traecode）：把 `KEY=VALUE` **合并**进既有 `.env` 文本。
+///
+/// 病灶：`hearth setup`（文档里的**首次上手**入口）原先直接
+/// `std::fs::write(".env", …)` ——**截断重写**。用户照 `.env.example` 把
+/// `DEEPSEEK_API_KEY` / `AGNES_API_KEY` / `HEARTH_PROVIDER` 配好后跑一次 setup，
+/// 这些变量**被静默删除**（实测：3 行 → 1 行），随后 CLI 只报"未配置 API key"——
+/// 用户根本不会想到是自己的 `.env` 被 setup 清空了（与 D-106/D-117 同在
+/// onboarding 链上）。
+///
+/// 语义（本函数是唯一事实源，故单独可测）：
+/// - **其余每一行原样保留**（注释、空行、别人的变量，逐字节不动）；
+/// - 已存在同名键（行首经 trim 后为 `KEY=`，**注释行不算**）→ **就地替换**该行的值，
+///   不追加第二份；行尾风格（`\r\n` / `\n`）沿用原行；
+/// - 不存在 → 追加（若原文末尾缺换行，先补一个）；
+/// - 返回 `(新文本, 就地替换的键数)`（调用方据此如实告知用户"更新"还是"新建"）。
+pub fn merge_env_assignments(existing: &str, updates: &[(&str, &str)]) -> (String, usize) {
+    let mut out = String::with_capacity(existing.len() + 64);
+    let mut replaced = 0usize;
+    let mut done: Vec<&str> = Vec::new();
+
+    for chunk in existing.split_inclusive('\n') {
+        let (line, ending) = match chunk.strip_suffix("\r\n") {
+            Some(l) => (l, "\r\n"),
+            None => match chunk.strip_suffix('\n') {
+                Some(l) => (l, "\n"),
+                None => (chunk, ""),
+            },
+        };
+        let trimmed = line.trim_start();
+        // 注释行（`#…`）**不是**赋值，原样保留。
+        let hit = (!trimmed.starts_with('#')).then(|| {
+            updates
+                .iter()
+                .find(|(k, _)| {
+                    trimmed
+                        .split_once('=')
+                        .map(|(lk, _)| lk.trim() == *k)
+                        .unwrap_or(false)
+                })
+                .copied()
+        });
+        match hit.flatten() {
+            Some((k, v)) => {
+                out.push_str(&format!("{k}={v}{ending}"));
+                done.push(k);
+                replaced += 1;
+            }
+            None => out.push_str(chunk),
+        }
+    }
+
+    let mut appended = 0usize;
+    for (k, v) in updates {
+        if done.contains(k) {
+            continue;
+        }
+        if appended == 0 && !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&format!("{k}={v}\n"));
+        appended += 1;
+    }
+    (out, replaced)
+}
+
 fn merge_allowlist(env_val: Option<String>, cfg: Option<&[String]>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if let Some(v) = env_val {
@@ -329,6 +394,70 @@ pub struct ResolvedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 先红后绿（D-128）：`hearth setup` 必须**合并**进 `.env`，绝不截断重写。
+    ///
+    /// 红侧（修复前实测）：`std::fs::write(".env", "CODEX_URL=…\n")` 把用户按
+    /// `.env.example` 配好的 3 行（`AGNES_API_KEY` / `HEARTH_PROVIDER` / `AGNES_MODEL`）
+    /// 整份清成 1 行——本测试的第一条断言（原 3 行必须逐字节还在）会立即失败。
+    #[test]
+    fn test_d128_env_merge_preserves_every_other_line() {
+        let existing =
+            "# 我的配置\nAGNES_API_KEY=sk-user-real-key\nHEARTH_PROVIDER=agnes\n\nAGNES_MODEL=agnes-3.0-flash";
+        let (out, replaced) = merge_env_assignments(existing, &[("CODEX_URL", "http://h:1")]);
+        assert_eq!(replaced, 0, "此前无同名键 ⇒ 不产生就地替换");
+        // ① 原有每一行逐字节保留（含注释与空行）
+        for line in [
+            "# 我的配置",
+            "AGNES_API_KEY=sk-user-real-key",
+            "HEARTH_PROVIDER=agnes",
+            "AGNES_MODEL=agnes-3.0-flash",
+        ] {
+            assert!(out.contains(line), "原有行必须保留：{line}\n---\n{out}");
+        }
+        // ② 末尾缺换行也要正确补上（不把两个键粘成一行）
+        assert!(out.ends_with("CODEX_URL=http://h:1\n"), "got: {out:?}");
+        // ③ 注释里写着的同名键**不算**已有赋值（`.env.example` 就是注释形态）
+        let (out2, _) = merge_env_assignments(
+            "# CODEX_URL=http://old\nK=V\n",
+            &[("CODEX_URL", "http://n")],
+        );
+        assert_eq!(
+            out2.matches("CODEX_URL=").count(),
+            2,
+            "注释行保留 + 追加真赋值: {out2:?}"
+        );
+        assert!(
+            out2.contains("\nCODEX_URL=http://n\n"),
+            "真赋值必须可生效: {out2:?}"
+        );
+        // ④ 已存在同名键 → 就地替换（不追加第二份）
+        let (out3, replaced3) = merge_env_assignments(
+            "A=1\r\nCODEX_URL=http://old\r\nB=2\r\n",
+            &[("CODEX_URL", "http://new"), ("CODEX_API_KEY", "k")],
+        );
+        assert_eq!(replaced3, 1, "命中 1 处就地替换");
+        assert_eq!(
+            out3.matches("CODEX_URL=").count(),
+            1,
+            "不得出现第二份：{out3:?}"
+        );
+        assert!(
+            out3.contains("CODEX_URL=http://new\r\n"),
+            "CRLF 行尾风格沿用: {out3:?}"
+        );
+        assert!(
+            out3.contains("A=1\r\n") && out3.contains("B=2\r\n"),
+            "其它行逐字节不动: {out3:?}"
+        );
+        assert!(
+            out3.ends_with("CODEX_API_KEY=k\n"),
+            "未命中的键追加: {out3:?}"
+        );
+        // ⑤ 空文件 → 只写我们管理的键
+        let (out4, r4) = merge_env_assignments("", &[("CODEX_URL", "u")]);
+        assert_eq!((out4.as_str(), r4), ("CODEX_URL=u\n", 0));
+    }
 
     /// [自检]: 三层优先级——arg > env > file。
     #[test]

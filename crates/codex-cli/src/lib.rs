@@ -806,13 +806,40 @@ pub async fn hearth_main() -> Result<()> {
             );
             let key = read_line("API key（回车跳过）: ", "");
             let env_path = std::path::Path::new(".env");
-            let mut out = String::new();
+            // D-128（2026-10-02, traecode）：**合并**而非截断重写。
+            // 旧实现 `std::fs::write(env_path, out)` 会**清空**用户的 `.env`——
+            // 用户照 `.env.example` 配好的 provider key（`AGNES_API_KEY` /
+            // `DEEPSEEK_API_KEY` / `HEARTH_PROVIDER`…）被静默删除（实测 3 行 → 1 行），
+            // 之后 CLI 只报"未配置 API key"，用户无从知道是自己的 `.env` 被 setup 清了。
+            let existing = std::fs::read_to_string(env_path).unwrap_or_default();
+            let existed = env_path.exists();
+            let mut updates: Vec<(&str, &str)> = vec![("CODEX_URL", url.as_str())];
             if !key.is_empty() {
-                out.push_str(&format!("CODEX_API_KEY={key}\n"));
+                updates.push(("CODEX_API_KEY", key.as_str()));
             }
-            out.push_str(&format!("CODEX_URL={url}\n"));
-            std::fs::write(env_path, out).context("write .env failed")?;
-            render::info(&format!("已写入 {}", env_path.display()));
+            let (merged, replaced) = config::merge_env_assignments(&existing, &updates);
+            std::fs::write(env_path, merged).context("write .env failed")?;
+            let preserved = existing
+                .lines()
+                .filter(|l| {
+                    let t = l.trim_start();
+                    !t.is_empty()
+                        && !t.starts_with('#')
+                        && !updates.iter().any(|(k, _)| {
+                            t.split_once('=')
+                                .map(|(lk, _)| lk.trim() == *k)
+                                .unwrap_or(false)
+                        })
+                })
+                .count();
+            if existed {
+                render::info(&format!(
+                    "已更新 {}（就地改写 {replaced} 项，**保留原有其它变量 {preserved} 项**——未触碰你的 provider key）",
+                    env_path.display()
+                ));
+            } else {
+                render::info(&format!("已新建 {}", env_path.display()));
+            }
 
             let probe = client::CodexClient::new(
                 url.clone(),
