@@ -662,10 +662,16 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // v10.0 10A: instance identity
+    // v10.0 10A: instance identity（**现役**：经 `GET /api/v1/resources` 与
+    // `hearth whoami` 对外暴露，见 routes.rs 的 `instance_id` 字段与 CLI）。
     let instance_id = format!("codex-inst-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    // Write PID file for Observer health checks
-    let _ = std::fs::write("/tmp/codex.pid", std::process::id().to_string());
+    // D-130（2026-10-02, traecode）：此处原有一行
+    // `let _ = std::fs::write("/tmp/codex.pid", process::id())`，注释称
+    // "Write PID file for Observer health checks"——**该消费者不存在**：
+    // 全仓检索（含 observer crate、CLI、脚本）**无任何读取方**；运维面的 pid 文件
+    // 由 `run-hearth.sh` 自己维护（`.hearth-service.pid`，另一个文件）。
+    // 且硬编码 `/tmp` 在 Windows 上不存在 ⇒ 这行**永远静默失败**（错误还被 `let _` 吞掉）。
+    // 属"只写不读 + 不实注释"的死物，故删除；进程号仍由下一行的启动日志如实打印。
     tracing::info!(
         "[instance: {instance_id}] mounted, pid={}",
         std::process::id()
