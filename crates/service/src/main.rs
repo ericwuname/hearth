@@ -167,7 +167,10 @@ async fn main() -> anyhow::Result<()> {
     registry.register_alias("openai", &format!("openai:{openai_model}"));
 
     // 2. Ollama (optional — skip with warn if not configured)
-    if let Ok(base_url) = std::env::var("OLLAMA_BASE_URL") {
+    if let Some(base_url) = std::env::var("OLLAMA_BASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qiyuan-8b:latest".into());
         let ollama = Arc::new(llm_local::OllamaProvider::new(
             "ollama",
@@ -181,7 +184,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 3. vLLM (optional — skip with warn if not configured)
-    if let Ok(base_url) = std::env::var("VLLM_BASE_URL") {
+    if let Some(base_url) = std::env::var("VLLM_BASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         let model = std::env::var("VLLM_MODEL").unwrap_or_else(|_| "mistral-7b".into());
         let api_key = std::env::var("VLLM_API_KEY").ok();
         let vllm = Arc::new(llm_local::VllmProvider::new(
@@ -197,7 +203,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 4. Hunyuan (optional — skip with warn if not configured)
-    if let Ok(api_key) = std::env::var("HUNYUAN_API_KEY") {
+    // D-96：`filter(!is_empty)` 收口空串——`HUNYUAN_API_KEY=""` 此前会被当作"已配置"
+    // 而注册一个空 key provider（同 agnes/zhipu/… 的病灶）。
+    if let Some(api_key) = std::env::var("HUNYUAN_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
+    {
         let model = std::env::var("HUNYUAN_MODEL").unwrap_or_else(|_| "hunyuan-pro".into());
         let base_url = std::env::var("HUNYUAN_BASE_URL").ok();
         let hunyuan = Arc::new(llm_cn::HunyuanProvider::new(
@@ -210,7 +221,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 5. Doubao (字节豆包) — OpenAI-compatible, multi-model rotation
-    if let Ok(api_key) = std::env::var("DOUBAO_API_KEY") {
+    if let Some(api_key) = std::env::var("DOUBAO_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
+    {
         let base_url = std::env::var("DOUBAO_BASE_URL")
             .unwrap_or_else(|_| "https://ark.cn-beijing.volces.com/api/v3".into());
         // Fallback chain: flash→pro→seed-code→seed-mini→glm5.2 (each has 50万 quota)
@@ -245,10 +259,18 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("DOUBAO_API_KEY not set — doubao provider skipped");
     }
 
+    // D-96（2026-10-02, traecode）：以下 provider 原以 `unwrap_or_default()` **无条件注册**，
+    // 未配 key 时注册的是一个空 key provider——它会出现在 `/api/v1/models`（客户端据此
+    // 选中），却任何调用都 401；若开了 FALLBACK_CHAIN 还会被链选中间途失败。
+    // "能选但不能用"是最坏的一种可用性缺陷。现统一收紧为**有非空 key 才注册**，
+    // 与 ollama/vllm/hunyuan/doubao 的既有 gating 同口径（OpenAI 更严：无 key 拒启）。
+    //
     // 6. Agnes AI — free unlimited, OpenAI-compatible
+    if let Some(api_key) = std::env::var("AGNES_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
     {
         // Y1-1: v22 硬编码真实 key 清零——key 只从 env 读，无 fallback 写死（密钥入库即泄露）
-        let api_key = std::env::var("AGNES_API_KEY").unwrap_or_default();
         let model = std::env::var("AGNES_MODEL").unwrap_or_else(|_| "agnes-2.5-flash".into());
         let base_url =
             std::env::var("AGNES_BASE_URL").unwrap_or_else(|_| "https://api.agnes-ai.cn/v1".into());
@@ -260,11 +282,15 @@ async fn main() -> anyhow::Result<()> {
         ));
         registry.register(agnes);
         info!("agnes provider registered (model={})", model);
+    } else {
+        tracing::warn!("AGNES_API_KEY not set — agnes provider skipped");
     }
 
     // 7. ZhiPu (智谱 GLM) — OpenAI-compatible, large token quota
+    if let Some(api_key) = std::env::var("ZHIPU_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
     {
-        let api_key = std::env::var("ZHIPU_API_KEY").unwrap_or_default(); // v21: key via env/.env only
         let model = std::env::var("ZHIPU_MODEL").unwrap_or_else(|_| "glm-4.5-air".into());
         let base_url = std::env::var("ZHIPU_BASE_URL")
             .unwrap_or_else(|_| "https://open.bigmodel.cn/api/paas/v4".into());
@@ -276,11 +302,15 @@ async fn main() -> anyhow::Result<()> {
         ));
         registry.register(zhipu);
         info!("zhipu provider registered (model={})", model);
+    } else {
+        tracing::warn!("ZHIPU_API_KEY not set — zhipu provider skipped");
     }
 
-    // 8. Google Gemini — OpenAI-compatible (⭐ 会员首选)
+    // 8. Google Gemini — OpenAI-compatible
+    if let Some(api_key) = std::env::var("GEMINI_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
     {
-        let api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default(); // v21: key via env/.env only;
         let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.6-flash".into());
         let base_url = std::env::var("GEMINI_BASE_URL")
             .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai".into());
@@ -292,11 +322,15 @@ async fn main() -> anyhow::Result<()> {
         ));
         registry.register(gemini);
         info!("gemini provider registered (model={})", model);
+    } else {
+        tracing::warn!("GEMINI_API_KEY not set — gemini provider skipped");
     }
 
-    // 9. DeepSeek (官方直达) — OpenAI-compatible, 940ms (⭐ 主力)
+    // 9. DeepSeek (官方直达) — OpenAI-compatible
+    if let Some(api_key) = std::env::var("DEEPSEEK_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
     {
-        let api_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(); // v21: key via env/.env only
         let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-v4-flash".into());
         let base_url = std::env::var("DEEPSEEK_BASE_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com/v1".into());
@@ -308,6 +342,8 @@ async fn main() -> anyhow::Result<()> {
         ));
         registry.register(deepseek);
         info!("deepseek provider registered (model={})", model);
+    } else {
+        tracing::warn!("DEEPSEEK_API_KEY not set — deepseek provider skipped");
     }
 
     // 10. v15 S1b 天花板对照 — 同通道、同网关、只换大模型。
@@ -318,8 +354,10 @@ async fn main() -> anyhow::Result<()> {
     // 无法把"失败"归因到模型强度上，因此改为在**已验证健康的同一通道**内
     // 只替换模型规模：flash -> pro / air -> 4.7。这样 S1b 的唯一自变量就是
     // 模型能力，正是天花板对照要测的东西。
+    if let Some(api_key) = std::env::var("DEEPSEEK_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
     {
-        let api_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(); // v21: key via env/.env only
         let model =
             std::env::var("DEEPSEEK_PRO_MODEL").unwrap_or_else(|_| "deepseek-v4-pro".into());
         let base_url = std::env::var("DEEPSEEK_BASE_URL")
@@ -332,8 +370,12 @@ async fn main() -> anyhow::Result<()> {
         ));
         registry.register(pro);
         info!("deepseek-pro ceiling provider registered (model={})", model);
+    }
 
-        let zk = std::env::var("ZHIPU_API_KEY").unwrap_or_default(); // v21: key via env/.env only
+    if let Some(zk) = std::env::var("ZHIPU_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
+    {
         let zmodel = std::env::var("ZHIPU_MAX_MODEL").unwrap_or_else(|_| "glm-4.7".into());
         let zbase = std::env::var("ZHIPU_BASE_URL")
             .unwrap_or_else(|_| "https://open.bigmodel.cn/api/paas/v4".into());
