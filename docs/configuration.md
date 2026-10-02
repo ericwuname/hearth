@@ -60,6 +60,7 @@
 | CODEX_SANDBOX_ENABLED | 关闭 sandbox | **从未实现**：`sandbox::create_sandbox` 只按平台选择（Linux→LinuxSandbox，其余→NoopSandbox），**不存在** env 开关；生产不该提供"一键关沙箱" |
 | CODEX_SANDBOX_WORKSPACE | 指定 sandbox 根目录 | **从未实现**：workspace 根按会话派生 |
 | SESSION_TTL_SECS | 会话空闲超时 | **名字写错**——真名是 `OOM_TTL_SECS`（见上节） |
+| PROVIDERS_PATH | 指向 providers.json 做"模型自动发现" | **已退役**（D-95）：那套"发现"只打日志、解析结果被丢弃，发现的模型既不注册也不影响任何路由；且默认清单里的 anthropic 本仓无实现。现役 provider 全部由上述 `<PROVIDER>_*` env 显式注册 |
 
 ## 生产部署最小配置
 

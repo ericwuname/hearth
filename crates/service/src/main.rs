@@ -459,38 +459,17 @@ async fn main() -> anyhow::Result<()> {
     // （report.md/json → CODEX_OBSERVER_DIR/reports/{sid}/）。
     sessions.set_observer(Arc::new(observer::Observer::new()));
 
-    // v10.4: Model auto-discovery — load from providers.json if present
-    let providers_path = std::path::PathBuf::from(
-        std::env::var("PROVIDERS_PATH").unwrap_or_else(|_| "./providers.json".into()),
-    );
-    if !providers_path.exists() {
-        let default_providers = serde_json::json!({
-            "models": [
-                {"name": "gpt-4o", "provider": "openai", "default": true},
-                {"name": "gpt-4o-mini", "provider": "openai"},
-                {"name": "claude-sonnet-4-20250514", "provider": "anthropic"}
-            ]
-        });
-        let _ = std::fs::write(
-            &providers_path,
-            serde_json::to_string_pretty(&default_providers).unwrap_or_default(),
-        );
-        tracing::info!(path=%providers_path.display(), "wrote default providers.json");
-    }
-    if let Ok(data) = std::fs::read_to_string(&providers_path) {
-        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&data) {
-            if let Some(models) = cfg.get("models").and_then(|m| m.as_array()) {
-                for m in models {
-                    let name = m.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-                    let provider = m
-                        .get("provider")
-                        .and_then(|p| p.as_str())
-                        .unwrap_or("openai");
-                    tracing::info!(name, provider, "model auto-discovered");
-                }
-            }
-        }
-    }
+    // D-95（2026-10-02, traecode）：**删除 v10.4 "模型自动发现" 整块**。
+    // 病灶（"半接线活特性" + "声称≠实现"）：该块在 ./providers.json 不存在时写一份
+    // 默认清单，再把它读回来逐个 `tracing::info!("model auto-discovered")` 后**丢弃**——
+    // 发现的模型既不注册进 ProviderRegistry、也不影响任何路由（provider 实际来自
+    // 上方按 env 逐个 register 的那批）。日志在对外宣称"发现了模型"，实际什么都没发生。
+    // 该结论早被 docs/global-panorama-v11.5.md:39 记为半接线债，此次收口。
+    //
+    // 为何是删除而非接线：默认清单里就有 `{"provider": "anthropic"}`，而本仓
+    // **没有 anthropic provider 实现**——"发现即注册"按设计无法成立（还缺一层
+    // provider-name → 构造器 的工厂）。给一个不会工作、且与 env 注册重复的机制
+    // 补工厂属过度设计，故按纪律退役，并把旋钮 PROVIDERS_PATH 记进《已失效》节。
 
     // P5 A2: Wire JsonlMemoryStore for session persistence
     let memory_dir = std::env::var("MEMORY_DIR").unwrap_or_else(|_| "./memory".into());
