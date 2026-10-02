@@ -408,27 +408,57 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── P4/P5: FallbackChain (env-gated, registered as "fallback" provider) ──
-    if std::env::var("FALLBACK_CHAIN")
-        .map(|v| v == "1" || v == "true")
-        .unwrap_or(false)
+    //
+    // D-97（2026-10-02, traecode）：原实现用 `registry.list()`（**HashMap 键序**）直接
+    // 组装链，而 `FallbackChain` 的语义恰恰是"**第一个 = 主通道**，其后按序降级"
+    // （fallback.rs 模块头）。HashMap 迭代序每次进程/构建都可能不同 ⇒ 等于"谁是主
+    // provider"在运行期**随机**（S9 的 [fallback] 通道切换投影也会跟着飘）。
+    //
+    // 现改为**显式/确定性**顺序，两种写法：
+    //   · FALLBACK_CHAIN=<a,b,c>  —— 按**给定顺序**取已注册 provider，即 a 是主通道；
+    //   · FALLBACK_CHAIN=1 / true —— 取全部已注册 provider，按名字**排序**（稳定但无语义，
+    //     仅作兼容写法；要指定主通道请用上面的列表写法）。
+    if let Some(spec) = std::env::var("FALLBACK_CHAIN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
     {
-        let chain_providers: Vec<(String, Arc<dyn llm_gateway::LlmProvider>)> = registry
-            .list()
-            .into_iter()
-            .filter_map(|name| registry.get(&name).ok().map(|p| (name, p)))
-            .collect();
-        if !chain_providers.is_empty() {
+        let all_registered = spec == "1" || spec.eq_ignore_ascii_case("true");
+        let chain_providers: Vec<(String, Arc<dyn llm_gateway::LlmProvider>)> = if all_registered {
+            let mut names = registry.list();
+            names.sort();
+            names
+                .into_iter()
+                .filter_map(|name| registry.get(&name).ok().map(|p| (name, p)))
+                .collect()
+        } else {
+            let mut out = Vec::new();
+            for name in spec.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                match registry.get(name) {
+                    Ok(p) => out.push((name.to_string(), p)),
+                    Err(_) => tracing::warn!(
+                        provider = name,
+                        "FALLBACK_CHAIN 指定的 provider 未注册（缺 key/未启用），已跳过"
+                    ),
+                }
+            }
+            out
+        };
+        if chain_providers.is_empty() {
+            tracing::warn!(spec = %spec, "FALLBACK_CHAIN 未能组装出任何后端——不注册 fallback provider");
+        } else {
             let chain_names: Vec<String> = chain_providers.iter().map(|(n, _)| n.clone()).collect();
             let chain = Arc::new(FallbackChain::new(chain_providers));
             registry.register(chain);
             info!(
-                "fallback chain registered as 'fallback' provider with {} backends: {:?}",
+                "fallback chain registered as 'fallback' provider with {} backends (primary = {}): {:?}",
                 chain_names.len(),
+                chain_names.first().cloned().unwrap_or_default(),
                 chain_names,
             );
         }
     } else {
-        info!("FALLBACK_CHAIN not enabled (set FALLBACK_CHAIN=1 to activate)");
+        info!("FALLBACK_CHAIN not enabled (set FALLBACK_CHAIN=1, or FALLBACK_CHAIN=a,b,c for ordered)");
     }
 
     let registry = Arc::new(registry);
