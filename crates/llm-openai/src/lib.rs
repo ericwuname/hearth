@@ -243,6 +243,13 @@ pub(crate) fn classify_transport_error(_detail: &str) -> llm_gateway::ErrorClass
 ///
 /// Tunable via `LLM_MAX_CONCURRENCY` (default 2) and `LLM_MIN_INTERVAL_MS`
 /// (default 700).
+///
+/// D-104（2026-10-02, traecode）**覆盖率订正**：上面这句 "outbound LLM calls" 此前
+/// **不成立**——`enter()` 只在 `chat()` 里调用，而 `stream()` 与 `embed()` 完全绕过，
+/// 偏偏 `agent-core` 的**主回合**走的正是 `provider.stream()`（`loop.rs:2695`）⇒
+/// 声称的进程级限流在最主要的路径上没生效。现三条出口**全部**取槽：`chat()` 同步持槽到
+/// 往返结束，`stream()` 在生产者任务内持槽到本条流结束（流被 drop ⇒ 任务结束 ⇒ 释放），
+/// `embed()` 持槽到响应读完。
 struct RateGate {
     permits: tokio::sync::Semaphore,
     last_start: tokio::sync::Mutex<Option<std::time::Instant>>,
@@ -528,6 +535,11 @@ impl LlmProvider for OpenAiProvider {
         // dropping the stream (session cancel) aborts this producer task
         // instead of leaving it running until the next failed send.
         let producer = tokio::spawn(async move {
+            // D-104：流式路径此前**绕过** RateGate（`enter()` 只在 chat() 中被调用），
+            // 而 agent-core 的主回合用的正是本条流（`loop.rs:2695`）⇒ 声称的进程级
+            // 出站限流在最主要路径上失效（突发 429 的原始病灶由此仍可复现）。
+            // 现与 chat() 同口径取槽；permit 持到本任务结束（流被 drop 即任务收尾）。
+            let _slot = RateGate::global().enter().await;
             let resp = match client
                 .post(format!("{}/chat/completions", base_url))
                 .header("Authorization", format!("Bearer {api_key}"))
@@ -605,6 +617,8 @@ impl LlmProvider for OpenAiProvider {
             input: inputs.to_vec(),
         };
 
+        // D-104：embed 同样属于"outbound LLM call"，此前也绕过 RateGate。
+        let _slot = RateGate::global().enter().await;
         let resp = self
             .client
             .post(format!("{}/embeddings", self.base_url))
