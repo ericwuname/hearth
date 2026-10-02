@@ -275,7 +275,19 @@ enum ConfigAction {
 /// 只读、失败返回 None（headless 下无答案则不输出——不伪造）。
 fn headless_answer(session_id: &str) -> Option<String> {
     let path = crate::session_store::sessions_dir().join(format!("{session_id}.jsonl"));
-    let content = std::fs::read_to_string(path).ok()?;
+    // D-125（2026-10-02）：有界读入。旧实现 `std::fs::read_to_string` 无上限——
+    // 本函数要的是**最后一条** assistant 文本，故不能只读头部：cap 取与会话档同值
+    // （64 MiB，见 `session_store::SESSION_FILE_CAP`），截断时 warn 留痕。
+    // （宁可明确告知"档被截断、答案可能来自被截断的窗口"，也不静默给出错的"最后一条"。）
+    let (content, truncated) =
+        bounded_io::read_file_text_capped_std(&path, crate::session_store::SESSION_FILE_CAP)
+            .ok()?;
+    if truncated {
+        tracing::warn!(
+            path = %path.display(),
+            "会话档超过上限，headless 取答案时已截断读取（本次答案可能不完整）"
+        );
+    }
     let mut last: Option<String> = None;
     for line in content.lines() {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {

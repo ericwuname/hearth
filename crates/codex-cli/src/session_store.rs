@@ -23,6 +23,45 @@ pub fn sessions_dir() -> PathBuf {
     PathBuf::from(".hearth_sessions")
 }
 
+// ── D-125（2026-10-02, traecode）：本模块所有读口改为**有界读入** ──
+//
+// 病灶：会话档与状态档都长在**用户自己的配置目录**里、且随使用**只增**——
+// `<sid>.jsonl` 每轮结束写**整份历史快照**；`runs/<id>.json` 含产物清单；
+// `headless_answer` 还要把它整份读进来只为找最后一条 assistant 文本。
+// 旧实现一律 `std::fs::read_to_string`（**无上限**）：一个被撑大的（或被外部
+// 写坏的）档就能让 CLI 在开工前先 OOM。与 D-51（memory crate 的会话档）、
+// D-70/D-86（归档）同族，故沿用**同一套共享原语**与"截断必留痕"口径
+// （D-33 收敛：有界读入只有一处定义）。
+
+/// 会话档（`<sid>.jsonl`，含完整历史）的上限。
+///
+/// 64 MiB：与 D-51 对**同一类文件**的取值一致（远大于任何真实会话——
+/// 数千轮对话也在数百 MiB 以下量级，而失控/被写坏的档会远超）。
+pub(crate) const SESSION_FILE_CAP: u64 = 64 * 1024 * 1024;
+
+/// 小块状态档（graph/taskgoal/run state）的上限。
+const STATE_FILE_CAP: u64 = bounded_io::MAX_CAPTURED_BYTES as u64;
+
+/// 读一个**可有可无**的文本档：不存在 / 不可读 / 非 UTF-8 → `None`（沿用旧口径，
+/// 调用方不 panic、不炸）；**超上限 → 截断 + `warn` 留痕**（不静默）。
+///
+/// 为什么截断留痕用 `tracing::warn`：CLI 在启动期装了 subscriber（默认写 stderr，
+/// 见 `lib.rs` 的 RC51 初始化），故这条 warn 是**用户可见**的。
+fn read_optional_capped(path: &std::path::Path, cap: u64, what: &str) -> Option<String> {
+    match bounded_io::read_file_text_capped_std(path, cap) {
+        Ok((text, false)) => Some(text),
+        Ok((text, true)) => {
+            tracing::warn!(
+                path = %path.display(),
+                cap,
+                "{what} 超过 {cap} 字节上限，已**截断**读取（旧实现是无界整份读入，超限即 OOM）——后段内容本轮不可见"
+            );
+            Some(text)
+        }
+        Err(_) => None,
+    }
+}
+
 /// 全量快照写——把完整历史 Turn 列表原子重写（tmp + rename，防半写损坏）。
 /// 连续对话历史累积，追加会重复，故每轮结束用快照覆盖。
 pub fn save_snapshot(session_id: &str, turns: &[Turn]) -> Result<()> {
@@ -64,7 +103,8 @@ pub fn save_graph_with_revision(
 /// 返回 None = 文件不存在/损坏。
 pub fn load_graph_with_revision(session_id: &str) -> Option<(u64, serde_json::Value)> {
     let path = sessions_dir().join(format!("{session_id}.graph.json"));
-    let s = std::fs::read_to_string(&path).ok()?;
+    // D-125：有界读入（小块状态档 8 MiB）。
+    let s = read_optional_capped(&path, STATE_FILE_CAP, "graph 状态档")?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
     if let Some(rev) = v.get("state_revision").and_then(|r| r.as_u64()) {
         Some((
@@ -97,7 +137,8 @@ pub fn save_taskgoal(
 /// R2-D: 读 taskgoal + state_revision。None = 文件不存在（首会话）。
 pub fn load_taskgoal(session_id: &str) -> Option<(u64, serde_json::Value)> {
     let path = sessions_dir().join(format!("{session_id}.taskgoal.json"));
-    let s = std::fs::read_to_string(&path).ok()?;
+    // D-125：有界读入（小块状态档 8 MiB）。
+    let s = read_optional_capped(&path, STATE_FILE_CAP, "taskgoal 状态档")?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
     let rev = v
         .get("state_revision")
@@ -114,7 +155,9 @@ pub fn load_taskgoal(session_id: &str) -> Option<(u64, serde_json::Value)> {
 /// 读取会话全部 Turn（按落盘顺序）。文件不存在/损坏行 → 跳过（不 panic）。
 pub fn load_turns(session_id: &str) -> Vec<Turn> {
     let path = sessions_dir().join(format!("{session_id}.jsonl"));
-    let Ok(content) = std::fs::read_to_string(&path) else {
+    // D-125：有界读入（会话档 64 MiB，与 D-51 同类档一致）——档随轮次只增，
+    // 旧实现 `read_to_string` 无上限；超限时 warn 留痕后按已读到的部分解析。
+    let Some(content) = read_optional_capped(&path, SESSION_FILE_CAP, "会话档") else {
         return Vec::new();
     };
     content
@@ -166,7 +209,8 @@ pub fn save_run_state(run_id: &str, state: &serde_json::Value) -> Result<()> {
 /// S8：读 run 断点状态。None = 无断点/损坏 → resume 退化为仅历史恢复（不炸）。
 pub fn load_run_state(run_id: &str) -> Option<serde_json::Value> {
     let path = runs_dir().join(format!("{run_id}.json"));
-    let s = std::fs::read_to_string(&path).ok()?;
+    // D-125：有界读入（小块状态档 8 MiB）。
+    let s = read_optional_capped(&path, STATE_FILE_CAP, "run 断点状态档")?;
     serde_json::from_str(&s).ok()
 }
 
@@ -201,6 +245,37 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 先红后绿（D-125）：本模块的读口必须**有界**。
+    ///
+    /// 直接测共用读口 `read_optional_capped`——`cap` 是**参数**，故用小 cap 就能验证
+    /// "有界 + 可读 + 不存在不炸"三条语义，不必造 64 MiB 的真文件。
+    ///
+    /// 红侧：把该读口实现回 `std::fs::read_to_string`（旧行为）⇒ 长度断言取到 4106
+    /// 而非 4096（无界整份读入）。
+    #[test]
+    fn test_d125_read_optional_capped_is_bounded_and_silent_on_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.txt");
+        std::fs::write(&big, "x".repeat(4096 + 10)).unwrap();
+
+        let got = read_optional_capped(&big, 4096, "测试档").expect("存在的档必须可读");
+        assert_eq!(got.len(), 4096, "必须被 cap 钳住（无界读会等于全长 4106）");
+
+        // 恰好等于上限 → 不算截断，内容原样。
+        let exact = dir.path().join("exact.txt");
+        std::fs::write(&exact, "y".repeat(4096)).unwrap();
+        assert_eq!(
+            read_optional_capped(&exact, 4096, "测试档").unwrap().len(),
+            4096
+        );
+
+        // 不存在 → None（沿用旧口径：调用方不 panic、不炸）。
+        assert!(
+            read_optional_capped(&dir.path().join("nope.txt"), 4096, "测试档").is_none(),
+            "缺失档必须 None 而不是 panic"
+        );
+    }
 
     // 环境变量 HEARTH_SESSIONS_DIR 是进程全局——并行测试会互相覆盖 env 致
     // 读回 0（v0.2.2 暴露：加 talent 后测试线程顺序变化）。串行化 env 竞争测试。

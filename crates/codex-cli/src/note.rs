@@ -106,9 +106,20 @@ pub fn recent_human_abnormal() -> bool {
     });
     let recent: Vec<_> = files.iter().rev().take(5).collect();
     for p in recent {
-        let Ok(text) = std::fs::read_to_string(p) else {
+        // D-125（2026-10-02）：有界读入。`human-*.jsonl` 由 `hearth note` 只增追加，
+        // 旧实现 `read_to_string` 无上限；此处只为**探测异常信号**，故超限截断 +
+        // warn 留痕（截断意味着可能漏掉后段的异常信号——不能让"没检测到"变成静默假阴性）。
+        let Ok((text, truncated)) =
+            bounded_io::read_file_text_capped_std(p, bounded_io::MAX_CAPTURED_BYTES as u64)
+        else {
             continue;
         };
+        if truncated {
+            tracing::warn!(
+                path = %p.display(),
+                "human 档超过上限，已截断扫描——后段的异常信号本轮可能未被计入"
+            );
+        }
         for line in text.lines() {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
                 let mood = v.get("mood").and_then(|m| m.as_str()).unwrap_or("");

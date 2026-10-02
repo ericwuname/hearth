@@ -411,12 +411,26 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
         }
         // REPL 体验 (v0.2.1): 命令处理——/file 读文件全文 / 帮助
         if let Some(path) = line.strip_prefix("/file ") {
-            match std::fs::read_to_string(path.trim()) {
-                Ok(content) => {
+            // D-125（2026-10-02）：有界读入 + 截断留痕。`/file` 会把**整份内容**当作
+            // 用户消息提交，旧实现 `read_to_string` 无上限——把 CLI 指向一个大日志/
+            // 二进制就 OOM（与 D-51/D-70/D-86 同族）。上限取共享原语的
+            // `MAX_CAPTURED_BYTES`（8 MiB ≫ 任何可用的提示体量）。
+            match bounded_io::read_file_text_capped_std(
+                std::path::Path::new(path.trim()),
+                bounded_io::MAX_CAPTURED_BYTES as u64,
+            ) {
+                Ok((content, truncated)) => {
                     let trimmed = content.trim().to_string();
                     if trimmed.is_empty() {
                         crate::render::error("文件为空");
                         continue;
+                    }
+                    if truncated {
+                        crate::render::error(&format!(
+                            "文件超过 {} 字节上限，只提交**前 {} 字节**（截断，不静默）",
+                            bounded_io::MAX_CAPTURED_BYTES,
+                            trimmed.len()
+                        ));
                     }
                     crate::render::user_prompt(&format!(
                         "📄 /file {path}（{} 字符）",

@@ -30,6 +30,9 @@ llm-openai.workspace = true
 llm-local.workspace = true
 tool-runtime.workspace = true
 tools-builtin.workspace = true
+# D-125：CLI 的文件读口（会话档/状态档/`/file`/note 档）统一走共享有界读入原语
+# （此前各读口是 `std::fs::read_to_string` 无上限——与 D-51/D-70/D-75/D-86 同族）。
+bounded-io.workspace = true
 sandbox.workspace = true
 tokio = { workspace = true, features = ["full"] }
 reqwest.workspace = true
