@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 95**（含 P1-84）。最新五轮 **P1-56 ~ P1-84 ＝ D-92 ~ D-120**（2026-10-02）：
+**累计卡数 96**（含 P1-85）。最新五轮 **P1-56 ~ P1-85 ＝ D-92 ~ D-120**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -36,15 +36,18 @@ owner 绑定 per-user 档 + 全局档停用 + 行为锁 + xray 锚点复算）�
 CLI 只认 `HEARTH_*`、不认 `.env` 里的 `AGNES_*` ⇒ 照模板配好仍"未配置"；
 修复后**活体端到端跑通**：provider=agnes、答 4、exit 0）；
 ⑪**D-116/D-118 经验复用前置**（取数口 + 失败教训真信号 + 默认关的注入；发现并修
-"条目非教训 + 质量为结构常量"）。
-共 **28** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
-**活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
-开放债＝**D-116 经验复用的 A/B 基准验证**（实现与开关已就位，见 D-119 的 CLI 侧前置）
-+ **D-119**（CLI 侧根本没接经验库 ⇒ 基准语料产不出）。
+"条目非教训 + 质量为结构常量"）；
 ⑫**D-119/D-120 打通基准语料链**（CLI 接经验库 + 延迟加载；并修掉"落盘静默丢条"
-与 fire-and-forget 竞态——**实测**发现 CLI 跑完 exit 0 但经验文件根本没生成）。
-（D-78 余项 / D-84 / D-109 / D-117 / D-118 / D-119 / D-120 均已收口；LLM key 已可用
-——实测 `agnes-3.0-flash` HTTP 200。）
+与 fire-and-forget 竞态——**实测**发现 CLI 跑完 exit 0 但经验文件根本没生成）；
+⑬**D-116 A/B 实测裁决**（T07 fixture + `agnes-3.0-flash`，N=5/臂、注入 5/5 ⇒
+过检率两臂同为 5/5、步数未降反略升 ⇒ **保持默认关**）。
+共 **29** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+**活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
+开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
+唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
+再重测 D-116（当前语料只有"预算耗尽"一类弱教训）。
+（D-78 余项 / D-84 / D-109 / D-116 / D-117 / D-118 / D-119 / D-120 均已收口；
+LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -137,6 +140,7 @@ CLI 只认 `HEARTH_*`、不认 `.env` 里的 `AGNES_*` ⇒ 照模板配好仍"�
 | P1-81 | `6634ea9` | **D-109 收口（先设计后接线：civilization 写入补 session→owner 归属链）**：agent-loop 的 civ 自动写入经 `CivWriterAdapter` 落**全局**档，而 API 读侧读 **per-user** 档 ⇒ 自动写入的 milestone/reflection 在 `hearth civ feed` 不可见（D-108 病灶的另一半）。**设计**：把归属用户在会话创建时绑进写入器——新增 `SessionManager::set_civ_writer_factory`，在 `create_session_with_owner(req, owner)` 以该会话 owner 调用一次工厂；`PerUserStore::civ_for` 是**同步**方法，故同步 `append_civ` 内可直接落档（无需异步查表），组合根闭包绑定 owner（依赖倒置保持）。**处置**：`CivWriterAdapter` 改为 holder `per_user` + `owner`，经 `civ_for(owner)` 落档；全局 `civilization.jsonl` store **停止构造**（无人读）；`create_session` 增 owner 变体（旧调用方委托 owner="default"，零改）；`routes` 传 uid；xray `civ-auto-written` 后两环锚点改 `set_civ_writer_factory(` + 复算 FNV（`0x8d515d8fb29c18f9`→`0x457ac49206c92a81`，条数仍 16 / severity 仍 red）。**防复发**：civ_visibility_gate 增 `civ_auto_write_goes_to_visible_per_user_store`（**先红后绿**）+ main.rs 行为锁（写入落 owner 档 + 跨租户隔离 + `civ_for` 读回可见） |
 | P1-82 | `7eb8372` | **D-117 收口（CLI env 名字对齐——"401"真因是 CLI 不认 `.env` 的名字）**：用户提供 Agnes key 后先**直接验证**（HTTP 200，真实补全）⇒ 早前"key 被服务端 401 拒"的结论**证伪**；真因是 **CLI 只认 `HEARTH_*`**（`HEARTH_API_KEY`/`HEARTH_MODEL`/`HEARTH_LLM_URL`），而 `.env`/`.env.example`/`docs/configuration.md`/service 用的是**provider 惯例名**（`AGNES_API_KEY`/`DEEPSEEK_BASE_URL`…）⇒ D-106 让 CLI **加载**了 `.env` 却没对齐**名字**，照模板配好仍报"未配置 API key"（D-105③/D-106 同族）。处置：新增 `provider_env_prefix`/`provider_env`，`resolve()` 按 provider 补惯例 env（api_key/model/url，优先级 arg > `HEARTH_*` > `<P>_*` > file，不倒退）；降级链每通道 key/url/model 同样认惯例 env；`.env.example`/`configuration.md` 如实说明。**先红后绿**回归锁 + **活体端到端冒烟**（key 仅来自 `.env` 的 `AGNES_API_KEY` ⇒ provider=agnes、答 4、exit 0）。key 只在 gitignored `.env`，未入任何被跟踪文件 |
 | P1-83 | `6378dc5` | **D-116 实现 + D-118 收口（经验复用的**前置**：真教训 + 真质量 + 默认关的注入）**：① **D-118 新缺陷**——条目 `solution` 只有 `steps=N ok=<bool>`、`effectiveness` 恒为 ok?0.7:0.3 ⇒ 常量质量让"质量过滤"形同虚设（D-107 退役结构 0 指标同族），且无可行动信息 ⇒ 复用即噪声（正是 v18"全局注入害强模型 −5pt"）。修法：失败条目落 `report_failure_signature`（只读报告既有 reason/error/status/*_detail 字段，按字符截断并标注；不编造），质量由"是否捕获到信号"决定（捕获不到 = **0.0**，不按常数冒充）。② **D-116 实现**：`experience` 新增 `recent_failures`（失败专属 + 质量过滤 + **有界窗口**取最新；**刻意不做相似度匹配**——MemGate 实证纯相似度检索是信任边界）；`agent-core` 的 `experience_hint` 重接线——时机门改用**存活**的 `same_tool_repeat >= 2`（原 `consecutive_errors` 门维护者已随 B 臂删除，注入点沦为无生产者死码），注入带**来源 + 权威序**（D-80），开关 `HEARTH_EXPERIENCE_REUSE` **默认关**（构造期读一次存字段）。③ 测试：取数口三前置 / 签名只读事实+截断标注 / 门控+来源+质量下限 |
+| P1-85 | （见下） | **D-116 A/B 基准验证（实测，2026-10-02）——裁决：保持默认关**。**设置**：任务 = `bench/tasks/T07-fix-logic-invert`（真实 fixture，`cargo test` 计分）；模型 = `agnes-3.0-flash`；主通道固定（agnes）；语料 = 2 条**失败**条目（同目标、`失败原因=budget_exhausted`、effectiveness 0.6，由 D-118 生产者真实产出）。**第一轮（N=2/臂）**：B 臂 `INJECTED=0/2` ⇒ 未触发失败时刻、对照无效（该模型一次修好）。**第二轮（N=5/臂，B 臂 `INJECTED=5/5`，`count=2 same_tool_repeat=2`）**：**过检率两臂同为 5/5**；步数均值 A=10.4 / B=11.2（**复用未降步数、略升**）；墙钟均值 A=59.7s / B=73.2s（B 更慢，由单个 120.6s 离群值驱动）。**裁决**：**保持 `HEARTH_EXPERIENCE_REUSE` 默认关**——未观察到收益、步数略升，与 v18"无门控注入害强模型（−5pt）"方向一致。**限制（如实）**：N=5、单任务、单模型 ⇒ 统计功效不足，结论是"**不足以支持默认开启**"，不等于"证明有害"。**后续**：语料教训偏弱（只有"预算耗尽"事实、无可行动细节）是主要限制；机制已就位，可用 D-118 已能捕获的**真实错误细节**（`verify_failed` + 编译/测试错误文本）重建语料后重测 |
 | P1-84 | `7e1f2e1` | **D-119 收口 + D-120 收口（打通基准语料链）**：① **D-119**——`codex-cli` 全仓零 `ExperienceStore` 引用 ⇒ 经验写入/复用**只在 service 侧存在**，而 `bench/` 跑 CLI ⇒ D-116 的 A/B **语料产不出来**。处置：CLI 增 `experience` 依赖 + `run_local::attach_experience`，在**三处** AgentLoop 构造点接线（`HEARTH_EXPERIENCE_FILE`，默认 `<cwd>/memory/experience.jsonl`）；因构造点混有同步上下文而 `set_path` 是 async ⇒ 新增 `set_path_deferred` **延迟加载**（仅登记路径，首次 `append`/`recent_failures` 才读盘、只读一次）。② **D-120（实测新发现，两处）**——(a) `append_to_disk` 用 `if let Ok(open)` + `let _ = writeln` ⇒ 父目录不存在时**静默丢条**（实测：CLI 跑完 answer 正确、exit 0，但 `experience.jsonl` 根本没生成；`memory/` 默认不存在）⇒ 改**自动建父目录 + 逐处 warn 留痕**；(b) run 收尾的经验追加原为 `tokio::spawn` fire-and-forget，短命 CLI 进程可能在落地前退出 ⇒ 改 **awaited**。**实证**：活体探针（`agnes-3.0-flash`）指向**不存在的嵌套目录**，跑完后目录与条目均按预期生成（含 D-118 真教训字段） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
@@ -363,7 +367,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
 | **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **裁决「不改」（by design，2026-10-01）**——理由：这六处读的是**操作者自己的本机文件**（配置/清单/价表/replay 夹具），既不来自不可信来源、也**不具备无界增长特性**（对比 D-70 的只增日志、D-75 的 cwd 项目文件、D-55/D-58 的网络响应）。给它们加上限**不会带来任何安全收益**，却有**真实的回归风险**：合法的超大 `providers.json`/夹具一旦被截断 → JSON 解析失败 → provider 发现/夹具加载**静默降级**（比"读全"更糟）。故**不改**；"全仓文件读只剩 `bounded-io` 一份"的收敛目标限于**确有边界的读**，不为此把每处配置读都套上 cap | **close · 裁决「不改」** |
 | **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **已全部收口**：P1-42 删 `sse_stream` + `PropertySchema`；P1-80 收口余项——**确认无生产调用方**（仅单测）后删 `fallback` 固有 `stream()`（与 trait 实现逐字重复，是漂移陷阱）；`CostMeter` 四访问器**裁决保留**（其断言承担 `record()` 覆盖） | **close** |
-| **D-116** | **经验"复用"课题（设计已定，待基准验证）**：D-100/D-107 已退役无生产者的复用接口；真正的复用＝**失败时**把过往经验有界注入。**设计**（依 2026-10-02 联网核实，非拍脑袋）——①**失败专属**：仅在出现失败事实（连续错误/失败核验）时检索，**不做**无条件相似度检索；②**质量过滤 + 有界窗口**：只取 `success=false` 且 `effectiveness` 达阈的条目，窗口硬上限 N（防 prompt 膨胀——本仓已有"常驻注入致 prompt 基底 +23.6%"的定量教训）；③**来源标注**：注入文本显式标注"来源=历史经验档（非本次事实）"，与 D-80 同纪律。机制取向对齐业界：把"相似度检索"升级为**任务条件化准入**（MemGate 主张：相似度检索是信任边界，会引入跨域泄漏/漂移），并做**写路径过滤**。④**时效防护**（STALE 提示：过期记忆有害 ⇒ 需时间戳 + 仅失败族限定）。**基准验证方案**：取 `bench/tasks` 中"改错/修复"类（如 T07-fix-logic-invert、T13-fix-index）做 A/B（with-reuse vs without），指标=首次修复成功率/步数/token 成本，主通道固定（D-97 保证同尺）。**当前阻断**：本机 `.env` 的 key 被服务端 401 拒（无法跑活体基准）⇒ **只登记设计、不接线**（口径：先过基准验证） | 承 D-107「复用课题另立」+ 2026-10-02 联网核实 | **实现已就位（P1-83），**待 A/B 基准验证****：`recent_failures`（三前置）+ `experience_hint`（时机门=存活失败事实 `same_tool_repeat≥2`）+ `HEARTH_EXPERIENCE_REUSE`（默认关）+ 来源标注 + 单测。**A/B 仍被 D-119 卡住**（CLI 侧没接经验库 ⇒ 语料产不出）；LLM key 已可用 | **登记（待 A/B）** |
+| **D-116** | **经验"复用"课题（设计已定，待基准验证）**：D-100/D-107 已退役无生产者的复用接口；真正的复用＝**失败时**把过往经验有界注入。**设计**（依 2026-10-02 联网核实，非拍脑袋）——①**失败专属**：仅在出现失败事实（连续错误/失败核验）时检索，**不做**无条件相似度检索；②**质量过滤 + 有界窗口**：只取 `success=false` 且 `effectiveness` 达阈的条目，窗口硬上限 N（防 prompt 膨胀——本仓已有"常驻注入致 prompt 基底 +23.6%"的定量教训）；③**来源标注**：注入文本显式标注"来源=历史经验档（非本次事实）"，与 D-80 同纪律。机制取向对齐业界：把"相似度检索"升级为**任务条件化准入**（MemGate 主张：相似度检索是信任边界，会引入跨域泄漏/漂移），并做**写路径过滤**。④**时效防护**（STALE 提示：过期记忆有害 ⇒ 需时间戳 + 仅失败族限定）。**基准验证方案**：取 `bench/tasks` 中"改错/修复"类（如 T07-fix-logic-invert、T13-fix-index）做 A/B（with-reuse vs without），指标=首次修复成功率/步数/token 成本，主通道固定（D-97 保证同尺）。**当前阻断**：本机 `.env` 的 key 被服务端 401 拒（无法跑活体基准）⇒ **只登记设计、不接线**（口径：先过基准验证） | 承 D-107「复用课题另立」+ 2026-10-02 联网核实 | **已收口（P1-85）**：实现（P1-83）三前置 + 默认关开关 + 来源标注；**A/B 已实跑**（T07 fixture、`agnes-3.0-flash`、N=5/臂、B 臂注入 5/5）——**过检率两臂同为 5/5，步数 A=10.4 / B=11.2（未降反略升）** ⇒ **裁决保持默认关**（与 v18 一致）。限制：N=5/单任务/单模型、语料教训偏弱（仅"预算耗尽"事实）⇒ 结论"不足以支持默认开启"；后续可用 D-118 捕获的真实错误细节重测 | **close（裁决：默认关）** |
 | **D-117** | **CLI 不认 `.env` 里的 provider 惯例 env 名**：`.env`/`.env.example`/`configuration.md`/service 用 `AGNES_API_KEY`/`DEEPSEEK_BASE_URL`…，CLI 只认 `HEARTH_*` ⇒ 照模板配好仍报"未配置 API key"（D-106 只对齐了"加载"，漏了"名字"）。附带**结论订正**：早前"key 被服务端 401 拒"**不成立**（直接验证 HTTP 200） | 用户提供可用 key 后实测发现 | **已修**（P1-82）：`resolve()` 按 provider 补惯例 env（含降级链每通道）；优先级不倒退；**先红后绿** + **活体端到端冒烟**（`AGNES_API_KEY` 驱动 CLI 跑通） | **close** |
 | **D-118** | **经验条目不是"教训"、质量是结构常量**：`solution` 只有 `steps=N ok=<bool>`；`effectiveness` 恒为 ok?0.7:0.3 ⇒ ① 常量质量让"质量过滤"形同虚设（D-107 退役结构 0 指标同族）；② 无可行动信息 ⇒ 复用即噪声（v18：全局注入害强模型 −5pt） | P1-83 取证（D-116 实现前置） | **已修**（P1-83）：失败条目落 `report_failure_signature`（只读既有事实字段、按字符截断并标注、不编造）；质量由"是否捕获到信号"决定（捕获不到 = 0.0） | **close** |
 | **D-119** | **CLI 侧根本没有经验库**：`codex-cli` 全仓零 `ExperienceStore` 引用 ⇒ 经验写入/复用只在 service 侧存在；而 `bench/` 跑的是 **CLI** ⇒ **D-116 的 A/B 语料产不出来**（这是当前唯一阻塞） | P1-83 取证（准备 A/B 时发现） | **已修**（P1-84）：CLI 增 `experience` 依赖 + `attach_experience` 接三处构造点；`set_path_deferred` 延迟加载（不把 async 传染到同步构造点）。活体探针实证条目按预期落盘 | **close** |
