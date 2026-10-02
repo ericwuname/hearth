@@ -40,23 +40,23 @@ struct Cli {
     print: Option<String>,
 
     /// Service URL（提供则连远程 service；缺省 auto 直跑）。
-    #[arg(long)]
+    #[arg(long, global = true)]
     url: Option<String>,
 
     /// API key（优先级高于 env/config）。
-    #[arg(long)]
+    #[arg(long, global = true)]
     api_key: Option<String>,
 
     /// provider：deepseek | gemini | openai | agnes | ollama | vllm（直跑模式）。
-    #[arg(long)]
+    #[arg(long, global = true)]
     provider: Option<String>,
 
     /// 模型名（覆盖 config/env）。
-    #[arg(long)]
+    #[arg(long, global = true)]
     model: Option<String>,
 
     /// mode：auto（按 --url 自动判定，默认）| remote（强制远程，需 --url）。
-    #[arg(long)]
+    #[arg(long, global = true)]
     mode: Option<String>,
 }
 
@@ -81,23 +81,11 @@ enum Commands {
         #[arg(long = "acceptance")]
         acceptance: Vec<String>,
 
-        /// provider：deepseek | gemini | openai | agnes | ollama | vllm
-        /// （**直跑与远程均生效**，远程时作为会话 provider 下发；覆盖 config/env）。
-        #[arg(long)]
-        provider: Option<String>,
-
-        /// 模型名（覆盖 config/env，如 agnes-2.5-flash）。直跑与远程均生效。
-        #[arg(long)]
-        model: Option<String>,
-
-        /// mode：auto（按 --url 自动判定，默认）| remote（强制远程，需 --url）。
-        #[arg(long)]
-        mode: Option<String>,
-
-        /// API key（覆盖 config/env）。
-        #[arg(long)]
-        api_key: Option<String>,
-
+        // D-122（2026-10-02, traecode）：`--provider/--model/--mode/--api-key` 曾在本变体里
+        // **再声明一份**，于是它们只在**后置**写法下被识别，而顶层同名参数（未标 global）
+        // 只在**前置**写法下被识别 —— CLI 自己在十几处错误提示里推荐的却是后置写法
+        // （`hearth chat "目标" --url …`），用户照抄必得 `unexpected argument`。
+        // 现统一为**顶层 global 单一定义**（见 `Cli`），前后置均可、不再重复声明。
         /// RC29/RC24-C: 会话级审批委托——仅支持 `--approve-within session`
         /// （命令表级破坏性操作自动放行并审计；fork bomb/设备/内核接口仍审批）。
         #[arg(long = "approve-within", value_name = "SCOPE")]
@@ -429,10 +417,6 @@ pub async fn hearth_main() -> Result<()> {
             goal: prompt,
             budget: 40,
             acceptance: Vec::new(),
-            provider: None,
-            model: None,
-            mode: None,
-            api_key: None,
             approve_within: Some("session".to_string()),
         });
     }
@@ -505,17 +489,11 @@ pub async fn hearth_main() -> Result<()> {
             goal,
             budget,
             acceptance,
-            provider: chat_provider,
-            model: chat_model,
-            mode: chat_mode,
-            api_key: chat_api_key,
             approve_within,
         } => {
-            // D-102：Chat 自己的 `--mode` 也要校验（顶层校验只覆盖前置写法）。
-            if let Some(err) = validate_mode(chat_mode.as_deref(), url.is_some()) {
-                render::error(&err);
-                return Ok(());
-            }
+            // D-122：Chat 的 `--mode` 不再有独立定义（改顶层 global 单一定义），
+            // 故上面那次 `validate_mode(cli.mode…)` 已同时覆盖前置与后置写法——
+            // 此处的重复校验随重复声明一并去掉。
             // D1/D2: 无 --url → 进程内直跑（派 A 单二进制，用户无感 service）
             if url.is_none() {
                 // RC24-C: 委托入口校验——显式 opt-in，仅支持 session 作用域
@@ -530,11 +508,11 @@ pub async fn hearth_main() -> Result<()> {
                     }
                 };
                 let resolved = file_cfg.resolve(
-                    chat_provider.as_deref().or(cli.provider.as_deref()),
+                    cli.provider.as_deref(),
                     None,
-                    chat_api_key.as_deref().or(cli.api_key.as_deref()),
-                    chat_mode.as_deref().or(cli.mode.as_deref()),
-                    chat_model.as_deref().or(cli.model.as_deref()),
+                    cli.api_key.as_deref(),
+                    cli.mode.as_deref(),
+                    cli.model.as_deref(),
                 );
                 // RC18: provider/url 端点不匹配警告（stderr）
                 if let Some(w) = &resolved.url_warning {
@@ -599,11 +577,11 @@ pub async fn hearth_main() -> Result<()> {
             // 改为走与直跑模式**同一套三级解析**（arg > env > config），使同一个 flag 在
             // 两种模式下解释一致；model 缺省时不下发（服务端用该 provider 的真实模型名）。
             let resolved = file_cfg.resolve(
-                chat_provider.as_deref().or(cli.provider.as_deref()),
+                cli.provider.as_deref(),
                 None,
-                chat_api_key.as_deref().or(cli.api_key.as_deref()),
-                chat_mode.as_deref().or(cli.mode.as_deref()),
-                chat_model.as_deref().or(cli.model.as_deref()),
+                cli.api_key.as_deref(),
+                cli.mode.as_deref(),
+                cli.model.as_deref(),
             );
             let sid = match client
                 .create_session(&goal, budget, &resolved.provider, resolved.model.as_deref())
@@ -1778,5 +1756,56 @@ mod d6061_tests {
 
         let e = validate_mode(Some("bogus"), true).expect("未知取值必须报错");
         assert!(e.contains("bogus"), "错误信息要含用户输入：{e}");
+    }
+
+    /// D-122 回归锁：顶层参数必须是 **global**（前后置写法都认），且**不得重复声明**。
+    ///
+    /// 红侧（修复前实测）：`hearth chat "目标" --url <service>` 被 clap 直接拒绝——
+    /// `error: unexpected argument '--url' found / Usage: hearth.exe chat <GOAL>`；
+    /// 而 CLI 自己在**十几处**错误提示里推荐的就是这条后置写法（例如
+    /// `lib.rs` 里反复出现的 "下一步: hearth chat \"目标\" --url http://localhost:3000"），
+    /// 用户照抄必错。真因是参数被**声明了两套**：`--provider/--model/--mode/--api-key`
+    /// 在 `Chat` 变体里另有一份（只认后置），顶层那套未标 `global`（只认前置）。
+    ///
+    /// 本锁钉三件事：① 后置写法被接受且值真的落进顶层字段；② 前置写法零回归；
+    /// ③ `Cli::command().debug_assert()` —— clap 自带的重复/无效声明检查，
+    /// 防"再给某个子命令补一份同名参数"把本缺陷重新种回去。
+    #[test]
+    fn test_d122_top_level_flags_are_global_and_unduplicated() {
+        use clap::{CommandFactory as _, Parser as _};
+
+        let c = Cli::try_parse_from([
+            "hearth",
+            "chat",
+            "hi",
+            "--url",
+            "http://h:1",
+            "--provider",
+            "agnes",
+            "--model",
+            "m",
+            "--api-key",
+            "k",
+            "--mode",
+            "remote",
+            "--budget",
+            "7",
+        ])
+        .expect("后置写法必须被接受（修复前：unexpected argument '--url'）");
+        assert_eq!(c.url.as_deref(), Some("http://h:1"), "url 必须落进顶层字段");
+        assert_eq!(c.provider.as_deref(), Some("agnes"));
+        assert_eq!(c.model.as_deref(), Some("m"));
+        // 关键：远程客户端只用**顶层** api_key（`client` 在 match 之前构造）
+        // ⇒ 后置 `--api-key` 必须落在这里，否则"给了 key 仍 401"。
+        assert_eq!(c.api_key.as_deref(), Some("k"));
+        assert_eq!(c.mode.as_deref(), Some("remote"));
+
+        // ② 前置写法零回归（`hearth --url … <子命令>`）。
+        let c2 = Cli::try_parse_from(["hearth", "--url", "http://h:2", "sessions"])
+            .expect("前置写法必须保持可用");
+        assert_eq!(c2.url.as_deref(), Some("http://h:2"));
+
+        // ③ 无重复/无效声明（同参数声明两套会让 clap 的 debug 断言炸）。
+        Cli::command().debug_assert();
     }
 }

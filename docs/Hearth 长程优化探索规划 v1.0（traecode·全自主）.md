@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 97**（含 P1-86）。最新五轮 **P1-56 ~ P1-86 ＝ D-92 ~ D-121**（2026-10-02）：
+**累计卡数 98**（含 P1-87）。最新五轮 **P1-56 ~ P1-87 ＝ D-92 ~ D-122**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -44,8 +44,10 @@ CLI 只认 `HEARTH_*`、不认 `.env` 里的 `AGNES_*` ⇒ 照模板配好仍"�
 ⑭**"未体检面"第四轮体检**（`bridge` 端到端核实已挂载 / `nervous-system` / `resource-monitor` /
 `bounded-io` / `llm-replay` / `api` / `codex-cli/src/run_local.rs`）——命中 **D-121**
 （`HEARTH_TASK_TIMEOUT_SECS=0` 注释称"显式关闭"，实现却是"第一步即超时"，
-**声称与实现正好相反**）。
-共 **30** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+**声称与实现正好相反**）；
+⑮**CLI 参数面实测**——命中 **D-122**（顶层参数未标 `global` 且被重复声明 ⇒
+**CLI 自己印了 14 次的指引命令跑不起来**；`chat --api-key` 在远程模式下被静默忽略）。
+共 **31** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
 开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
 唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
@@ -147,6 +149,7 @@ LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 | P1-85 | （见下） | **D-116 A/B 基准验证（实测，2026-10-02）——裁决：保持默认关**。**设置**：任务 = `bench/tasks/T07-fix-logic-invert`（真实 fixture，`cargo test` 计分）；模型 = `agnes-3.0-flash`；主通道固定（agnes）；语料 = 2 条**失败**条目（同目标、`失败原因=budget_exhausted`、effectiveness 0.6，由 D-118 生产者真实产出）。**第一轮（N=2/臂）**：B 臂 `INJECTED=0/2` ⇒ 未触发失败时刻、对照无效（该模型一次修好）。**第二轮（N=5/臂，B 臂 `INJECTED=5/5`，`count=2 same_tool_repeat=2`）**：**过检率两臂同为 5/5**；步数均值 A=10.4 / B=11.2（**复用未降步数、略升**）；墙钟均值 A=59.7s / B=73.2s（B 更慢，由单个 120.6s 离群值驱动）。**裁决**：**保持 `HEARTH_EXPERIENCE_REUSE` 默认关**——未观察到收益、步数略升，与 v18"无门控注入害强模型（−5pt）"方向一致。**限制（如实）**：N=5、单任务、单模型 ⇒ 统计功效不足，结论是"**不足以支持默认开启**"，不等于"证明有害"。**后续**：语料教训偏弱（只有"预算耗尽"事实、无可行动细节）是主要限制；机制已就位，可用 D-118 已能捕获的**真实错误细节**（`verify_failed` + 编译/测试错误文本）重建语料后重测 |
 | P1-84 | `7e1f2e1` | **D-119 收口 + D-120 收口（打通基准语料链）**：① **D-119**——`codex-cli` 全仓零 `ExperienceStore` 引用 ⇒ 经验写入/复用**只在 service 侧存在**，而 `bench/` 跑 CLI ⇒ D-116 的 A/B **语料产不出来**。处置：CLI 增 `experience` 依赖 + `run_local::attach_experience`，在**三处** AgentLoop 构造点接线（`HEARTH_EXPERIENCE_FILE`，默认 `<cwd>/memory/experience.jsonl`）；因构造点混有同步上下文而 `set_path` 是 async ⇒ 新增 `set_path_deferred` **延迟加载**（仅登记路径，首次 `append`/`recent_failures` 才读盘、只读一次）。② **D-120（实测新发现，两处）**——(a) `append_to_disk` 用 `if let Ok(open)` + `let _ = writeln` ⇒ 父目录不存在时**静默丢条**（实测：CLI 跑完 answer 正确、exit 0，但 `experience.jsonl` 根本没生成；`memory/` 默认不存在）⇒ 改**自动建父目录 + 逐处 warn 留痕**；(b) run 收尾的经验追加原为 `tokio::spawn` fire-and-forget，短命 CLI 进程可能在落地前退出 ⇒ 改 **awaited**。**实证**：活体探针（`agnes-3.0-flash`）指向**不存在的嵌套目录**，跑完后目录与条目均按预期生成（含 D-118 真教训字段） |
 | P1-86 | （本卡） | **D-121 收口（`HEARTH_TASK_TIMEOUT_SECS=0`：「显式关闭」与实现正好相反）**：CLI 直跑的墙钟上限注释写"env 可覆盖；**0 = 显式关闭**（不建议）"，而解析是 `parse::<u64>().ok().or(Some(900))` ⇒ `0` 落成 **`Some(0)`**；`ContextManager::deadline_exceeded()` 的判据是 `run_elapsed_secs() >= cap`，**`Some(0)` 恒真** ⇒ run 在**第一步**就 `deadline_exceeded`：照注释做的用户得到的不是"不限时"，而是"立刻失败"（用户可见面 ★）。处置：把解析抽成纯函数 `parse_task_timeout_secs`，在**CLI 边界**把 `0`（含 `"00"`/空白）翻译成 `None`（不限时）+ 关闭时**打印一行风险提示**（非静默）；`None`（未设）/非法 仍回落 900，**旧语义在这两个分支零变化**。**刻意不动 `agent-core`**：那里 `Some(0)` 是**测试夹具**用来构造"起点即超时"（`loop.rs` deadline 用例），属内部用法——用户可触达的关只翻译一次。**先红后绿**：临时把该分支改回 `Some(0)` ⇒ 断言如实 `left: Some(0), right: None`。同步 `docs/configuration.md` 内核行为表补该旋钮（含 `0=不限时`），`config_doc_gate` 复跑绿；`deadline exceeded` 的收尾提示补上"（0=不限时）"可行动指引 |
+| P1-87 | （本卡） | **D-122 收口（CLI 自己推荐的命令跑不起来 + `--api-key` 远程静默失效）**：**实测** `hearth chat "目标" --url http://127.0.0.1:9 --budget 1` ⇒ `error: unexpected argument '--url' found / Usage: hearth.exe chat <GOAL>`，而 CLI 在**十几处**错误提示里推荐的正是这条**后置**写法（`"下一步: hearth chat \"目标\" --url http://localhost:3000"`，见 `lib.rs:340/1018/1108/…`）⇒ 用户照抄必错，且"连远程 service"这条路径对后置写法**完全不可达**。真因＝**参数被声明两套**：`--provider/--model/--mode/--api-key` 在 `Chat` 变体里另有一份（只认后置），顶层那套未标 `global`（只认前置）。处置：顶层五个参数统一加 `global = true`（clap 语义＝前后置均认），**删掉 `Chat` 里的重复声明**（一份定义一处，`Cli::command().debug_assert()` 防复发）并删随重复而来的冗余 `--mode` 二次校验。**并修出同源第二处**：远程客户端在 `match` **之前**构造、只吃**顶层** `cli.api_key`，而 `chat --api-key` 落在子命令字段且只被喂给 `resolve()`（远程分支只取 `resolved.provider/model`）⇒ **远程模式下 `--api-key` 被静默忽略**（给了 key 仍 401）——参数归一后自动修好。**活体实证**（本地一次性 HTTP 桩）：`chat "hi" --url :38217 --api-key SECRETKEY-PROBE` ⇒ 服务端实收 `Authorization: Bearer SECRETKEY-PROBE`（sessions 与 messages 两请求均带）。**先红后绿**：临时去掉 `global = true` ⇒ 锁如实报 `UnknownArgument("--url")`。附带核实：`chat --help` 仍列出全部 global 选项（可发现性不降）；`--mode remote` 无 `--url` 后置写法同样报出可行动错误 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
