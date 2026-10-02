@@ -48,21 +48,33 @@ where
 }
 
 // P1-42（D-78，2026-10-01, traecode）：原 `sse_stream(rx)`（= `sse_stream_with_replay(rx,
-// Vec::new(), 0)` 的无 replay 便捷版）**全仓零调用方**——所有 SSE 出口
+// Vec::new(), 0, 0)` 的无 replay 便捷版）**全仓零调用方**——所有 SSE 出口
 // （`GET /api/v1/events`、`GET /api/v1/sessions/:id/stream`）都用带 `Last-Event-ID`
 // 的 `sse_stream_with_replay`。已删除；若将来要无 replay 版本，直接调
-// `sse_stream_with_replay(rx, Vec::new(), 0)` 即可，无需单独 API。
+// `sse_stream_with_replay(rx, Vec::new(), 0, 0)` 即可，无需单独 API。
 
 /// WP-2 (v23 phase3): SSE 流——断线续传支持。
-/// `replay` = 会话事件缓冲；`last_event_id` = 客户端 Last-Event-ID。
+/// `replay` = 会话事件缓冲；`replay_base_seq` = 该缓冲 `[0]` 的**绝对** seq 基址
+/// （=`Session::events_base_seq`，即已从缓冲头部丢弃的事件数）；`last_event_id`
+/// = 客户端 Last-Event-ID。
 /// 缓冲事件重新 envelop（seq 与实时一致）后，seq > last_event_id 的先发，
 /// 再无缝接续 live 流——断线重连不丢事件（G4：停在最后事实 seq=N）。
+///
+/// D-101（2026-10-02, traecode）**降级语义**：信封 seq 预置为 `replay_base_seq`，使
+/// 重放事件与实时流**绝对编号一致**。未截断时基址为 0，行为与历史版本**逐字节相同**；
+/// 缓冲被截断（基址 > 0）后，早于保留窗口的客户端按 Last-Event-ID 过滤时会**看到 id
+/// 跳变**并收到保留窗口内的全部事件——这是标准 Last-Event-ID 降级语义，而不再因按位置
+/// 重新编号（seq 从 0 起）被静默过滤成 0 条（丢事件且无感知）。
 pub fn sse_stream_with_replay(
     rx: Receiver<AgentEvent>,
     replay: Vec<AgentEvent>,
+    replay_base_seq: u64,
     last_event_id: u64,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let mut env = EnvelopeState::new();
+    // D-101：基址预置——重放事件的 seq 与实时流**绝对一致**（未截断时该值为 0，
+    // 行为与历史版本逐字节相同）；截断后客户端按 Last-Event-ID 过滤依然正确。
+    env.seq = replay_base_seq;
     // 1. 同步重放缓冲（重新 envelop，seq 与实时一致）
     let mut replay_events: Vec<Result<SseEvent, Infallible>> = Vec::new();
     for mut evt in replay {

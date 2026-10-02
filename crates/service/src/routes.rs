@@ -219,8 +219,8 @@ pub async fn send_message(
         .unwrap_or(0);
     match state.sessions.send_message(&id, req).await {
         Ok(rx) => {
-            let replay = state.sessions.session_events(&id).await;
-            Ok(sse::sse_stream_with_replay(rx, replay, last_seq))
+            let (base, replay) = state.sessions.session_events_with_base(&id).await;
+            Ok(sse::sse_stream_with_replay(rx, replay, base, last_seq))
         }
         Err(e) => Err(api_err(
             ERR_SESSION_NOT_FOUND,
@@ -273,8 +273,8 @@ pub async fn session_stream(
             ))
         }
     };
-    let replay = state.sessions.session_events(&id).await;
-    Ok(sse::sse_stream_with_replay(rx, replay, last_seq))
+    let (base, replay) = state.sessions.session_events_with_base(&id).await;
+    Ok(sse::sse_stream_with_replay(rx, replay, base, last_seq))
 }
 
 /// WP-8 (v23 phase5): GET /api/v1/sessions/:id/artifact/open?path=... —— 预览产物内容。

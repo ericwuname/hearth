@@ -74,6 +74,13 @@ use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
 use tool_runtime::{ToolContext, ToolDispatcher};
 
+/// D-101（2026-10-02, traecode）：单会话事件缓冲上限。达到上限时**批量**丢弃最旧
+/// 事件（一次丢 MAX/10，摊还 O(1)），并累加绝对基址 `events_base_seq`，使信封 seq
+/// 保持**绝对编号**（截断后客户端会看到 id 跳变并收到保留窗口内的全部事件，而不是
+/// 因重新编号被静默过滤掉）。上限取 50_000 条：按事件平均几 KB 估算，单会话峰值
+/// 内存约数十 MB 量级，配合既有 cleanup_finished 的会话回收足以避免无界增长。
+const MAX_SESSION_EVENTS: usize = 50_000;
+
 /// A running agent session.
 pub struct Session {
     pub id: String,
@@ -88,12 +95,17 @@ pub struct Session {
     /// （`get_history`）与 SSE 断线续传重放（`sse_stream_with_replay`）。
     ///
     /// D-74（2026-10-01, traecode）**注释订正**：旧注释称其为 "in-memory **ring**"，
-    /// 与实现不符——它是**无上限 `Vec`**，只推不减（全仓 `events` 有 14 处 push，
-    /// 0 处 clear/truncate/drain）。之所以不能简单改成 ring：该缓冲正是断线续传的
-    /// 重放源（`session.rs` 内 `events.clone()` → `sse_stream_with_replay`），
-    /// 裁掉即丢重放。故此处**如实描述**，"会话期事件缓冲无界增长"作为独立债务登记
-    /// （需先定"重放降级"语义再改，单独立卡）。
+    /// 与实现不符——当时它是**无上限 `Vec`**，只推不减。
+    ///
+    /// D-101（2026-10-02, traecode）**实施上限 + 绝对基址**：本字段现为**有上限 `Vec`**
+    /// （见 [`MAX_SESSION_EVENTS`]），唯一入队口为 [`Session::push_event`]，越界时**批量**
+    /// 丢弃最旧事件并推进 [`Session::events_base_seq`]，使信封 seq 保持**绝对编号**。
+    /// 不变量：未截断（基址=0）时行为与历史版本逐字节一致；截断后客户端只会看到
+    /// Last-Event-ID **跳变**（可感知），而不再被重新编号静默过滤掉（丢事件且无感知）。
     pub events: Vec<AgentEvent>,
+    /// D-101：`events[0]` 的**绝对**信封序号偏移（= 已从头部丢弃的事件数）。
+    /// 0 = 未截断（此时行为与历史版本逐字节一致）。会话内信封 seq = events_base_seq + 位置。
+    pub events_base_seq: u64,
     pub running: bool,
     /// The agent instance (wrapped so we can call run).
     pub agent: Option<AgentLoop>,
@@ -115,6 +127,30 @@ pub struct Session {
     /// 内存与 `sessions/{uuid}` 工作区目录**双向无界增长**（反复 `POST /api/v1/sessions`
     /// 即为一条 DoS 路径）。有了创建时刻，即可按 idle TTL 回收**非运行中**者。
     pub created_at: std::time::Instant,
+}
+
+impl Session {
+    /// D-101：唯一的事件入队口——超过 `MAX_SESSION_EVENTS` 时批量丢弃最旧事件并推进
+    /// 绝对基址（只 warn 一次以免刷屏：按"首次越界"判断，**不为此新增依赖/字段**）。
+    fn push_event(&mut self, ev: AgentEvent) {
+        if self.events.len() >= MAX_SESSION_EVENTS {
+            // 批量丢弃（一次 MAX/10）以摊还成本：单次 drop 为 O(n) 搬移，但平摊到
+            // 每次 push 即 O(1)（丢弃量固定，摊还次数也固定）。
+            let drop_n = (MAX_SESSION_EVENTS / 10).max(1);
+            self.events.drain(0..drop_n);
+            self.events_base_seq += drop_n as u64;
+            // 基址恰为本次丢弃量 ⇒ 这是本会话**首次**越界；此后不再重复告警（防刷屏）。
+            if self.events_base_seq == drop_n as u64 {
+                tracing::warn!(
+                    session_id = %self.id,
+                    dropped = drop_n,
+                    base_seq = self.events_base_seq,
+                    "会话事件缓冲达上限，已丢弃最旧事件（重放降级：客户端将看到 Last-Event-ID 跳变）"
+                );
+            }
+        }
+        self.events.push(ev);
+    }
 }
 
 /// Manages all active sessions.
@@ -342,6 +378,7 @@ impl SessionManager {
             budget_remaining: Some(max_steps),
             event_tx: Some(event_tx),
             events: Vec::new(),
+            events_base_seq: 0,
             running: false,
             agent: Some(agent),
             budget,
@@ -396,17 +433,24 @@ impl SessionManager {
 
     /// WP-2 (v23 phase3): 取会话事件缓冲副本（Last-Event-ID 断线续传重放源）。
     pub async fn session_events(&self, id: &str) -> Vec<AgentEvent> {
+        self.session_events_with_base(id).await.1
+    }
+
+    /// D-101：取事件缓冲副本 + **绝对 seq 基址**（基址 = 已丢弃的事件数）。
+    pub async fn session_events_with_base(&self, id: &str) -> (u64, Vec<AgentEvent>) {
         if let Some(session) = self.get_session(id).await {
-            session.lock().await.events.clone()
+            let s = session.lock().await;
+            (s.events_base_seq, s.events.clone())
         } else {
-            Vec::new()
+            (0, Vec::new())
         }
     }
 
     /// WP-2 (v23 phase3): 录制导出——会话事件缓冲 → 带信封的 JSONL 行。
     pub async fn session_events_jsonl(&self, id: &str) -> Vec<String> {
-        let events = self.session_events(id).await;
+        let (base, events) = self.session_events_with_base(id).await;
         let mut env = crate::envelope::EnvelopeState::new();
+        env.seq = base; // D-101：保持绝对编号
         events
             .into_iter()
             .map(|mut evt| {
@@ -642,7 +686,7 @@ impl SessionManager {
                             let is_done = matches!(evt, Event::Done(_));
                         let api_evt = map_event(evt);
                         let _ = tx.send(api_evt.clone());
-                        session_clone.lock().await.events.push(api_evt);
+                        session_clone.lock().await.push_event(api_evt);
                             if is_done {
                                 break;
                             }
@@ -652,7 +696,7 @@ impl SessionManager {
                                 message: "session cancelled".into(),
                             };
                             let _ = tx.send(ev.clone());
-                            session_clone.lock().await.events.push(ev);
+                            session_clone.lock().await.push_event(ev);
                             // X4 fix: emit Done so the SSE stream closes cleanly
                             // like the normal completion path, instead of relying
                             // on the keepalive timeout to drop the connection.
@@ -660,7 +704,7 @@ impl SessionManager {
                                 report: serde_json::json!({"ok": false, "status": "cancelled"}),
                             };
                             let _ = tx.send(ev.clone());
-                            session_clone.lock().await.events.push(ev);
+                            session_clone.lock().await.push_event(ev);
                             cancelled = true;
                             break;
                         }
@@ -765,6 +809,7 @@ impl SessionManager {
                         if let Some(ref obs) = observer {
                             let evts: Vec<AgentEvent> = s.events.clone();
                             let mut env = crate::envelope::EnvelopeState::new();
+                            env.seq = s.events_base_seq; // D-101：保持绝对编号
                             let enveloped: Vec<api::EnvelopedEvent> = evts
                                 .into_iter()
                                 .map(|mut e| {
@@ -802,12 +847,12 @@ impl SessionManager {
                             message: "agent terminated with error".into(),
                         };
                         let _ = tx.send(ev.clone());
-                        s.events.push(ev);
+                        s.push_event(ev);
                         let ev = AgentEvent::Done {
                             report: serde_json::json!({"ok": false, "status": "error"}),
                         };
                         let _ = tx.send(ev.clone());
-                        s.events.push(ev);
+                        s.push_event(ev);
                     }
                     Err(_) => {
                         s.phase = "error".into();
@@ -815,12 +860,12 @@ impl SessionManager {
                             message: "agent panicked or was cancelled".into(),
                         };
                         let _ = tx.send(ev.clone());
-                        s.events.push(ev);
+                        s.push_event(ev);
                         let ev = AgentEvent::Done {
                             report: serde_json::json!({"ok": false, "status": "panic"}),
                         };
                         let _ = tx.send(ev.clone());
-                        s.events.push(ev);
+                        s.push_event(ev);
                     }
                 }
 
@@ -838,12 +883,12 @@ impl SessionManager {
                     message: "agent not available".into(),
                 };
                 let _ = tx.send(ev.clone());
-                session_clone.lock().await.events.push(ev);
+                session_clone.lock().await.push_event(ev);
                 let ev = AgentEvent::Done {
                     report: serde_json::json!({"ok": false, "status": "error"}),
                 };
                 let _ = tx.send(ev.clone());
-                session_clone.lock().await.events.push(ev);
+                session_clone.lock().await.push_event(ev);
                 let mut s = session_clone.lock().await;
                 s.running = false;
                 s.phase = "error".into();
@@ -921,7 +966,7 @@ impl SessionManager {
             if let Some(tx) = &s.event_tx {
                 let _ = tx.send(ev.clone());
             }
-            s.events.push(ev);
+            s.push_event(ev);
         }
         tracing::debug!(
             session_id = %id,
@@ -1198,6 +1243,7 @@ mod tests {
                 budget_remaining: None,
                 event_tx: None,
                 events: Vec::new(),
+                events_base_seq: 0,
                 running,
                 agent: None,
                 budget: Budget::default(),
@@ -1270,6 +1316,7 @@ mod tests {
                     report: "done".into(),
                 },
             ],
+            events_base_seq: 0,
             running: true,
             agent: None,
             budget: Budget::default(),
@@ -1351,5 +1398,64 @@ mod tests {
 
         // Unknown id → None (store miss, not in memory)
         assert!(mgr.get_history("nope").await.unwrap().is_none());
+    }
+
+    /// D-101 regression: 事件缓冲达上限后**批量**丢弃最旧事件，绝对 seq 基址只增不减；
+    /// 未越界时基址恒为 0、长度等于 push 条数（= 未截断时行为与历史版本逐字节一致）。
+    #[tokio::test]
+    async fn test_d101_event_buffer_capped_with_absolute_base() {
+        let session = Arc::new(Mutex::new(Session {
+            id: "cap-1".into(),
+            provider_name: "p".into(),
+            model: "m".into(),
+            goal: "cap".into(),
+            phase: "running".into(),
+            steps: 0,
+            budget_remaining: None,
+            event_tx: None,
+            events: Vec::new(),
+            events_base_seq: 0,
+            running: true,
+            agent: None,
+            budget: Budget::default(),
+            cancel_tx: None,
+            finished_at: None,
+            created_at: std::time::Instant::now(),
+            workspace_dir: std::path::PathBuf::from("/tmp/test"),
+        }));
+
+        let mk = |i: u64| AgentEvent::Error {
+            message: format!("evt-{i}"),
+        };
+
+        // 1) 未越界：基址恒 0，长度 = push 条数（绝对编号即位置，无偏移）。
+        {
+            let mut s = session.lock().await;
+            for i in 0..100u64 {
+                s.push_event(mk(i));
+            }
+            assert_eq!(s.events_base_seq, 0, "未越界时基址必须为 0");
+            assert_eq!(s.events.len(), 100, "未越界时长度 = push 条数");
+        }
+
+        // 2) 恰越界一次：批量丢弃最旧事件，基址 > 0，且绝对编号不丢不重。
+        let total: u64 = MAX_SESSION_EVENTS as u64 + 1;
+        {
+            let mut s = session.lock().await;
+            for i in 100..total {
+                s.push_event(mk(i));
+            }
+            assert!(
+                s.events.len() <= MAX_SESSION_EVENTS,
+                "截断后长度须维持在上限内"
+            );
+            assert!(s.events_base_seq > 0, "发生截断后基址须 > 0");
+            // 不变量：基址（已丢弃）+ 缓冲长度（保留）== 总 push 条数（不丢不重）。
+            assert_eq!(
+                s.events_base_seq + s.events.len() as u64,
+                total,
+                "绝对编号须不丢不重"
+            );
+        }
     }
 }
