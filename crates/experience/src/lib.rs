@@ -139,6 +139,28 @@ impl ExperienceStore {
         Ok(())
     }
 
+    /// D-116（2026-10-02, traecode）：**有界、失败专属**的经验读取口——"复用"课题的
+    /// 取数侧（替代 D-47 删除的语义 `search()`）。
+    ///
+    /// 三道前置（口径见本文件头）：① **失败专属**（仅 `!success`）；② **质量过滤**
+    /// （`effectiveness >= min_effectiveness`）；③ **有界窗口**（最多 `limit` 条，
+    /// 取**最新**）。刻意**不做相似度匹配**——MemGate（arXiv 2606.06054）实证纯相似度
+    /// 检索是信任边界，会引入跨域泄漏/漂移；此处把"相关"交给**调用时机**（失败时刻），
+    /// 而非文本相似度。
+    pub async fn recent_failures(&self, min_effectiveness: f32, limit: usize) -> Vec<Experience> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let entries = self.entries.read().await;
+        entries
+            .iter()
+            .rev() // 最新优先
+            .filter(|e| !e.success && e.effectiveness >= min_effectiveness)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     /// Prune low-effectiveness experiences older than max_age_days.
     /// Returns number of entries removed.
     pub async fn prune(&self, min_effectiveness: f32, max_age_days: i64) -> usize {
@@ -251,6 +273,41 @@ mod tests {
 
     // D-107：`upgrade_core_returns_high_quality` 已随该接口一并删除
     // （它依赖无写入方的 `reference_count`，恒空；保留测试等于给死接口续命）。
+
+    /// D-116：取数口必须**失败专属 + 质量过滤 + 有界窗口（取最新）**。
+    #[tokio::test]
+    async fn recent_failures_applies_three_preconditions() {
+        let store = ExperienceStore::new();
+        let mut ok_exp = make_exp("ok", "p", "s"); // success=true
+        ok_exp.effectiveness = 0.9;
+        let mut low_fail = make_exp("low", "p-low", "s");
+        low_fail.success = false;
+        low_fail.effectiveness = 0.1; // 低于质量下限
+        let mut f1 = make_exp("f1", "p1", "s1");
+        f1.success = false;
+        f1.effectiveness = 0.6;
+        let mut f2 = make_exp("f2", "p2", "s2");
+        f2.success = false;
+        f2.effectiveness = 0.6;
+        let mut f3 = make_exp("f3", "p3", "s3");
+        f3.success = false;
+        f3.effectiveness = 0.6;
+        for e in [ok_exp, low_fail, f1, f2, f3] {
+            store.append(e).await.unwrap();
+        }
+
+        let r = store.recent_failures(0.5, 2).await;
+        assert_eq!(r.len(), 2, "有界窗口：最多 2 条");
+        assert!(r.iter().all(|e| !e.success), "失败专属：不得含成功条目");
+        assert!(r.iter().all(|e| e.effectiveness >= 0.5), "质量过滤生效");
+        assert_eq!(
+            r.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            vec!["f3", "f2"],
+            "必须取**最新**的合格条目（f3 最新）"
+        );
+        // 窗口 0 → 空（不设"默认全取"的隐式行为）
+        assert!(store.recent_failures(0.0, 0).await.is_empty());
+    }
 
     #[tokio::test]
     async fn metrics_reflects_appended_entries() {
