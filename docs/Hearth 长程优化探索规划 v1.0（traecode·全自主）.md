@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 91**（含 P1-80）。最新五轮 **P1-56 ~ P1-80 ＝ D-92 ~ D-115**（2026-10-02）：
+**累计卡数 92**（含 P1-81）。最新五轮 **P1-56 ~ P1-81 ＝ D-92 ~ D-115**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -29,12 +29,13 @@
 ⑥**入库卫生第 3 轮**（误跟踪的 Python 字节码缓存 ⇒ 摘除 + 门禁防复发）；
 ⑦**agent-core 未体检模块体检**（terminal/context/scheduler/talent/constitution）——
 发现并退役一整层"被结构性架空"的失败分类/恢复策略决策支持层；
-⑧**零调用方小项收口**（D-78 余项重复 `stream()` 删除 + D-84 `read_only_view` 裁决保留）。
-共 **25** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+⑧**零调用方小项收口**（D-78 余项重复 `stream()` 删除 + D-84 `read_only_view` 裁决保留）；
+⑨**D-109 先设计后接线**（civilization 写入补 session→owner 归属链：写入器工厂按
+owner 绑定 per-user 档 + 全局档停用 + 行为锁 + xray 锚点复算）。
+共 **26** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **运行期冒烟**一次：`.env`→provider→请求→401 诚实降级全链路正常）；
-开放债＝**D-109**（agent-loop 的 civ 写入缺 session→owner 归属链，需先设计）+
-**经验复用（设计课题）**：须满足"失败专属 / 质量过滤+有界窗口 / 来源标注"三前置
-并先过基准验证。（D-78 余项与 D-84 已随 P1-80 收口。）
+开放债仅余**经验复用（设计课题）**：须满足"失败专属 / 质量过滤+有界窗口 / 来源标注"
+三前置并先过基准验证。（D-78 余项 / D-84 / D-109 均已收口。）
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -124,6 +125,7 @@
 | P1-78 | `d47641f` | **D-113 收口（入库卫生第 3 轮：解释器字节码缓存）**：`.gitignore` 只窄忽略 `window-framework/src/__pycache__/` ⇒ `bench/`、`docs/data/`、`ember/` 三处共 **4 个 `__pycache__/*.pyc` 被误跟踪**（CPython 自动生成的字节码，非源码）。处置：`git rm --cached` 4 文件（内容留盘）+ 窄规则改全局 `__pycache__/`+`*.pyc`+`*.pyo` + 门禁 `gitignore_runtime_products_gate.rs` 新增 `interpreter_caches_are_gitignored`（**先红后绿**：移除规则即如实报红）。**与 D-5/D-112 同一族**（运行期产物不得入库） |
 | P1-79 | `e67ae48` | **D-114 收口（agent-core 未体检模块体检：退役"被结构性架空"的失败分类/恢复策略层）**：`terminal.rs` 四组纯函数（`classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness`）**全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）早于 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块亦随线C手术（D-10）消失 ⇒ 生产者结构性消失且 R6-5 明载"勿复活旧通道" ⇒ **退役删除**（同 D-66/D-83/D-85 口径，非重新接线）。连带移除 loop.rs 中**恒空**的两处 report 投影 + handover 字段 + 快照白名单两键，据实订正 3 处指向已删生产者的过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集（并订正 `is_terminal_state` 的不实 doc）。**新增门禁** `retired_failure_channel_gate.rs`（逐行剥 `//` 后文本级拦截退役标识符；**先红后绿**——注入代码即报红）。净 −432/+122 |
 | P1-80 | `a9b34c7` | **D-78 余项 + D-84 收口（零调用方小项，须先确认再删）**：① `FallbackChain` 的**固有** `stream()` 与 `impl LlmProvider` 的 `stream()` 函数体**逐字重复**、且零生产调用方（生产一律经 `Arc<dyn LlmProvider>` 走 trait；具体类型调用点仅在单测）⇒ **删除固有份**（同体两份是漂移陷阱），删除后具体类型调用由 trait 兜底、语义一致（llm-gateway 33 测全过）；`CostMeter` 四访问器按原判保留（其断言承担 `record()` 覆盖）。② `ToolDispatcher::read_only_view()` 唯一生产调用方（子代理）已随 D-83 消失、现仅单测调用 ⇒ **裁决保留**并如实登记——它是 xray **red 锚点** `readonly-view-strips`（安全属性锁）锁定的只读视图原语，删之即失去回归防线，且子代理重启可复用 |
+| P1-81 | `6634ea9` | **D-109 收口（先设计后接线：civilization 写入补 session→owner 归属链）**：agent-loop 的 civ 自动写入经 `CivWriterAdapter` 落**全局**档，而 API 读侧读 **per-user** 档 ⇒ 自动写入的 milestone/reflection 在 `hearth civ feed` 不可见（D-108 病灶的另一半）。**设计**：把归属用户在会话创建时绑进写入器——新增 `SessionManager::set_civ_writer_factory`，在 `create_session_with_owner(req, owner)` 以该会话 owner 调用一次工厂；`PerUserStore::civ_for` 是**同步**方法，故同步 `append_civ` 内可直接落档（无需异步查表），组合根闭包绑定 owner（依赖倒置保持）。**处置**：`CivWriterAdapter` 改为 holder `per_user` + `owner`，经 `civ_for(owner)` 落档；全局 `civilization.jsonl` store **停止构造**（无人读）；`create_session` 增 owner 变体（旧调用方委托 owner="default"，零改）；`routes` 传 uid；xray `civ-auto-written` 后两环锚点改 `set_civ_writer_factory(` + 复算 FNV（`0x8d515d8fb29c18f9`→`0x457ac49206c92a81`，条数仍 16 / severity 仍 red）。**防复发**：civ_visibility_gate 增 `civ_auto_write_goes_to_visible_per_user_store`（**先红后绿**）+ main.rs 行为锁（写入落 owner 档 + 跨租户隔离 + `civ_for` 读回可见） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -343,7 +345,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-107** | **experience"复用"接口退役**（D-100 裁决落地）：`reference_count`（无写入方）/`reuse_rate`（对外暴露的结构性 0）/`upgrade_core()`（恒空，调用点只把 0 打进日志） | D-100 裁决（**联网核实** Reflexion + OEP 后，非拍脑袋） | **已退役**（P1-71）：三项删除、经验库定位为**只写审计档**；xray 锚点收窄 + FNV 复算（条数仍 16 / severity 仍 red）。**真正的复用**列为设计课题：须满足①失败专属②质量过滤+有界窗口③来源标注（D-80 纪律）并先过基准验证 | **close（接口）· 复用课题另立** |
 | **D-108** | **文明线公告写进"无人读取的档"**：读接口读 `per_user.civ_for(uid)`（唯一可见 store），写侧写**全局**档（另一文件）⇒ 公告在 API 上不可见（D-48 重接线的可见面未真正生效）；另 `AppState.civ_store`/`workline_store` 两个只写不读字段 | service 内部模块审计 | **已修**（P1-72）：写侧对齐读侧 + warn 留痕 + 清死字段 + **新增门禁**（先红后绿）。**刻意不采用"读侧合并全局档"**（跨租户泄露） | **close** |
 | **D-111** | **service 内部批次**：① `install_tool` 用 `ERR_INTERNAL`+400（码与状态自相矛盾）；② `open_artifact`/`open_external` 的"路径非法"与"会话不存在"混用 `ERR_SESSION_NOT_FOUND`+400；③ `templates.rs` 两层 `if let Ok` 静默丢弃；④ `api` 四个零消费者错误码常量；⑤ `service::user::UserContext` 零构造零读取（doc 却称"每请求注入"）；⑥ `TemplateManager::get` 零调用；⑦ `webhook.rs` 注释称 per-user 实为裸 `Vec`；⑧ `AppState.observer` 只写不读 | service 内部模块审计 | **已全部收口**（P1-76 ①②③⑦；P1-77 ⑤⑥⑧ + ④ 改为**如实留痕保留**〔对外错误码词表，删掉＝单方缩小契约面〕） | **close** |
-| **D-109** | **agent-loop 的 civ 写入（`CivWriterAdapter`）缺 `session → 归属用户` 链**：它仍写全局档 ⇒ 自动写入的 milestone/reflection 在 API 上不可见；修它需给 `Session` 加 owner（现在没有）并打通 `create_session`，属**需先设计的接线** | P1-72 连带发现（同一病灶另一半） | **登记**：已在适配器文档头如实标注；**倾向**：与 experience 复用同批设计（都是"写入可见面缺失"），先出设计再接线 | **登记** |
+| **D-109** | **agent-loop 的 civ 写入（`CivWriterAdapter`）缺 `session → 归属用户` 链**：它仍写全局档 ⇒ 自动写入的 milestone/reflection 在 API 上不可见；修它需给 `Session` 加 owner（现在没有）并打通 `create_session`，属**需先设计的接线** | P1-72 连带发现（同一病灶另一半） | **已修**（P1-81，**先设计后接线**）：写入器**工厂**按 owner 构造（`set_civ_writer_factory` + `create_session_with_owner`），适配器经 `per_user.civ_for(owner)` 落档；全局 `civilization.jsonl` store 停用；xray 锚点复算 + 门禁（先红后绿）+ 行为锁。**未采用**"读侧合并全局档"（跨租户泄露） | **close** |
 | **D-113** | **误跟踪的解释器字节码缓存**：`.gitignore` 只窄忽略 `window-framework/src/__pycache__/` ⇒ `bench/`、`docs/data/memory-context-20260830/`、`ember/` 三处的 `__pycache__/*.pyc`（共 4 文件）被误跟踪——CPython 自动生成的字节码，非源码、可随时重建 | 入库卫生第 3 轮（承 D-5/D-112） | **已修**（P1-78）：`git rm --cached` 4 文件（内容留盘）+ 窄规则改全局 `__pycache__/`/`*.pyc`/`*.pyo` + 门禁 `gitignore_runtime_products_gate.rs` 增 `interpreter_caches_are_gitignored`（先红后绿） | **close** |
 | **D-114** | **agent-core「失败分类 / 恢复策略」决策支持层被结构性架空**：`terminal.rs` 的 `classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness` **全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）已被 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块随线C手术（D-10）消失 ⇒ loop.rs 仍**读**这两键却**无写入方**（恒 null，且投影进 run report/handover） | agent-core 逐文件体检（terminal/context/scheduler/talent/constitution） | **已退役删除**（P1-79，同 D-66/D-83/D-85 口径——生产者结构性消失且 R6-5 明载"勿复活旧通道"，故**不重新接线**）：删四组纯函数 + 上下游恒空字段 + 快照白名单两键 + 订正 3 处过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集；**新增门禁** `retired_failure_channel_gate.rs`（先红后绿）钉住退役 | **close** |
 | **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
