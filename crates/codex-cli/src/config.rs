@@ -198,11 +198,9 @@ impl Config {
                 .or_else(|| self.api_key.clone()),
             url_warning: None,
             read_roots: self.read_roots.clone(),
-            mode: cli_mode
-                .map(String::from)
-                .or_else(|| env("HEARTH_MODE"))
-                .or_else(|| self.mode.clone())
-                .unwrap_or_else(|| "auto".to_string()),
+            // D-129：mode 的唯一事实源（arg > HEARTH_MODE > config.toml > auto）
+            // ——与 `effective_mode()` 共用同一处优先级定义（不再各写一份）。
+            mode: self.effective_mode(cli_mode).0,
             feedback_prompt: self.feedback_prompt.unwrap_or(true),
             // T10 (v0.2.3) + hearth-slim S2: 出网白名单 = 进程 env HEARTH_EGRESS_ALLOWLIST + config.toml（env 优先合并；消费语义见各工具——bash 空=默认放开，web_fetch 空=全拒）
             egress_allowlist: merge_allowlist(
@@ -230,6 +228,27 @@ impl Config {
         }
         r.url_warning = url_warning;
         r
+    }
+
+    /// D-129（2026-10-02, traecode）：`mode` 的**有效值 + 来源**——唯一事实源。
+    ///
+    /// 优先级与 [`Config::resolve`] **完全一致**（arg > `HEARTH_MODE` > `config.toml` > `auto`）。
+    /// 之所以单独抽出来：D-102 把 `--mode` 的校验接在了**flag** 上，于是
+    /// `config set mode` / `HEARTH_MODE` 两个来源**既不生效也不报错**（静默）——
+    /// 实测 `HEARTH_MODE=remote` 不给 `--url` 仍**本地直跑**、
+    /// `HEARTH_MODE=bogus` 连报错都没有（同一条"声称≠实现"，只修了一半）。
+    /// 返回来源字符串是为了让报错**可行动**（告诉用户该去改哪一处）。
+    pub fn effective_mode(&self, cli_mode: Option<&str>) -> (String, &'static str) {
+        let env_mode = std::env::var("HEARTH_MODE").ok().filter(|v| !v.is_empty());
+        if let Some(m) = cli_mode {
+            (m.to_string(), "--mode 参数")
+        } else if let Some(m) = env_mode {
+            (m, "环境变量 HEARTH_MODE")
+        } else if let Some(m) = self.mode.clone() {
+            (m, "config.toml 的 mode")
+        } else {
+            ("auto".to_string(), "默认值")
+        }
     }
 }
 
@@ -394,6 +413,55 @@ pub struct ResolvedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 先红后绿（D-129）：`mode` 的**有效值**必须同时覆盖 `HEARTH_MODE` 与 config.toml，
+    /// 并给出**来源**（供报错点名"该去改哪一处"）。
+    ///
+    /// 红侧（修复前实测）：D-102 只把校验接在 `--mode` flag 上 ⇒ `HEARTH_MODE=remote`
+    /// 不给 `--url` 仍**本地直跑**、`HEARTH_MODE=bogus` 静默忽略。
+    #[test]
+    fn test_d129_effective_mode_covers_env_and_file_with_source() {
+        let _env_ser = p3_tests::ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        let file = Config {
+            mode: Some("remote".into()),
+            ..Default::default()
+        };
+
+        std::env::remove_var("HEARTH_MODE");
+        assert_eq!(
+            file.effective_mode(None),
+            ("remote".to_string(), "config.toml 的 mode"),
+            "无 flag/env 时读 config.toml"
+        );
+        std::env::set_var("HEARTH_MODE", "bogus");
+        assert_eq!(
+            file.effective_mode(None),
+            ("bogus".to_string(), "环境变量 HEARTH_MODE"),
+            "env 覆盖 config.toml，且来源必须如实标出（否则报错不可行动）"
+        );
+        assert_eq!(
+            file.effective_mode(Some("auto")),
+            ("auto".to_string(), "--mode 参数"),
+            "arg 优先级最高"
+        );
+        // 空串 env 视为未设（与 resolve 的 env() 口径一致）
+        std::env::set_var("HEARTH_MODE", "");
+        assert_eq!(file.effective_mode(None).0, "remote");
+
+        std::env::remove_var("HEARTH_MODE");
+        let none = Config::default();
+        assert_eq!(none.effective_mode(None), ("auto".to_string(), "默认值"));
+
+        // 与 resolve 共用同一处优先级：resolve().mode 必须等于 effective_mode().0
+        std::env::set_var("HEARTH_MODE", "bogus");
+        assert_eq!(file.resolve(None, None, None, None, None).mode, "bogus");
+        assert_eq!(
+            file.resolve(None, None, None, None, None).mode,
+            file.effective_mode(None).0,
+            "两处优先级必须同源（否则校验的有效值与实际生效值又不是同一个）"
+        );
+        std::env::remove_var("HEARTH_MODE");
+    }
 
     /// 先红后绿（D-128）：`hearth setup` 必须**合并**进 `.env`，绝不截断重写。
     ///

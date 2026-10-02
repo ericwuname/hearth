@@ -490,10 +490,31 @@ pub async fn hearth_main() -> Result<()> {
     };
 
     // D-102：`--mode` 校验（唯一真实语义见 `validate_mode`）——此前该 flag 被静默忽略。
-    // 此处覆盖**顶层** `hearth --mode <v> <子命令>` 形式；Chat 自己的 `--mode` 在分支内再校验。
-    if let Some(err) = validate_mode(cli.mode.as_deref(), url.is_some()) {
-        render::error(&err);
-        return Ok(());
+    // D-129（2026-10-02）：校验对象从 **flag** 改为 `mode` 的**有效值**——D-102 只修了
+    // flag 一路，`config set mode` / `HEARTH_MODE` 两个来源仍**既不生效也不报错**：
+    // 实测 `HEARTH_MODE=remote` 不给 `--url` 仍**本地直跑**（用户以为连的是远程）、
+    // `HEARTH_MODE=bogus` 连报错都没有。现按 arg > `HEARTH_MODE` > config.toml
+    // 解析有效值并校验，报错里点名**来源**（可行动）。
+    //
+    // 作用域**刻意收窄**到"真正依赖本机/远程路由"的子命令：`mode` 只影响
+    // chat/repl/resume/replay 这几条本地↔远程的判定；若对所有子命令都拦，
+    // 一旦 config.toml 里存了一个坏值，连**修它用的** `hearth config set mode auto`
+    // 都会被这条校验挡住 ⇒ 用户被锁死在 CLI 之外（只能手改文件）。
+    {
+        let routes_locally_or_remotely = matches!(
+            command,
+            Commands::Chat { .. }
+                | Commands::Repl
+                | Commands::Resume { .. }
+                | Commands::Replay { .. }
+        );
+        if routes_locally_or_remotely {
+            let (eff_mode, src) = file_cfg.effective_mode(cli.mode.as_deref());
+            if let Some(err) = validate_mode(Some(&eff_mode), url.is_some()) {
+                render::error(&format!("{err}（来源: {src}）"));
+                return Ok(());
+            }
+        }
     }
 
     match command {

@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 104**（含 P1-93）。最新五轮 **P1-56 ~ P1-93 ＝ D-92 ~ D-128**（2026-10-02）：
+**累计卡数 105**（含 P1-94）。最新五轮 **P1-56 ~ P1-94 ＝ D-92 ~ D-129**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -64,8 +64,11 @@ spec 里写 `"Red"`/拼错会被下游按"非 red ⇒ 不阻断"**静默放行**
 P1-90 漏提交锁时正是如此；已补 flag + 门禁）；
 ㉑**上手面（onboarding）实测**——命中 **D-128**：`hearth setup` 会
 **截断重写 `.env`**，把用户按 `.env.example` 配好的 provider key **静默清空**
-（实测 3 行 → 1 行，随后只报"未配置 API key"）——**用户数据销毁级**可用性缺陷。
-共 **37** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+（实测 3 行 → 1 行，随后只报"未配置 API key"）——**用户数据销毁级**可用性缺陷；
+㉒**CLI 选项来源全覆盖**——命中 **D-129**：D-102 只把 `--mode` 校验接在 **flag** 上，
+`HEARTH_MODE` / `config set mode` 两个来源仍**既不生效也不报错**
+（实测 `HEARTH_MODE=remote` 无 `--url` 仍**本地直跑**、`bogus` 连错都不报）。
+共 **38** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
 开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
 唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
@@ -174,6 +177,7 @@ LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 | P1-91 | （本卡） | **D-126 收口（非 Rust 侧 ember 体检：工具有界读入 + 工具名单漂移）**：`ember`（可双击使用的 Python 版小 CLI）三处同族缺陷。① **`tools.py::read` 两条路径都无界**——整份模式 `f.read()` **先整份入内存再截 64KB**（正是仓储侧 D-38/D-53 的病），分页模式 `f.readlines()` 把**全部行**读进内存（分页本就是为了避免这一点）；`edit` 是**读-改-写**、同样 `f.read()` 无上限。② **`ember.py` 三处 HTTP 无界读**——成功路径两处 `json.loads(resp.read())`、错误路径 `e.read().decode()[:300]`（先整份读再切片）⇒ 对端/中间人返回超大响应即打爆进程（与 D-55/D-58 网络侧同族）。③ **"未知工具"提示硬编码 `bash / read / write`**，而 M5 早已加入第 4 个工具 `edit`（`TOOL_IMPL` 四键、`TOOLS_SCHEMA` 也有 edit 条目）⇒ 模型一旦调错工具名，拿到的"可用工具"名单是**错的**（同 D-121/D-122 的"声称≠实现"，且这条错信息是**喂给模型**的）。处置：`read` 整份模式改**有界读**（`READ_MAX_BYTES` = 8 MiB；≤ 上限的文件输出与旧实现**逐字一致**，超限只返回开头并**明确告知**"不再声称保留尾 1/3"——那需要整份入内存）；分页模式改**流式扫描**（内存与文件大小无关）且**提前中断时不编造"共 N 行"**；`edit` 加**尺寸门**（> 8 MiB 显式拒绝 + 给 bash 替代路径，与 D-53 对 apply_patch 同款，**读-改-写不能截断**）；`ember.py` 三处改有界（成功路径超限**显式报错**而非静默截断——截断的 JSON 只会把真因盖成"解析失败"）；提示改**从 `TOOL_IMPL` 派生**（不再随工具增减漂移）；顺带订正 `tools.py` 模块 docstring（"三工具"）与 README（"三个工具"/能力一览漏 `edit`）、`read` 的 schema 边界描述补 8 MiB。**实证**（直接跑真代码）：分页输出逐字一致（`第 2-3 行（共 5 行）`）、越界 offset 报错一致、**64KB~8MB 输出与旧实现逐字一致（65661==65661 字节）**、>8MB 只返回开头且带 `[oversize]`、`>8MB edit` 显式拒绝且**文件未被改动**、`_read_body` 超限报错/正常原样/恰好等于上限不误判、两文件语法有效。**另补 D-125 的漏项（如实）**：P1-90 只 `git add` 了 `crates/codex-cli/Cargo.toml` 而**漏了 `Cargo.lock`**（新增内部依赖会在锁里加一行 `bounded-io`）⇒ 本卡一并补上，并据此在 P1-92 加 `--locked` 门禁防复发 |
 | P1-92 | （本卡） | **D-127 收口（可复现性：CI 的 cargo 步骤不带 `--locked` ⇒ lockfile 漂移被静默掩盖）**：**由本会话自身的漏项引出**——P1-90 给 `codex-cli` 加内部依赖 `bounded-io` 时只 `git add` 了 `Cargo.toml` 而**漏了 `Cargo.lock`**；而本地与 CI **都不会**报错：cargo 默认**静默重写**锁文件，于是"门禁四件套全绿"掩盖了"仓库里的锁与工程已不一致"（下一个 clone 的人拿到的是被 cargo 悄悄改过的依赖图 ⇒ 可复现性受损，属"本地绿≠真绿"的又一形态，与 D-43/D-91 同族但落在**依赖图**上）。处置：CI 的 4 条构建/测试步骤（`clippy`/`test`/`xray wiring`/`xray scan`）一律加 `--locked`（`cargo fmt` 不接受该 flag，是唯一例外）——此后锁与工程不一致会在 CI **直接失败**。**防复发门禁**：`toolchain_pin_gate.rs` 增 `ci_cargo_steps_are_locked`（逐行只认**真正会执行的命令行**：`run: cargo …` 或块内以 `cargo ` 开头者；YAML 注释/`name:`/`uses:` 一律跳过——首版实现就在注释里的 "cargo test" 上误报过，已据实修掉并写进注释）。**先红后绿**：删掉 `test` 步的 `--locked` ⇒ 门禁如实报 `ci.yml:69 的 cargo test 缺少 --locked`。**机制实证**：临时给 `codex-cli` 加一个未入锁的依赖 ⇒ `cargo metadata --locked` **立即失败**（`cannot update the lock file … because --locked was passed`）；不带 `--locked` 时 cargo 转入**下载/改写锁**（本机无网故同失败，CI 有网即静默假绿）。另证锁已同步：`cargo check --locked --workspace --all-targets` = exit 0。**教训（如实登记）**：过程中我误用 `git checkout -- .github/workflows/ci.yml` 把该文件**未提交**的改动一并还原，已重新应用并复跑门禁转绿——"未提交改动上不要跑 checkout 还原" |
 | P1-93 | （本卡） | **D-128 收口（`hearth setup` 会**销毁**用户的 `.env`——onboarding 链上的数据销毁级缺陷）**：**实测**——按 `.env.example` 把 `AGNES_API_KEY` / `HEARTH_PROVIDER` / `AGNES_MODEL` 三行配进 `./.env` 后跑一次 `hearth setup`（文档里的**首次上手**入口），`.env` **被截断重写成 1 行**（只剩 `CODEX_URL=http://localhost:3000`）——用户的 provider key **静默消失**，而随后 CLI 只会报"未配置 API key（通道 …）"，用户**根本无从知道是自己的 `.env` 被 setup 清空了**（与 D-106/D-117 同在 onboarding 链：D-117 刚让 CLI 认 `AGNES_*` 惯例名，setup 一转手就把它们删了）。真因＝`std::fs::write(".env", out)` **无条件截断重写**（且只写它自己那两个键）。处置：新增**唯一事实源** `config::merge_env_assignments`（纯函数、可单测）——**其余每一行逐字节保留**（注释/空行/别人的变量）；已存在同名键**就地替换**（注释行不算赋值、不追加第二份、沿用原行 `\r\n`/`\n` 行尾）；未命中才追加（原文末尾缺换行先补）。`setup` 改走合并 + **如实告知**："已更新 .env（就地改写 N 项，**保留原有其它变量 M 项**——未触碰你的 provider key）"/"已新建 .env"。**先红后绿**：临时把该函数置为修复前的"截断重写" ⇒ 锁如实 FAILED（原 3 行不再存在）。**活体实证**：3 行用户配置 + 追加 `CODEX_URL`（三行逐字保留）；**再跑一次** ⇒ 就地替换（`就地改写 1 项`）且 `^CODEX_URL=` 计数**仍为 1**（不产生第二份） |
+| P1-94 | （本卡） | **D-129 收口（`--mode` 只修了一半：env/config 两个来源既不生效也不报错）**：D-102 的修复把校验接在 **`--mode` flag** 上，而它自己的注释写的是"该 flag（**与 `config set mode`、`HEARTH_MODE`**）此前只被塞进 `ResolvedConfig.mode` 后全仓无人读取"——实际只接了 flag 一路。**实测**：`HEARTH_MODE=remote` 不给 `--url` ⇒ **静默本地直跑**（用户以为连的是远程 service；本地直跑会真的落盘/跑命令，与"连远程"预期相反）；`HEARTH_MODE=bogus` ⇒ **连报错都没有**（静默忽略）。且 `resolved.mode` 全仓只被 `config get` **打印**，从不参与路由（半接线）。处置：② 抽出**唯一事实源** `Config::effective_mode`（arg > `HEARTH_MODE` > `config.toml` > `auto`）并返回**来源字符串**，`resolve()` 改用它（优先级不再各写一份——否则"被校验的有效值"与"实际生效值"又会分叉）；② 校验对象从 flag 换成有效值，报错**点名来源**（"（来源: 环境变量 HEARTH_MODE）"，用户一眼知道该去改哪）；③ **作用域刻意收窄**到真正依赖本机/远程路由的四条子命令（chat/repl/resume/replay）——若对所有子命令都拦，一旦 config.toml 存了坏值，连**修它用的** `hearth config set mode auto` 都会被挡，用户被锁死在 CLI 之外（只能手改文件）。**先红后绿**：把 `effective_mode` 临时改成"只看 flag" ⇒ 锁如实 `left: ("auto","默认值") / right: ("remote","config.toml 的 mode")`。**活体实证**：`HEARTH_MODE=remote` 无 url → 报"需要 `--url`（来源: 环境变量 HEARTH_MODE）"；`HEARTH_MODE=bogus` → 报未知取值 + 来源；`HEARTH_MODE=bogus` 下 **`config get mode` 与 `tools` 仍正常**（逃生门与非路由命令未被误伤） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 

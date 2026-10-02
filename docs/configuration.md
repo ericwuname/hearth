@@ -20,6 +20,13 @@
 > CLI 侧的完整优先级：**命令行参数 > `HEARTH_*`（`HEARTH_API_KEY`/`HEARTH_MODEL`/
 > `HEARTH_LLM_URL`/`HEARTH_PROVIDER`）> `<PROVIDER>_*` > `config.toml`**。
 > 注意 CLI 默认 provider 是 `deepseek`；配了哪个通道就把 `HEARTH_PROVIDER` 指到它。
+>
+> **`HEARTH_MODE`（D-129 起真正生效）**：`auto`（默认，按 `--url` 判定本机/远程）|
+> `remote`（强制远程，**必须**同时给 `--url`/`HEARTH_SERVICE_URL`，否则明确报错）。
+> 取值与 `config.toml` 的 `mode`、命令行 `--mode` 三者共用同一优先级
+> （**参数 > `HEARTH_MODE` > `config.toml`**）；取值非法或 `remote` 缺 URL 时，
+> 依赖路由的子命令（`chat`/`repl`/`resume`/`replay`）会**报错并指出来源**，
+> 而不是静默按本机直跑。`config get/set mode` 不受该校验阻拦（保证坏值可修）。
 
 ## 服务端口
 
