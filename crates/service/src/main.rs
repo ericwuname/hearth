@@ -730,10 +730,8 @@ async fn main() -> anyhow::Result<()> {
         allow_no_auth,
         civ_write_failures,
         telemetry,
-        // WP-4 (v23 phase4): Observer（第三权，零执行权）——L2 fail-closed：
-        // 构造失败 → service 拒启（Observer 是纯结构体，new() 无失败路径，
-        // 但保持 Arc 注入以便后续 L2 检查接入）。
-        observer: Arc::new(observer::Observer::new()),
+        // D-111②：原此处注入 `observer: Arc::new(observer::Observer::new())` —— 该字段
+        // 零读取方（真实的第三权接线是上方 `sessions.set_observer(...)`），已删。
         user_store,
         template_manager,
         experience_store,

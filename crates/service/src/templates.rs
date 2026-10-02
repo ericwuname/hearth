@@ -59,7 +59,7 @@ impl TemplateManager {
         self.templates.values().collect()
     }
 
-    pub fn get(&self, name: &str) -> Option<&AgentTemplate> {
-        self.templates.get(name)
-    }
+    // D-111②（2026-10-02, traecode）：原 `get(name)` 访问器**已删**——全仓零调用方
+    // （唯一的 "模板按名取用" 路径并不存在：`/api/v1/templates` 只 `list()`）。
+    // 同 D-78/D-98 口径：零调用方的 pub 项不留（要再引入时随使用点一起加）。
 }

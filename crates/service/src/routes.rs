@@ -41,9 +41,10 @@ pub struct AppState {
     pub tool_registry: Arc<tool_runtime::ToolRegistry>,
     /// v7.0: shared telemetry collector.
     pub telemetry: Arc<TelemetryCollector>,
-    /// WP-4 (v23 phase4): Observer（第三权）——只读事件流，零执行权。
-    /// L2 fail-closed：构造失败 → service 拒启（内核不 import observer）。
-    pub observer: Arc<observer::Observer>,
+    // D-111②：原 `observer: Arc<observer::Observer>` 字段**已删**——它在整个
+    // `routes.rs` 里零读取方（真正的 Observer 接线是组合根对 **SessionManager** 的
+    // `sessions.set_observer(...)`，会话收尾时生效）。保留一份请求态副本只会让读代码的
+    // 人以为"每个请求都在过 Observer"（"声称≠实现"）。
     /// v8.0: multi-user identity mapping.
     pub user_store: Arc<crate::user::UserStore>,
     /// v8.0: agent template manager.
