@@ -36,15 +36,17 @@ pub trait SubconsciousGuard: Send + Sync {
 }
 
 /// Context provided to each guard during check.
+///
+/// D-98（2026-10-02, traecode）：**删除 4 个只写不读字段**——`goal_text` /
+/// `step_count` / `last_success` / `constitution_summary`。两个现役 guard
+/// （`ConstitutionGuard` / `CostGuard`）只读 `last_action` 与 `cost_ratio`，
+/// 其余字段由 `agent-core` 每步填好后**无人读取**（write-only），属"定义了但
+/// 无人用"（同 D-47/D-88 口径）。它们的原始设计意图（goal 漂移/步数/上步成败/
+/// 宪法全文）若要成为真守卫，需**先设计判定规则**再收回字段——那属能力扩展。
 pub struct GuardContext {
-    pub goal_text: String,
+    /// 上一个动作（命令文本）——`ConstitutionGuard` 用它匹配危险命令。
     pub last_action: Option<String>,
-    pub step_count: u64,
-    /// Whether the last step succeeded.
-    pub last_success: bool,
-    /// Constitution rule text (short summary, not full text).
-    pub constitution_summary: &'static str,
-    /// v11.5: Cost ratio (0.0 = unavailable).
+    /// v11.5: Cost ratio (0.0 = unavailable) —— `CostGuard` 的唯一输入。
     pub cost_ratio: f32,
 }
 
@@ -139,11 +141,7 @@ mod tests {
     #[tokio::test]
     async fn constitution_guard_blocks_rm_rf() {
         let ctx = GuardContext {
-            goal_text: "clean up".into(),
             last_action: Some("rm -rf /".into()),
-            step_count: 1,
-            last_success: true,
-            constitution_summary: "safety first",
             cost_ratio: 0.0,
         };
         let sig = ConstitutionGuard.check(&ctx).await.unwrap();
@@ -153,11 +151,7 @@ mod tests {
     #[tokio::test]
     async fn constitution_guard_allows_normal() {
         let ctx = GuardContext {
-            goal_text: "build".into(),
             last_action: Some("cargo build".into()),
-            step_count: 1,
-            last_success: true,
-            constitution_summary: "",
             cost_ratio: 0.0,
         };
         assert!(ConstitutionGuard.check(&ctx).await.is_none());
@@ -167,11 +161,7 @@ mod tests {
     async fn cost_guard_triggers_at_96pct() {
         let g = CostGuard;
         let ctx = GuardContext {
-            goal_text: "".into(),
             last_action: None,
-            step_count: 1,
-            last_success: true,
-            constitution_summary: "",
             cost_ratio: 0.96,
         };
         let sig = g.check(&ctx).await.unwrap();
@@ -182,11 +172,7 @@ mod tests {
     async fn cost_guard_ignores_at_50pct() {
         let g = CostGuard;
         let ctx = GuardContext {
-            goal_text: "".into(),
             last_action: None,
-            step_count: 1,
-            last_success: true,
-            constitution_summary: "",
             cost_ratio: 0.50,
         };
         assert!(g.check(&ctx).await.is_none());
@@ -196,11 +182,7 @@ mod tests {
     async fn gate_stops_at_first_guard() {
         let gate = SubconsciousGate::new();
         let ctx = GuardContext {
-            goal_text: "".into(),
             last_action: Some("rm -rf /".into()),
-            step_count: 1,
-            last_success: true,
-            constitution_summary: "",
             cost_ratio: 0.0,
         };
         let sig = gate.check(&ctx).await.unwrap();

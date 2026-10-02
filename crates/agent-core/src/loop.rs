@@ -2843,14 +2843,13 @@ impl AgentLoop {
         }
 
         // v11.4: Subconscious gate — check before building prompt
-        let goal_text = self.ctx_mgr.state().goal.clone();
+        // D-98：构造点同步收窄为两个**真被守卫读取**的字段（`last_action` /
+        // `cost_ratio`）；原 goal/step_count/last_success/constitution_summary
+        // 四个字段守卫从不读，已随字段定义一并删除（含上面那行只为它存在的
+        // `goal_text` 局部变量）。
         {
             let ctx = subconscious::GuardContext {
-                goal_text: goal_text.clone(),
                 last_action: self.last_action.clone(),
-                step_count: self.ctx_mgr.steps_used(),
-                last_success: self.last_success,
-                constitution_summary: "安全第一：不删除用户文件，不执行未验证的外部命令",
                 cost_ratio: self.nervous.cost_ratio(),
             };
             if let Some(signal) = self.subconscious.check(&ctx).await {

@@ -286,7 +286,6 @@ impl ToolDispatcher {
             }
         };
         ctx.effective_timeout = Some(effective);
-        ctx.deadline_clamped = deadline_clamped;
 
         // R2-C Resource Safety Observe 层（§8, v0.2.8）: per-call 字节记账——
         // 57G 事故（21 步 2.7G/步塞满磁盘）的直接回应：此前**零字节观测**，
