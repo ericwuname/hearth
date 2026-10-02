@@ -19,6 +19,7 @@
 - R3 vs R1：**improved 9 / regressed 1**（T13-fix-index0），improved 集中在第一轮失败的 L3-L5 难题（T09/T10/T13/T16/T17/T18）。
 - R3 的 85% **超过 v14 历史最佳 77.5%**（+7.5pt），同 provider/任务集/工具链仅凭经验回路达成。
 - store `reuse_rate = 0.49`——经验搜索在生产路径真实工作（被引用即证明命中）。
+  - ⚠️ **勘误（D-100，2026-10-02）**：该结论**已失效**。`ExperienceStore::search()`（`reference_count += 1` 的唯一写方）已随后续 D-47「死代码清理」删除 ⇒ `reuse_rate` 现恒 0、`upgrade_core()` 恒空。详见 `docs/self-evolution-proof-v17.md` 顶部勘误与 D-100 债行。
 
 ## Changed
 - **实验 provider 临时切换**：deepseek API 402 欠费 → 本轮实验用 zhipu glm-4.5-air（v14 同款）。deepseek 恢复后可用 `V17_PROVIDER=deepseek` 重跑验证。

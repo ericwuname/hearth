@@ -1,6 +1,16 @@
-// v16.0: Experience store — JSONL 持久化 + 关键词检索。
-// 语义检索（embedding/cosine）、环境适用性匹配、reinforce 等死代码已随 D-47 删除。
-
+// v16.0: Experience store — JSONL 持久化 + 剪枝 + 计数。
+//
+// D-100（2026-10-02, traecode）**文档订正（零行为变更）**：本模块头此前自称
+// "JSONL 持久化 + **关键词检索**"——**不实**：本文件根本没有检索 API（`search()`
+// 是唯一会 `reference_count += 1` 的写方，已随 D-47 作为死代码删除），全文只有
+// `append` / `prune` / `metrics` / `upgrade_core`。据此本 crate 的**复用回路当前是断的**：
+//   · `reference_count` 恒 0（无任何自增点）；
+//   · `upgrade_core()` 因 `reference_count >= 3` 恒不命中 ⇒ 恒返回空；
+//   · `metrics().reuse_rate` 恒 0，而它由 `GET /api/v1/experience/metrics` 对外暴露。
+// 另：`agent-core` 的注入侧同源——`injected_experience` 每个 run/step 都被复位为
+// None，唯一非 None 写入只在测试里（生产者随 D-9 线C手术删除，注释已如实在位）。
+// 即：**存/剪/计数活着，"用起来"这一环缺失**。去留（接线检索注入 vs 退役整套）
+// 属产品方向，登记为 D-100 债待裁，不在此单方改行为。
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -13,6 +23,8 @@ pub struct Experience {
     pub solution: String,
     pub success: bool,
     pub effectiveness: f32,
+    /// D-100：**当前恒 0**——唯一自增点是已删除的 `search()`（D-47），
+    /// 无任何现役写方。依赖它的 `upgrade_core()` 与 `reuse_rate` 因此恒空/恒 0。
     pub reference_count: u32,
     pub created_at: String,
 }
@@ -145,6 +157,11 @@ impl ExperienceStore {
     }
 
     /// Return experiences promoted to "core" status (high refs + effectiveness).
+    ///
+    /// D-100：**当前恒返回空**——过滤条件是 `reference_count >= 3`，而该字段
+    /// 无任何现役自增点（见模块头）。调用方（service observer 每小时巡检）
+    /// 目前只把它返回的**条数**打进一条日志，故删除它不改变任何行为——
+    /// 但它是"复用回路"的公开接口，去留随 D-100 的接线/退役裁决一并处理。
     pub async fn upgrade_core(&self) -> Vec<Experience> {
         let entries = self.entries.read().await;
         entries
@@ -178,6 +195,10 @@ impl ExperienceStore {
 pub struct GrowthMetrics {
     pub total_experiences: u64,
     /// Fraction of experiences referenced at least once.
+    ///
+    /// D-100：**当前恒 0**（`reference_count` 无现役自增点，见模块头）——
+    /// 该字段经 `GET /api/v1/experience/metrics` 对外暴露，读到的 0 反映的是
+    /// "复用注入未实现"，不是"复用率为零"的业务结论。
     pub reuse_rate: f32,
     /// Fraction with effectiveness >= 0.8.
     pub high_quality_rate: f32,

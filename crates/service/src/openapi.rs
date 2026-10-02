@@ -84,7 +84,15 @@ pub const API_ROUTES: &[(&str, &[(&str, &str)])] = &[
         "/api/v1/tool-registry",
         &[("get", "列出已登记工具清单（含 TOOLS_DIR 自动发现的）")],
     ),
-    ("/api/v1/experience/metrics", &[("get", "经验库指标")]),
+    // D-100：摘要里如实标注 reuse_rate 的口径——它当前恒 0 是因为
+    // "复用注入"这一环未实现（`reference_count` 无自增点），不是业务上没复用。
+    (
+        "/api/v1/experience/metrics",
+        &[(
+            "get",
+            "经验库指标（reuse_rate 当前恒 0：复用注入未实现，见 D-100）",
+        )],
+    ),
 ];
 
 /// 把 [`API_ROUTES`] 注入 `ApiDoc` 生成的文档。

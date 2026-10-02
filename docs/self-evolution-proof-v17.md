@@ -1,5 +1,13 @@
 # 自进化证明 v17 —— 经验回路闭合实验报告
 
+> ⚠️ **勘误（D-100，2026-10-02）**：本报告第「reuse_rate = 0.49 证明经验搜索在生产路径真实工作」
+> 一节**已不再成立**：它依赖 `ExperienceStore::search()` 在返回时 `reference_count += 1`，
+> 而 `search()` 已随后续的 D-47「死代码清理」被删除（彼时它已无生产调用方），随之
+> `reference_count` 无任何自增点 ⇒ `reuse_rate` 现**恒 0**、`upgrade_core()` 恒空、
+> `agent-core` 的 `injected_experience` 也随 D-9 线C手术失去生产者（每轮恒复位为 None）。
+> 即"经验存储 → 复用注入"这一环**当前是断的**，去留登记为 D-100 债待裁。
+> 本文件正文按"历史文档保留历史表述"惯例不改，仅加此勘误以免后人据旧结论误判现状。
+
 > 实验日期：2026-07-31
 > 方法：`bench/self-evolve-v17.py` + `bench/gen_experiences_v17.py`
 > Provider：**zhipu glm-4.5-air**（deepseek API 402 欠费，实验临时切换）
