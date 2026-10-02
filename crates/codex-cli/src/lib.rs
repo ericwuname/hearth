@@ -128,7 +128,7 @@ enum Commands {
     Init,
 
     /// D5: Observer 素材——hearth note "..." [--session <id>] [--self "标注"]
-    /// [--observer-verdict n "反审"] [--mood angry]。
+    /// [--observer-verdict <n|其他>] [--mood angry]。
     Note {
         /// 素材内容。
         content: String,
@@ -141,7 +141,9 @@ enum Commands {
         #[arg(long = "self", alias = "self-label")]
         self_label: Option<String>,
 
-        /// 反审 Observer（--observer-verdict n "理由"）。
+        /// 反审 Observer（`--observer-verdict n`）。**注意**：只接受**一个**值；
+        /// 且仅当值**恰为** `n` 时才触发"异常信号"（`note.rs` 按精确等值判定，
+        /// 写成 `--observer-verdict n "理由"` 会被 clap 判为多余参数 → 报错）。
         #[arg(long)]
         observer_verdict: Option<String>,
 
@@ -657,8 +659,22 @@ pub async fn hearth_main() -> Result<()> {
                     return Ok(());
                 }
                 let resolved = cfg.resolve(None, None, None, None, None);
+                // D-105（2026-10-02, traecode）：`config get` 的字段集此前与 `config set`
+                // **不对称**——set 支持 model / read-roots，get 却不认（报"未知字段"），
+                // 于是"能设的读不回来"。现两者对齐为同一份字段集。
+                let read_roots = || match &resolved.read_roots {
+                    Some(rs) if !rs.is_empty() => rs.join(","),
+                    _ => "(默认：cwd + HOME)".to_string(),
+                };
                 if field.is_empty() {
                     println!("provider        = {}", resolved.provider);
+                    println!(
+                        "model           = {}",
+                        resolved
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| "(provider 默认)".into())
+                    );
                     println!(
                         "url             = {}",
                         resolved.url.unwrap_or_else(|| "(provider 默认)".into())
@@ -669,6 +685,7 @@ pub async fn hearth_main() -> Result<()> {
                     );
                     println!("mode            = {}", resolved.mode);
                     println!("feedback-prompt = {}", resolved.feedback_prompt);
+                    println!("read-roots      = {}", read_roots());
                     // P2-3 (v0.2.4): egress 出网白名单（env 优先合并——安全例外，
                     // 环境变量可强制收紧不被配置文件放宽）。
                     let egress = if resolved.egress_allowlist.is_empty() {
@@ -681,12 +698,17 @@ pub async fn hearth_main() -> Result<()> {
                 } else {
                     let v = match field.as_str() {
                         "provider" => resolved.provider,
+                        "model" => resolved
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| "(provider 默认)".into()),
                         "url" => resolved.url.unwrap_or_else(|| "(provider 默认)".into()),
                         "api-key" | "api_key" => mask_key(resolved.api_key.as_deref()),
                         "mode" => resolved.mode,
                         "feedback-prompt" | "feedback_prompt" => {
                             resolved.feedback_prompt.to_string()
                         }
+                        "read-roots" | "read_roots" => read_roots(),
                         "egress-allowlist" | "egress_allowlist" => {
                             if resolved.egress_allowlist.is_empty() {
                                 "(deny-by-default：全部拒绝)".to_string()
@@ -696,7 +718,7 @@ pub async fn hearth_main() -> Result<()> {
                         }
                         other => {
                             eprintln!(
-                                "未知字段: {other}——可用: provider/url/api-key/mode/feedback-prompt/egress-allowlist"
+                                "未知字段: {other}——可用: provider/model/url/api-key/mode/feedback-prompt/read-roots/egress-allowlist"
                             );
                             return Ok(());
                         }
