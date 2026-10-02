@@ -27,22 +27,37 @@ const RUNTIME_PRODUCT_DIRS: &[(&str, &str)] = &[
     ("results/", "transcript.rs 的 run transcript JSONL"),
 ];
 
-#[test]
-fn runtime_product_dirs_are_gitignored() {
+/// D-113（2026-10-02, traecode）：**解释器字节码缓存**同样是运行期产物。
+///
+/// 背景：此前 `.gitignore` 只窄忽略 `window-framework/src/__pycache__/`，导致
+/// `bench/`、`docs/data/`、`ember/` 三处的 `__pycache__/*.pyc`（共 4 个文件）
+/// 被误跟踪——它们是 CPython 自动生成的字节码，与源码无关、可随时重建。
+/// 该清单只需覆盖仓库内实际出现过的解释器缓存形态。
+const INTERPRETER_CACHE_PATTERNS: &[&str] = &["__pycache__/", "*.pyc"];
+
+fn gitignore_rules() -> Vec<String> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
     let text = std::fs::read_to_string(root.join(".gitignore")).expect(".gitignore 必须存在");
-
-    let rules: Vec<&str> = text
-        .lines()
+    text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn runtime_product_dirs_are_gitignored() {
+    let rules = gitignore_rules();
 
     let missing: Vec<&str> = RUNTIME_PRODUCT_DIRS
         .iter()
-        .filter(|(dir, _)| !rules.contains(&dir.trim_end_matches('/')) && !rules.contains(dir))
+        .filter(|(dir, _)| {
+            !rules
+                .iter()
+                .any(|r| r == dir.trim_end_matches('/') || r == dir)
+        })
         .map(|(dir, _)| *dir)
         .collect();
 
@@ -52,5 +67,21 @@ fn runtime_product_dirs_are_gitignored() {
          它们由 hearth 在 cwd 下自动生成、内容是运行期产物（含目标文本/叙述），\
          在仓库根跑一次 CLI 就会污染 git status 并制造明文入库入口。\
          请为每一项补一条忽略规则；若确有新目录加入，请同步本门禁的清单。"
+    );
+}
+
+#[test]
+fn interpreter_caches_are_gitignored() {
+    let rules = gitignore_rules();
+    let missing: Vec<&str> = INTERPRETER_CACHE_PATTERNS
+        .iter()
+        .filter(|pat| !rules.iter().any(|r| r == *pat))
+        .copied()
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "这些**解释器字节码缓存**规则没被 .gitignore 忽略：{missing:?}\n\
+         它们是解释器自动生成的运行期产物，入库只会带来 git 噪声。\
+         若确有新形态（如别的解释器缓存）加入，请同步本门禁清单。"
     );
 }
