@@ -9,6 +9,24 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// D-103（2026-10-02, traecode）：把一条投票回复判为赞成 / 反对 / 无法判定。
+///
+/// 病灶：原实现只做 `content.to_lowercase().contains("agree")`——而 **"disagree"
+/// 里就含 "agree"**，于是每一张反对票都被计成**赞成票**，多数票结论可能整个反向。
+///
+/// 判据：**先看否定词，再退回肯定词**；两者都没有 ⇒ `None`——调用方按"保守计反对 +
+/// warn 留痕"处理，不假装读懂了模型的回复（也不静默吞掉）。
+fn classify_vote(content: &str) -> Option<bool> {
+    let l = content.to_lowercase();
+    if l.contains("disagree") {
+        Some(false)
+    } else if l.contains("agree") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
 /// Helper: build a system/user message with text content.
 fn msg(role: Role, text: &str) -> Message {
     Message {
@@ -142,10 +160,19 @@ impl BridgeSession {
                 };
                 let resp = provider.chat(req).await?;
                 let content = resp.content.unwrap_or_default();
-                if content.to_lowercase().contains("agree") {
-                    votes_for += 1;
-                } else {
-                    votes_against += 1;
+                // D-103：原先单条件 `contains("agree")` 把 "disagree" 也算赞成
+                //（子串包含），多数票方向可能整个反过来；现按 classify_vote 判定，
+                // 无法判定者**保守计反对并留痕**（不静默、也不假装读懂了）。
+                match classify_vote(&content) {
+                    Some(true) => votes_for += 1,
+                    Some(false) => votes_against += 1,
+                    None => {
+                        tracing::warn!(
+                            provider = %participant,
+                            "majority_vote: 回复既无 agree 也无 disagree，计为反对（不静默）"
+                        );
+                        votes_against += 1;
+                    }
                 }
                 let turn = Turn {
                     index: self.turns.len() as u32,
@@ -234,5 +261,30 @@ impl BridgeSession {
             ctx = "(no prior context)".into();
         }
         ctx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_vote;
+
+    /// D-103 回归锁：多数票的**反对票不得被计成赞成票**。
+    ///
+    /// 修复前判据是 `content.to_lowercase().contains("agree")`，而 **"disagree"
+    /// 里就含 "agree"**——所有反对票都落进"赞成"分支（红侧：这些断言取到 Some(true)）。
+    #[test]
+    fn test_d103_disagree_not_counted_as_agree() {
+        assert_eq!(classify_vote("I disagree"), Some(false));
+        assert_eq!(classify_vote("DISAGREE — reasons below"), Some(false));
+        assert_eq!(classify_vote("I agree"), Some(true));
+        assert_eq!(classify_vote("Agree, with caveats"), Some(true));
+        // 两者同现时以**否定**为准（保守：需明确赞成才算赞成）
+        assert_eq!(
+            classify_vote("I don't agree, in fact I disagree"),
+            Some(false)
+        );
+        // 都无法判定 ⇒ None（调用方计反对并 warn，不假装读懂）
+        assert_eq!(classify_vote("no opinion"), None);
+        assert_eq!(classify_vote(""), None);
     }
 }
