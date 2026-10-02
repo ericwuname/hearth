@@ -7,11 +7,18 @@ use crate::provider::LlmProvider;
 /// Registry of LLM providers, keyed by "provider:model".
 /// Aliases (e.g. "openai" → "openai:gpt-4o") provide backward-compatible lookups.
 /// Allows runtime switching between providers (P0 A3 + 6A v2 requirement).
+///
+/// D-94（2026-10-02, traecode）：**删除了 `default` 字段与 `set_default` 参数**。
+/// 病灶：响应体里根本没有"默认 provider"概念——service 的 `SessionCreate.provider`
+/// 是**必填**，`SessionManager::create_session` 直接 `registry.get(&provider)`；
+/// 而 `get_default()` 全仓**唯一调用者是本文件的单测**。即启动期那几处
+/// `register(_, true)` 只是往一个永不读取的字段里写值，纯死语义。
+/// 更糟的是 main.rs 把该参数注成 "required" 并宣称 "OpenAI primary"——三重不实。
+/// 依据"声称≠实现"纪律（D-23/D-45/D-73 同族）删除，**零行为变更**。
 #[derive(Default)]
 pub struct ProviderRegistry {
     providers: HashMap<String, Arc<dyn LlmProvider>>,
     aliases: HashMap<String, String>, // alias → canonical key
-    default: Option<String>,
 }
 
 impl ProviderRegistry {
@@ -19,7 +26,6 @@ impl ProviderRegistry {
         Self {
             providers: HashMap::new(),
             aliases: HashMap::new(),
-            default: None,
         }
     }
 
@@ -29,12 +35,8 @@ impl ProviderRegistry {
         provider_name: &str,
         model: &str,
         provider: Arc<dyn LlmProvider>,
-        set_default: bool,
     ) {
         let key = format!("{provider_name}:{model}");
-        if set_default || self.providers.is_empty() {
-            self.default = Some(key.clone());
-        }
         self.providers.insert(key, provider);
     }
 
@@ -45,11 +47,8 @@ impl ProviderRegistry {
     }
 
     /// Register a provider (backward-compatible: uses provider.name() as key).
-    pub fn register(&mut self, provider: Arc<dyn LlmProvider>, set_default: bool) {
+    pub fn register(&mut self, provider: Arc<dyn LlmProvider>) {
         let name = provider.name().to_string();
-        if set_default || self.providers.is_empty() {
-            self.default = Some(name.clone());
-        }
         self.providers.insert(name, provider);
     }
 
@@ -77,15 +76,6 @@ impl ProviderRegistry {
         Err(anyhow::anyhow!("provider not found: {}", name))
     }
 
-    /// Get the default provider.
-    pub fn get_default(&self) -> Result<Arc<dyn LlmProvider>> {
-        let name = self
-            .default
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("no default provider set"))?;
-        self.get(name)
-    }
-
     /// List all registered provider names.
     pub fn list(&self) -> Vec<String> {
         self.providers.keys().cloned().collect()
@@ -105,7 +95,6 @@ impl std::fmt::Debug for ProviderRegistry {
         f.debug_struct("ProviderRegistry")
             .field("providers", &self.providers.keys().collect::<Vec<_>>())
             .field("aliases", &self.aliases)
-            .field("default", &self.default)
             .finish()
     }
 }
@@ -154,31 +143,17 @@ mod tests {
     #[test]
     fn test_register_and_get() {
         let mut reg = ProviderRegistry::new();
-        reg.register(
-            Arc::new(MockProvider {
-                name: "test".into(),
-                model: "m1".into(),
-            }),
-            true,
-        );
+        reg.register(Arc::new(MockProvider {
+            name: "test".into(),
+            model: "m1".into(),
+        }));
         let p = reg.get("test").unwrap();
         assert_eq!(p.name(), "test");
         assert_eq!(p.model(), "m1");
     }
 
-    #[test]
-    fn test_get_default() {
-        let mut reg = ProviderRegistry::new();
-        reg.register(
-            Arc::new(MockProvider {
-                name: "a".into(),
-                model: "ma".into(),
-            }),
-            false,
-        );
-        let p = reg.get_default().unwrap();
-        assert_eq!(p.name(), "a");
-    }
+    // D-94：`test_get_default` 已随死语义 `get_default()`/`default` 字段一并删除
+    // （生产零调用方，保留测试等于给死代码续命）。
 
     #[test]
     fn test_missing_provider() {
@@ -189,13 +164,10 @@ mod tests {
     #[test]
     fn test_list_detailed() {
         let mut reg = ProviderRegistry::new();
-        reg.register(
-            Arc::new(MockProvider {
-                name: "x".into(),
-                model: "mx".into(),
-            }),
-            true,
-        );
+        reg.register(Arc::new(MockProvider {
+            name: "x".into(),
+            model: "mx".into(),
+        }));
         let list = reg.list_detailed();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0], ("x".to_string(), "mx".to_string()));

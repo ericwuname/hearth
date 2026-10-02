@@ -137,7 +137,9 @@ async fn main() -> anyhow::Result<()> {
     // ── Build provider registry (P4: multi-backend via env) ──
     let mut registry = ProviderRegistry::new();
 
-    // 1. OpenAI (always registered — primary)
+    // 1. OpenAI (always registered)
+    // D-94：原注释称 "primary"——**不实**：ProviderRegistry 的 default 语义已删，
+    // 谁是"主"由客户端在 `SessionCreate.provider` 里显式指定（必填字段）。
     // D-extra (backend-intelligence): 占位 key 反模式根治——无 key 启动失败报原因
     // （与 CLI 路径 D2/D4 fail-closed 红线对齐；service 仅独立部署用，不静默降级）。
     let openai_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| {
@@ -161,7 +163,7 @@ async fn main() -> anyhow::Result<()> {
         "service",
     ));
     // 6A v2: register with canonical "openai:{model}" key + alias
-    registry.register_with_key("openai", &openai_model, openai, true);
+    registry.register_with_key("openai", &openai_model, openai);
     registry.register_alias("openai", &format!("openai:{openai_model}"));
 
     // 2. Ollama (optional — skip with warn if not configured)
@@ -172,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             model,
             Some(base_url),
         ));
-        registry.register(ollama, false);
+        registry.register(ollama);
         info!("ollama provider registered");
     } else {
         tracing::warn!("OLLAMA_BASE_URL not set — ollama provider skipped");
@@ -188,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             api_key,
         ));
-        registry.register(vllm, false);
+        registry.register(vllm);
         info!("vllm provider registered");
     } else {
         tracing::warn!("VLLM_BASE_URL not set — vllm provider skipped");
@@ -201,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
         let hunyuan = Arc::new(llm_cn::HunyuanProvider::new(
             "hunyuan", model, base_url, api_key,
         ));
-        registry.register(hunyuan, false);
+        registry.register(hunyuan);
         info!("hunyuan provider registered");
     } else {
         tracing::warn!("HUNYUAN_API_KEY not set — hunyuan provider skipped");
@@ -232,7 +234,7 @@ async fn main() -> anyhow::Result<()> {
                 Some(base_url.clone()),
                 &api_key,
             ));
-            registry.register(p, false);
+            registry.register(p);
         }
         info!(
             "doubao providers registered ({} models: {:?})",
@@ -256,7 +258,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             &api_key,
         ));
-        registry.register(agnes, false);
+        registry.register(agnes);
         info!("agnes provider registered (model={})", model);
     }
 
@@ -272,7 +274,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             &api_key,
         ));
-        registry.register(zhipu, false);
+        registry.register(zhipu);
         info!("zhipu provider registered (model={})", model);
     }
 
@@ -288,7 +290,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             &api_key,
         ));
-        registry.register(gemini, true); // true = required (会员首选)
+        registry.register(gemini);
         info!("gemini provider registered (model={})", model);
     }
 
@@ -304,7 +306,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             &api_key,
         ));
-        registry.register(deepseek, true); // true = 主力
+        registry.register(deepseek);
         info!("deepseek provider registered (model={})", model);
     }
 
@@ -328,7 +330,7 @@ async fn main() -> anyhow::Result<()> {
             Some(base_url),
             &api_key,
         ));
-        registry.register(pro, false);
+        registry.register(pro);
         info!("deepseek-pro ceiling provider registered (model={})", model);
 
         let zk = std::env::var("ZHIPU_API_KEY").unwrap_or_default(); // v21: key via env/.env only
@@ -341,7 +343,7 @@ async fn main() -> anyhow::Result<()> {
             Some(zbase),
             &zk,
         ));
-        registry.register(zmax, false);
+        registry.register(zmax);
         info!("zhipu-max ceiling provider registered (model={})", zmodel);
     }
 
@@ -353,7 +355,7 @@ async fn main() -> anyhow::Result<()> {
         match llm_replay::ReplayProvider::load_dir(&dir) {
             Ok(p) => {
                 let n = p.session_count();
-                registry.register(Arc::new(p), false);
+                registry.register(Arc::new(p));
                 info!(
                     "replay provider registered ({} recorded sessions from {dir})",
                     n
@@ -376,7 +378,7 @@ async fn main() -> anyhow::Result<()> {
         if !chain_providers.is_empty() {
             let chain_names: Vec<String> = chain_providers.iter().map(|(n, _)| n.clone()).collect();
             let chain = Arc::new(FallbackChain::new(chain_providers));
-            registry.register(chain, false);
+            registry.register(chain);
             info!(
                 "fallback chain registered as 'fallback' provider with {} backends: {:?}",
                 chain_names.len(),

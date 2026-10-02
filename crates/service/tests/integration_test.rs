@@ -145,8 +145,8 @@ fn build_script() -> MockScript {
 
 fn build_manager() -> (Arc<service::session::SessionManager>, Arc<ProviderRegistry>) {
     let mut registry = ProviderRegistry::new();
-    registry.register(Arc::new(MockProvider::new("mock-a", build_script())), true);
-    registry.register(Arc::new(MockProvider::new("mock-b", build_script())), false);
+    registry.register(Arc::new(MockProvider::new("mock-a", build_script())));
+    registry.register(Arc::new(MockProvider::new("mock-b", build_script())));
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();
@@ -279,10 +279,7 @@ async fn test_p1_budget_exhausted_error() {
     let infinite_script = MockScript {
         chat_responses: infinite_responses,
     };
-    registry.register(
-        Arc::new(MockProvider::new("mock-budget", infinite_script)),
-        true,
-    );
+    registry.register(Arc::new(MockProvider::new("mock-budget", infinite_script)));
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();
@@ -504,7 +501,7 @@ async fn test_p1_f1_multi_turn_user_message_in_context() {
     });
 
     let mut registry = ProviderRegistry::new();
-    registry.register(spy.clone(), true);
+    registry.register(spy.clone());
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();
@@ -763,9 +760,9 @@ async fn test_p4_three_backend_switch() {
 
     // ── Register all three providers ──
     let mut registry = ProviderRegistry::new();
-    registry.register(ollama, true);
-    registry.register(vllm, false);
-    registry.register(hunyuan, false);
+    registry.register(ollama);
+    registry.register(vllm);
+    registry.register(hunyuan);
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();
@@ -975,7 +972,7 @@ async fn test_p5_fallback_in_request_path() {
     ]));
 
     let mut registry = ProviderRegistry::new();
-    registry.register(chain, true);
+    registry.register(chain);
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();
@@ -1076,10 +1073,7 @@ async fn test_p5_session_survives_restart() {
     // We need a mutable SessionManager to set_memory_store
     // rebuild with memory store injected
     let mut registry = ProviderRegistry::new();
-    registry.register(
-        Arc::new(MockProvider::new("mock-mem", build_script())),
-        true,
-    );
+    registry.register(Arc::new(MockProvider::new("mock-mem", build_script())));
     let registry = Arc::new(registry);
 
     let mut dispatcher = ToolDispatcher::new();

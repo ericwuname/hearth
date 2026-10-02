@@ -11,7 +11,6 @@ use agent_types::Budget;
 use anyhow::{Context, Result};
 use api::AgentEvent;
 use colored::Colorize;
-use llm_gateway::ProviderRegistry;
 use tool_runtime::{ToolContext, ToolDispatcher};
 
 use crate::config::ResolvedConfig;
@@ -1438,8 +1437,10 @@ async fn render_agent_event(
 /// 供测试/诊断：provider 注册表探测（验证 provider 组装不炸）。
 #[allow(dead_code)]
 pub fn registry_smoke(cfg: &ResolvedConfig) -> Result<()> {
+    // D-94：原先这里还多一句 `let _reg = ProviderRegistry::new();`——建一个空注册表
+    // 随即丢弃，对"组装是否成功"零影响（真活儿是上面的 build_provider）。
+    // 随该类型 API 收口一并删除，`ProviderRegistry` 的 import 也随之失效。
     let _p = build_provider(cfg)?;
-    let _reg = ProviderRegistry::new();
     Ok(())
 }
 
