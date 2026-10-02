@@ -9,7 +9,15 @@ use tokio::sync::mpsc;
 /// R2 (v0.1.4): REPL 预算常量——lib.rs 调用方引用（此前仅用于会话元数据，未接 agent 循环）。
 pub(crate) const REPL_BUDGET: u64 = 40;
 
-pub async fn run(base_url: String, api_key: Option<String>) -> Result<()> {
+/// D-102（2026-10-02, traecode）：新增 `provider` / `model` 入参——此前本函数在
+/// `create_session` 处**硬编码 "deepseek"**，用户给的 `--provider/--model` 在远程
+/// REPL 下被静默忽略。
+pub async fn run(
+    base_url: String,
+    api_key: Option<String>,
+    provider: String,
+    model: Option<String>,
+) -> Result<()> {
     use futures::StreamExt as _; // needed for stream.next() in tokio::select!
     let client = std::sync::Arc::new(CodexClient::new(base_url.clone(), api_key.clone()));
     render::info(&format!("Connected to {base_url}"));
@@ -94,7 +102,10 @@ pub async fn run(base_url: String, api_key: Option<String>) -> Result<()> {
 
         // Otherwise: treat as a goal → create session → chat
         let goal = line;
-        let sid = match client.create_session(&goal, REPL_BUDGET, "deepseek").await {
+        let sid = match client
+            .create_session(&goal, REPL_BUDGET, &provider, model.as_deref())
+            .await
+        {
             Ok(id) => {
                 render::info(&format!("session {} created", &id[..8.min(id.len())]));
                 id

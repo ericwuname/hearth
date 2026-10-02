@@ -70,14 +70,30 @@ impl CodexClient {
 
     /// POST /api/v1/sessions → create session, return session id.
     /// B4-1 (backend taskbook #01): 契约对齐——provider 必填 + budget 嵌套结构。
-    pub async fn create_session(&self, goal: &str, budget: u64, provider: &str) -> Result<String> {
+    ///
+    /// D-102（2026-10-02, traecode）：新增可选 `model`。此前 CLI 远程路径**不传 model、
+    /// 且把 provider 硬编码成 "deepseek"** ⇒ 用户在远程模式下给的 `--provider/--model`
+    /// 被**静默忽略**（选了 openai 实际仍按 deepseek 建会话）。`SessionCreate.model`
+    /// 本就是可选字段；此处仅在 `Some(非空)` 时才写入载荷，避免给服务端多塞一个
+    /// `null` 而改变既有请求形状。
+    pub async fn create_session(
+        &self,
+        goal: &str,
+        budget: u64,
+        provider: &str,
+        model: Option<&str>,
+    ) -> Result<String> {
+        let mut body = serde_json::json!({
+            "goal": goal,
+            "provider": provider,
+            "budget": { "max_steps": budget }
+        });
+        if let Some(m) = model.map(str::trim).filter(|m| !m.is_empty()) {
+            body["model"] = serde_json::Value::String(m.to_string());
+        }
         let resp = self
             .request(reqwest::Method::POST, "/api/v1/sessions")
-            .json(&serde_json::json!({
-                "goal": goal,
-                "provider": provider,
-                "budget": { "max_steps": budget }
-            }))
+            .json(&body)
             .send()
             .await
             .context("create session failed")?;

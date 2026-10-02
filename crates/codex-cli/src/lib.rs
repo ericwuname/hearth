@@ -55,7 +55,7 @@ struct Cli {
     #[arg(long)]
     model: Option<String>,
 
-    /// mode：auto（直跑，默认）| remote（连 service）。
+    /// mode：auto（按 --url 自动判定，默认）| remote（强制远程，需 --url）。
     #[arg(long)]
     mode: Option<String>,
 }
@@ -81,15 +81,16 @@ enum Commands {
         #[arg(long = "acceptance")]
         acceptance: Vec<String>,
 
-        /// provider：deepseek | gemini | openai | agnes | ollama | vllm（直跑模式，覆盖 config/env）。
+        /// provider：deepseek | gemini | openai | agnes | ollama | vllm
+        /// （**直跑与远程均生效**，远程时作为会话 provider 下发；覆盖 config/env）。
         #[arg(long)]
         provider: Option<String>,
 
-        /// 模型名（覆盖 config/env，如 agnes-2.5-flash）。
+        /// 模型名（覆盖 config/env，如 agnes-2.5-flash）。直跑与远程均生效。
         #[arg(long)]
         model: Option<String>,
 
-        /// mode：auto（直跑，默认）| remote。
+        /// mode：auto（按 --url 自动判定，默认）| remote（强制远程，需 --url）。
         #[arg(long)]
         mode: Option<String>,
 
@@ -319,6 +320,30 @@ fn headless_answer(session_id: &str) -> Option<String> {
     last
 }
 
+/// D-102（2026-10-02, traecode）：`--mode` 的**唯一真实语义**。
+///
+/// 病灶：该 flag（与 `config set mode`、`HEARTH_MODE`）此前只被塞进
+/// `ResolvedConfig.mode` 后**全仓无人读取**——即静默忽略：`hearth chat x --mode remote`
+/// 不给 `--url` 时仍会本地直跑，用户以为自己连的是远程服务。
+///
+/// 现定义（与历史行为兼容）：
+/// - `auto`（默认）：按 `--url` 自动判定（有 url = 远程，无 url = 本地直跑）——不变；
+/// - `remote`：**强制远程**，必须给 `--url`，否则明确报错（而不是悄悄本地直跑）；
+/// - 其它值：拒绝（绝不静默忽略用户输入）。
+fn validate_mode(mode: Option<&str>, has_url: bool) -> Option<String> {
+    match mode.unwrap_or("auto") {
+        "auto" => None,
+        "remote" if has_url => None,
+        "remote" => Some(
+            "--mode remote 需要 --url <service>——例如: hearth chat \"目标\" --url http://localhost:3000"
+                .into(),
+        ),
+        other => Some(format!(
+            "--mode 只支持 auto|remote（收到 {other}）——auto=按 --url 自动判定；remote=强制远程（需 --url）"
+        )),
+    }
+}
+
 /// 主入口（hearth 与 codex 别名共享）。
 pub async fn hearth_main() -> Result<()> {
     // ── R3-3 降噪三档 CLI 接线（对话可用性根治任务书 v1.0；W-F）──
@@ -452,6 +477,13 @@ pub async fn hearth_main() -> Result<()> {
         return Ok(());
     };
 
+    // D-102：`--mode` 校验（唯一真实语义见 `validate_mode`）——此前该 flag 被静默忽略。
+    // 此处覆盖**顶层** `hearth --mode <v> <子命令>` 形式；Chat 自己的 `--mode` 在分支内再校验。
+    if let Some(err) = validate_mode(cli.mode.as_deref(), url.is_some()) {
+        render::error(&err);
+        return Ok(());
+    }
+
     match command {
         Commands::Chat {
             goal,
@@ -463,6 +495,11 @@ pub async fn hearth_main() -> Result<()> {
             api_key: chat_api_key,
             approve_within,
         } => {
+            // D-102：Chat 自己的 `--mode` 也要校验（顶层校验只覆盖前置写法）。
+            if let Some(err) = validate_mode(chat_mode.as_deref(), url.is_some()) {
+                render::error(&err);
+                return Ok(());
+            }
             // D1/D2: 无 --url → 进程内直跑（派 A 单二进制，用户无感 service）
             if url.is_none() {
                 // RC24-C: 委托入口校验——显式 opt-in，仅支持 session 作用域
@@ -541,7 +578,21 @@ pub async fn hearth_main() -> Result<()> {
                 return Ok(());
             }
             let client = client.unwrap();
-            let sid = match client.create_session(&goal, budget, "deepseek").await {
+            // D-102：此前这里**硬编码 "deepseek"**（且完全不传 model）⇒ 用户在远程模式下
+            // 给的 `--provider/--model` 被静默忽略（选 openai 也照样按 deepseek 建会话）。
+            // 改为走与直跑模式**同一套三级解析**（arg > env > config），使同一个 flag 在
+            // 两种模式下解释一致；model 缺省时不下发（服务端用该 provider 的真实模型名）。
+            let resolved = file_cfg.resolve(
+                chat_provider.as_deref().or(cli.provider.as_deref()),
+                None,
+                chat_api_key.as_deref().or(cli.api_key.as_deref()),
+                chat_mode.as_deref().or(cli.mode.as_deref()),
+                chat_model.as_deref().or(cli.model.as_deref()),
+            );
+            let sid = match client
+                .create_session(&goal, budget, &resolved.provider, resolved.model.as_deref())
+                .await
+            {
                 Ok(s) => s,
                 Err(e) => {
                     let (w, y, h) = client::classify_error(&e);
@@ -972,7 +1023,22 @@ pub async fn hearth_main() -> Result<()> {
             // v0.1.1 (顺手): 无 --url → 直跑模式（reedline 行编辑 + 历史 + 多轮循环）；
             // 有 --url → 远程模式（原有 CodexClient）。
             if let Some(u) = url {
-                repl::run(u, api_key).await?;
+                // D-102：远程 REPL 此前也把 provider 硬编码成 "deepseek"（见 repl.rs），
+                // 同样静默忽略 --provider/--model。这里按同一套三级解析后传入。
+                let resolved = file_cfg.resolve(
+                    cli.provider.as_deref(),
+                    None,
+                    cli.api_key.as_deref(),
+                    cli.mode.as_deref(),
+                    cli.model.as_deref(),
+                );
+                repl::run(
+                    u,
+                    api_key,
+                    resolved.provider.clone(),
+                    resolved.model.clone(),
+                )
+                .await?;
             } else {
                 // v0.1.1 (顺手): 无 --url → 直跑模式（reedline 行编辑 + 历史 + 多轮循环）
                 let resolved = file_cfg.resolve(
@@ -1649,5 +1715,32 @@ mod d6061_tests {
         assert_eq!(pct_encode("Az0-._~"), "Az0-._~");
         // 非 ASCII 逐字节编码（中文 = 3 字节）
         assert_eq!(pct_encode("中"), "%E4%B8%AD");
+    }
+
+    /// D-102 回归锁：`--mode` 必须**有真实语义**，不得静默忽略。
+    ///
+    /// 修复前：`mode` 被解析进 `ResolvedConfig.mode` 后全仓无人读取——`--mode remote`
+    /// 不给 `--url` 时仍会本地直跑（用户以为连的是远程）。此锁钉住三件事：
+    /// ① `auto`（默认）永远放行（= 既有按 `--url` 判定的行为不变）；
+    /// ② `remote` **没有** `--url` 时必须报错；
+    /// ③ 未知取值必须报错（而不是静默忽略用户输入）。
+    #[test]
+    fn test_d102_validate_mode_has_real_semantics() {
+        assert!(
+            validate_mode(None, false).is_none(),
+            "默认 auto + 无 url = 本地直跑，放行"
+        );
+        assert!(validate_mode(Some("auto"), false).is_none());
+        assert!(validate_mode(Some("auto"), true).is_none());
+        assert!(
+            validate_mode(Some("remote"), true).is_none(),
+            "remote + 有 url = 远程"
+        );
+
+        let e = validate_mode(Some("remote"), false).expect("remote 无 url 必须报错");
+        assert!(e.contains("--url"), "错误信息要给出可操作提示：{e}");
+
+        let e = validate_mode(Some("bogus"), true).expect("未知取值必须报错");
+        assert!(e.contains("bogus"), "错误信息要含用户输入：{e}");
     }
 }
