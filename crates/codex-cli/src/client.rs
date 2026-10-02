@@ -12,7 +12,18 @@ const MAX_SSE_BUF_BYTES: usize = 1024 * 1024;
 /// 此前各调用点直接用 `resp.json()` / `resp.text()`——reqwest 无内建上限，对端（或
 /// 中间人）返回超大响应即可把 CLI 打爆成 OOM。现统一走 `tools_builtin::read_body_capped`
 /// 共享原语（Content-Length 提前拒绝 + 流式硬上限 1 MiB + 截断留痕），**单一实现**。
+///
+/// D-124（2026-10-02）：**先查 HTTP 状态码**。此前只看体、不看码，而 service 的错误响应
+/// 本身就是 JSON（`ErrorResponse` = `{"error":{"code","message"}}`）⇒ **4xx/5xx 带 JSON
+/// 错误体会被当作成功响应返回**，调用方（如 `tasks done`）据此误判"已成功"；反过来
+/// "200 + 空体"（`workline` 更新即返回空 200）又会解析失败。两个方向都拧着，故在此
+/// 单点校正：非 2xx 一律上抛（带状态码 + 有界错误体）。
 async fn json_capped(resp: reqwest::Response, what: &str) -> Result<serde_json::Value> {
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = error_body_capped(resp).await;
+        anyhow::bail!("server error {status}: {body}");
+    }
     let (text, truncated) =
         tools_builtin::read_body_capped(resp, tools_builtin::MAX_BODY_BYTES).await?;
     if truncated {
@@ -235,6 +246,29 @@ impl CodexClient {
             Ok(())
         } else {
             anyhow::bail!("cancel returned {}", resp.status())
+        }
+    }
+
+    /// D-124（2026-10-02）：**写操作无回执**——只认状态码，不解析响应体。
+    ///
+    /// 为什么不能直接用 [`post_json`](Self::post_json)：有些写端点成功时返回
+    /// **200 + 空体**（如 `POST /api/v1/workline/nodes/:id` 更新返回 `StatusCode::OK`），
+    /// 解析 JSON 会把"成功"误判成 `parse json: EOF`；而失败时（4xx/5xx 带 JSON 错误体）
+    /// 又会因为不查状态码被当成成功。两个方向都拧着，故单列这个只认状态码的原语
+    /// （与 `cancel_session` 的既有写法同款，但统一带上状态码 + 有界错误体）。
+    pub async fn post_ok(&self, path: &str, body: &serde_json::Value) -> Result<()> {
+        let resp = self
+            .request(reqwest::Method::POST, path)
+            .json(body)
+            .send()
+            .await
+            .context("post_ok failed")?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let status = resp.status();
+            let body = error_body_capped(resp).await;
+            anyhow::bail!("server error {status}: {body}")
         }
     }
 
@@ -532,5 +566,91 @@ mod tests {
             err.to_string().contains("响应体过大"),
             "须为有界拒绝而非解析失败：{err}"
         );
+    }
+
+    // ── D-124：状态码必须被检查（4xx/5xx 的 JSON 错误体不得被当成成功） ──
+
+    /// 起一次性本地 HTTP 服务，回**指定状态行 + body**，返回 `http://host:port`。
+    async fn serve_status(status_line: &'static str, body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let head = format!(
+                    "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = sock.write_all(head.as_bytes()).await;
+                let _ = sock.write_all(body.as_bytes()).await;
+                let _ = sock.flush().await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// 先红后绿（D-124）：service 的错误响应**本身就是 JSON**
+    /// （`ErrorResponse` = `{"error":{"code","message"}}`）——不查状态码时，
+    /// `json_capped` 会把 404 的错误体当作**成功响应**返回（修复前本测取到 `Ok`）。
+    #[tokio::test]
+    async fn test_d124_error_status_is_not_a_success_body() {
+        let url = serve_status(
+            "404 Not Found",
+            r#"{"error":{"code":"SESSION_NOT_FOUND","message":"no such session"}}"#,
+        )
+        .await;
+        let client = CodexClient::new(url, None);
+        let err = client
+            .get_json("/api/v1/sessions/nope")
+            .await
+            .expect_err("404 + JSON 错误体不得被当成成功响应");
+        let msg = err.to_string();
+        assert!(msg.contains("404"), "错误里必须带状态码：{msg}");
+        assert!(
+            msg.contains("SESSION_NOT_FOUND"),
+            "错误里必须带服务端错误体（可诊断）：{msg}"
+        );
+    }
+
+    /// 先红后绿（D-124）：**200 + 空体**是合法成功（`POST /api/v1/workline/nodes/:id`
+    /// 更新就返回空 200）——`post_ok` 只认状态码故成功；而 `post_json` 会解析失败，
+    /// 这正是"写操作不能用 post_json"的原因（两条断言一起钉住两种端点形态）。
+    #[tokio::test]
+    async fn test_d124_post_ok_accepts_empty_200_but_post_json_does_not() {
+        let url = serve_status("200 OK", "").await;
+        let client = CodexClient::new(url, None);
+        assert!(
+            client.post_ok("/x", &serde_json::json!({})).await.is_ok(),
+            "空 200 是合法成功（只认状态码）"
+        );
+
+        let url = serve_status("200 OK", "").await;
+        let client = CodexClient::new(url, None);
+        assert!(
+            client
+                .post_json("/x", &serde_json::json!({}))
+                .await
+                .is_err(),
+            "空 200 无法解析成 JSON —— 故写端点必须走 post_ok"
+        );
+    }
+
+    /// 先红后绿（D-124）：`post_ok` 对非 2xx 必须失败（`tasks done` 报成功的真因）。
+    #[tokio::test]
+    async fn test_d124_post_ok_fails_on_error_status() {
+        let url = serve_status(
+            "500 Internal Server Error",
+            r#"{"error":{"code":"INTERNAL"}}"#,
+        )
+        .await;
+        let client = CodexClient::new(url, None);
+        let err = client
+            .post_ok("/x", &serde_json::json!({}))
+            .await
+            .expect_err("500 必须失败（修复前 tasks done 会照印 marked done）");
+        assert!(err.to_string().contains("500"), "got: {err}");
     }
 }

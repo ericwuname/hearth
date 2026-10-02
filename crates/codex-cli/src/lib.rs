@@ -1227,7 +1227,7 @@ pub async fn hearth_main() -> Result<()> {
                         println!("(no instance_id in response)");
                     }
                 }
-                Err(e) => println!("error: {e}"),
+                Err(e) => return Err(e),
             }
         }
 
@@ -1248,7 +1248,7 @@ pub async fn hearth_main() -> Result<()> {
                         }
                     }
                 }
-                Err(e) => println!("error: {e}"),
+                Err(e) => return Err(e),
             }
         }
 
@@ -1272,7 +1272,7 @@ pub async fn hearth_main() -> Result<()> {
                         }
                     }
                 }
-                Err(e) => println!("error: {e}"),
+                Err(e) => return Err(e),
             }
         }
 
@@ -1391,12 +1391,18 @@ pub async fn hearth_main() -> Result<()> {
                     println!("task created: {:?}", resp["id"].as_str().unwrap_or("?"));
                 }
                 TasksAction::Done { id } => {
-                    let _ = client
-                        .post_json(
-                            &format!("/api/v1/workline/nodes/{id}"),
+                    // D-124（2026-10-02）：此前是 `let _ = post_json(...)` 丢弃 Result
+                    // **再无条件**打印 "marked done" —— 请求失败（含 404/500）也照样
+                    // 宣告成功；而 4xx/5xx 带 JSON 错误体时，`post_json` 还会把它当
+                    // "成功响应"返回（见 `client::json_capped` 的状态码校正）。现改走
+                    // 只认状态码、不解析体的写原语 + `?` 上抛：失败 → stderr + 非零退出。
+                    // 顺带按 D-61 口径对 id 做百分号编码（id 来自用户，旧实现直拼进路径）。
+                    client
+                        .post_ok(
+                            &format!("/api/v1/workline/nodes/{}", pct_encode(&id)),
                             &serde_json::json!({ "progress": 1.0, "status": "completed" }),
                         )
-                        .await;
+                        .await?;
                     println!("marked done: {id}");
                 }
             }

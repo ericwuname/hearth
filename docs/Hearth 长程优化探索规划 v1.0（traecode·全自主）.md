@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 99**（含 P1-88）。最新五轮 **P1-56 ~ P1-88 ＝ D-92 ~ D-123**（2026-10-02）：
+**累计卡数 100**（含 P1-89）。最新五轮 **P1-56 ~ P1-89 ＝ D-92 ~ D-124**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -50,8 +50,11 @@ CLI 只认 `HEARTH_*`、不认 `.env` 里的 `AGNES_*` ⇒ 照模板配好仍"�
 ⑯**门禁自身体检（xray 引擎）**——命中 **D-123**（`severity` **无取值校验**：
 spec 里写 `"Red"`/拼错会被下游按"非 red ⇒ 不阻断"**静默放行**，一行 typo
 即可关掉一条 red 红线；同时证伪一条"哈希锁不进门禁"的疑似项——CI 的 `test`
-步与 `xray wiring` 步**都跑**，锁在 `cargo test` 侧已生效）。
-共 **32** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+步与 `xray wiring` 步**都跑**，锁在 `cargo test` 侧已生效）；
+⑰**CLI 写操作面**——命中 **D-124**（HTTP **状态码从不检查**：4xx/5xx 的 JSON
+错误体被当成成功响应；`tasks done` 因此**无条件谎报成功**；反向"200 + 空体"
+又解析失败——两个方向都拧着）。
+共 **33** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
 开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
 唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
@@ -155,6 +158,7 @@ LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 | P1-86 | （本卡） | **D-121 收口（`HEARTH_TASK_TIMEOUT_SECS=0`：「显式关闭」与实现正好相反）**：CLI 直跑的墙钟上限注释写"env 可覆盖；**0 = 显式关闭**（不建议）"，而解析是 `parse::<u64>().ok().or(Some(900))` ⇒ `0` 落成 **`Some(0)`**；`ContextManager::deadline_exceeded()` 的判据是 `run_elapsed_secs() >= cap`，**`Some(0)` 恒真** ⇒ run 在**第一步**就 `deadline_exceeded`：照注释做的用户得到的不是"不限时"，而是"立刻失败"（用户可见面 ★）。处置：把解析抽成纯函数 `parse_task_timeout_secs`，在**CLI 边界**把 `0`（含 `"00"`/空白）翻译成 `None`（不限时）+ 关闭时**打印一行风险提示**（非静默）；`None`（未设）/非法 仍回落 900，**旧语义在这两个分支零变化**。**刻意不动 `agent-core`**：那里 `Some(0)` 是**测试夹具**用来构造"起点即超时"（`loop.rs` deadline 用例），属内部用法——用户可触达的关只翻译一次。**先红后绿**：临时把该分支改回 `Some(0)` ⇒ 断言如实 `left: Some(0), right: None`。同步 `docs/configuration.md` 内核行为表补该旋钮（含 `0=不限时`），`config_doc_gate` 复跑绿；`deadline exceeded` 的收尾提示补上"（0=不限时）"可行动指引 |
 | P1-87 | （本卡） | **D-122 收口（CLI 自己推荐的命令跑不起来 + `--api-key` 远程静默失效）**：**实测** `hearth chat "目标" --url http://127.0.0.1:9 --budget 1` ⇒ `error: unexpected argument '--url' found / Usage: hearth.exe chat <GOAL>`，而 CLI 在**十几处**错误提示里推荐的正是这条**后置**写法（`"下一步: hearth chat \"目标\" --url http://localhost:3000"`，见 `lib.rs:340/1018/1108/…`）⇒ 用户照抄必错，且"连远程 service"这条路径对后置写法**完全不可达**。真因＝**参数被声明两套**：`--provider/--model/--mode/--api-key` 在 `Chat` 变体里另有一份（只认后置），顶层那套未标 `global`（只认前置）。处置：顶层五个参数统一加 `global = true`（clap 语义＝前后置均认），**删掉 `Chat` 里的重复声明**（一份定义一处，`Cli::command().debug_assert()` 防复发）并删随重复而来的冗余 `--mode` 二次校验。**并修出同源第二处**：远程客户端在 `match` **之前**构造、只吃**顶层** `cli.api_key`，而 `chat --api-key` 落在子命令字段且只被喂给 `resolve()`（远程分支只取 `resolved.provider/model`）⇒ **远程模式下 `--api-key` 被静默忽略**（给了 key 仍 401）——参数归一后自动修好。**活体实证**（本地一次性 HTTP 桩）：`chat "hi" --url :38217 --api-key SECRETKEY-PROBE` ⇒ 服务端实收 `Authorization: Bearer SECRETKEY-PROBE`（sessions 与 messages 两请求均带）。**先红后绿**：临时去掉 `global = true` ⇒ 锁如实报 `UnknownArgument("--url")`。附带核实：`chat --help` 仍列出全部 global 选项（可发现性不降）；`--mode remote` 无 `--url` 后置写法同样报出可行动错误 |
 | P1-88 | （本卡） | **D-123 收口（防回归门禁自身 fail-open：`severity` 取值写错即静默失守）**：xray 的"是否阻断"判据有两处（`wiring.rs::has_red_break`、`main.rs` 计数行），都写死 `== "red"`；而 spec 是**手写 TOML**，`load_spec` 只校验 `schema==1` 与"非空"，**从不校验 `severity` 取值** ⇒ 写成 `"Red"`/`"RED"`/`"rde"` 时两处比较**同时**不成立，该能力被当作"非 red = 不阻断"**静默放行**：一条 red 红线被一行 typo 关掉，输出仍照常打印 `(Red)` 与 `"0 red"`，肉眼与 CI 都看不出异常（**防线自己失守**，与 D-121 同属"声称≠实现"但在**门禁**层）。处置：`severity` 收敛为两个常量（[`SEVERITY_RED`]/[`SEVERITY_YELLOW`]，四处字面量统一）+ `load_spec` **fail-closed** 拒绝未知取值（含仅大小写不同），错误信息点名 capability 与合法取值。**先红后绿**：临时把校验条件置真（模拟修复前"不看 severity"）⇒ 锁如实 `severity="Red" 必须被 fail-closed 拒绝`。**同批证伪一条疑似项**：体检报告称"哈希锁只在 `cargo test` 生效、`codex-xray wiring` 不校验 ⇒ 改 spec 可静默过门"——核对 `.github/workflows/ci.yml` 后**不成立**（CI 同时跑 `cargo test --workspace` 与 `xray wiring` 两步，锁在 test 步已生效），故**不改**、只如实登记结论（避免为伪问题加复杂度）。spec 本身零改动（16 条、severity 仍 **13 red + 3 yellow** 的分布不变，`xray wiring` 复跑 13/16、0 red） |
+| P1-89 | （本卡） | **D-124 收口（CLI 写操作：HTTP 状态码从不检查 ⇒ 失败被当成功 + `tasks done` 无条件谎报）**：三处同族缺陷。① **`client::json_capped` 只看体不看码**——而 service 的错误响应**本身就是 JSON**（`ErrorResponse` = `{"error":{"code","message"}}`）⇒ **4xx/5xx 带 JSON 错误体被当作成功响应返回**，调用方（`get_json`/`post_json` 全体）据此误判；反向地，"**200 + 空体**"（`POST /api/v1/workline/nodes/:id` 更新即返回 `StatusCode::OK` 空体）又解析失败——**两个方向都拧着**。② `tasks done` 用 `let _ = post_json(...)` 丢弃 Result **再无条件** `println!("marked done")` ⇒ 无论 404/500/空体，**一律宣告成功**（与同分支 `add/list` 用 `?` 自相矛盾）。③ `whoami`/`template`/`tools` 把错误 `println!("error: {e}")` 打 **stdout 且 exit 0** ⇒ 脚本无法用退出码判失败（与本 crate 其他子命令不一致）。处置：`json_capped` **先查状态码**（非 2xx 上抛，带状态码 + 有界错误体）；新增只认状态码、不解析体的写原语 **`post_ok`**（"写操作无回执"端点专用）；`tasks done` 改走 `post_ok` + `?`（并顺带按 D-61 口径对用户提供的 id 做 `pct_encode`，旧实现直拼进路径）；三处 stdout 错误改 `return Err(e)`（**stderr + 非零退出**，与全 crate 一致）。**先红后绿**：临时把 `json_capped` 的状态检查置假 ⇒ 锁如实 FAILED（404 的错误体被当成功体）；**活体实证三例**（本地一次性 HTTP 桩）：404 → `Error: server error 404 …` + **exit 1** 且**不再**打印 `marked done`；**200 空体 → 仍 `marked done` + exit 0**（证明 `post_ok` 不可省）；`tools` 404 → exit 1 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
