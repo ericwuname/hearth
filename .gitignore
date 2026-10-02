@@ -24,6 +24,21 @@ release/*.tar.gz
 # 且是 2026-09-30 明文密钥事故的**现成入库入口**（文档归档提交即把它连内容一起带上）。
 .hearth-diag/
 
+# D-112（2026-10-02, traecode）：**产品自身的默认落盘目录**（在 cwd 下生成）。
+# 逐个取自代码默认值：
+#   · `.hearth/reports/`     ← `report.rs`（每 run 一份 run-NNN.md，含目标与叙述）
+#   · `.hearth/runs/`        ← `session_store.rs`（断点镜像）
+#   · `.hearth_snapshots/`   ← `snapshot_store.rs`（回滚用改前快照）
+#   · `.hearth_sessions/`    ← `session_store.rs`（会话 JSONL）
+#   · `results/transcripts/` ← `transcript.rs`（每 run 一行 JSONL：含目标/工具/输出摘要）
+# 与 D-5 同类：这些都是**运行期产物而非源码**，且内容含用户目标文本与运行叙述
+# ⇒ 被误提交既是 git 污染，也是"明文内容入库"的入口。此前只忽略 `.hearth-diag/`，
+# 在仓库根跑一次 `hearth` 就会让 `git status` 冒出上述目录（实测）。
+.hearth/
+.hearth_snapshots/
+.hearth_sessions/
+results/
+
 # D-6 备注：入库前密钥扫描门禁见 crates/codex-cli 的 `secret_scan_gate` 测试
 # （扫描 git 已跟踪文件；扫描范围**只包含入库内容**，故运行期产物已排除在外）。
 

@@ -401,6 +401,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "dotenvy",
  "futures",
  "llm-gateway",
  "llm-local",
