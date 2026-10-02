@@ -18,16 +18,19 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 82**（含 P1-71）。最新四轮 **P1-56 ~ P1-71 ＝ D-92 ~ D-107**（2026-10-02）：
+**累计卡数 85**（含 P1-74）。最新五轮 **P1-56 ~ P1-74 ＝ D-92 ~ D-110**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
 子串误判；出站限流覆盖不全）；
-④**onboarding/上手面 + 经验复用裁决**（`.env` 接线；experience 复用接口按联网核实结论退役）。
-十六张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送；
-开放债＝**D-84**（`read_only_view` 现无生产调用方，倾向保留）+ D-78 余项（`fallback` 固有
-`stream()`、`CostMeter` 四个仅自测访问器，倾向保留）+ **经验复用（设计课题，非债）**：
-须满足"失败专属 / 质量过滤+有界窗口 / 来源标注"三前置并先过基准验证。
+④**onboarding/上手面 + 经验复用裁决**（`.env` 接线；experience 复用接口按联网核实结论退役）；
+⑤**service/文档可见面**（文明线公告写进无人读取的档 ⇒ 用户看不到；README 安装命令等
+多处与代码不符）。十**九**张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+**运行期冒烟**一次：`.env`→provider→请求→401 诚实降级全链路正常）；
+开放债＝**D-109**（agent-loop 的 civ 写入缺 session→owner 归属链，需先设计）+
+**D-111**（service 内部批次：错误码自相矛盾 / 静默失败 / 零消费者项）+ **D-84**
+（`read_only_view`，倾向保留）+ D-78 余项 + **经验复用（设计课题）**：须满足
+"失败专属 / 质量过滤+有界窗口 / 来源标注"三前置并先过基准验证。
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -110,7 +113,9 @@
 | P1-66 | `55c0249` | **D-102 收口（CLI "选项被静默忽略"两处）**：① 远程 `chat`/`repl` 把 provider **硬编码 "deepseek"** 且不传 model ⇒ 用户 `--provider openai --model gpt-4o` 实际仍按 deepseek 建会话（帮助文本却宣称生效）；② `--mode`（含 `config set mode`/`HEARTH_MODE`）只被塞进 `ResolvedConfig.mode` 后**全仓无人读取** ⇒ `--mode remote` 不给 `--url` 时仍**本地直跑**，未知取值也被吞。处置：`create_session` 增可选 `model`（仅 Some 非空才下发，不改变请求形状）+ 远程两条路径改走与直跑**同一套三级解析** + 新增 `validate_mode()`（auto=按 `--url` 判定、remote=强制远程且必须 `--url`、其它值拒绝）+ 帮助文本订正。回归锁 `test_d102_validate_mode_has_real_semantics` |
 | P1-67 | `7cc52d7` | **D-103 收口（bridge 多数票方向反了）**：`MajorityVote` 用 `content.contains("agree")` 判赞成，而 **"disagree" 里就含子串 "agree"** ⇒ **每一张反对票都被计成赞成票**，`Majority: N agree` 的数字是假的；另：无 agree/disagree 关键词的回复（含 `content` 缺失被 `unwrap_or_default()` 变空串）**静默计入反对**、零留痕。处置：抽出 `classify_vote()`（**先判否定词再退回肯定词**，皆无 ⇒ `None`），调用点 `None` 时**保守计反对 + warn 留痕**。**先红后绿**：红侧如实 `left: Some(true), right: Some(false)`（"I disagree" 被判赞成） |
 | P1-70 | `f709d66` | **D-106 收口（CLI 从不读 `.env`，接线）**：`hearth setup` 会把 `CODEX_URL`/`CODEX_API_KEY` 写进 `./.env`，仓库里也有既定模板 `.env.example`（"复制为 .env 并填入真实值"，且明确写着这是 **CLI/Service** 的模板）——**但只有 service 调 `dotenvy::dotenv()`，CLI 从不加载**（连依赖都没有）⇒ 用户照模板配好 key，`hearth chat` 仍报"未配置"，**整条 onboarding 路径对 CLI 是死的**。处置＝接线（`.env` 已在 `.gitignore` 首行、`git check-ignore` 已核验；service 早已加载；`dotenvy` **不覆盖**进程 env ⇒ 与"参数 > env > config > 默认"不冲突）：`codex-cli` 增 `dotenvy` 依赖 + `hearth_main()` 最开头（**任何 env 读取之前**）加载。顺带订正 `.env.example` 两处过期描述（"CLI chat 写死用 deepseek" 已被 D-102 修；"OpenAI 可选/留空则占位 key" 实为 **service 启动硬前置**）；`docs/configuration.md` 头部补 `.env` 加载与优先级说明 |
-| P1-71 | `8488958` | **D-100 裁决 + D-107 收口（退役 experience"复用"接口，净 −77/+72）**：**先联网核实**——Reflexion（Shinn 2023）确认"失败教训回灌"有效，但**必须**配三前置：① 只回灌失败教训 ② 质量过滤 + 有界窗口（低质反思"浪费上下文并损害后续尝试"）③ **来源加权**（arXiv 2605.18930 / OEP 2026-05：自进化 agent 会被"局部正确但不可迁移"的经验污染、蒸馏成过度泛化规则，GPT-4o 上 ASR >50%）；本仓 v17 弱模型 +20pt / v18 **全局注入害强模型 −5pt** 与之一致；且注入文本源自既往 run（可能含 web 抓取），属间接提示注入面，须按 D-80 带来源标注。⇒ 裁决：**不恢复 `search()` 草率接线**，按 D-72 先例**退役复用接口**（删 `reference_count` / `reuse_rate` / `upgrade_core()`），经验库定位为**只写审计档**（append/prune/真实计数保留）。同步 agent-core 构造点、service observer 巡检（去掉"给死接口打日志"）、openapi 摘要、模块头（写明裁决与三前置）；xray `experience-prune-wired` 锚点收窄为真实生效的 prune（**先红后绿**：门禁如实报 `actual=0x8d515d8fb29c18f9`）+ 复算 FNV 锁，条数仍 16、severity 仍 red |
+| P1-72 | `655d3e8` | **D-108 收口（文明线公告写进"无人读取的档"）**：读接口 `get_civ_feed` 读 `per_user.civ_for(uid)`（v8.0 多用户隔离后的**唯一可见** store ＝ `MEMORY_DIR/<uid>/civ.jsonl`），而 `create_session` 写**全局**档（`MEMORY_DIR/civilization.jsonl`，**另一个文件**）⇒ "session created" 公告写进无人读取处，`hearth civ feed` 永远看不到（D-48 重接线的可见面因此仍未真正生效）。处置：写侧对齐读侧（handler 增 `HeaderMap` 解析 uid → 写 per-user；失败 best-effort 但 **warn 留痕**）；**刻意不采用"读侧合并全局档"**（全局档含各用户 goal 文本 ⇒ 跨租户泄露，已写进函数文档）；顺带清掉两个**只写不读**的 `AppState` 字段（`civ_store`/`workline_store`）。**新增门禁** `service/tests/civ_visibility_gate.rs`（钉住 `create_session` 必须写 `per_user.civ_for`、不得出现 `civ_store`），**先红后绿** |
+| P1-73 | `655d3e8` | **D-109 登记（agent-loop civ 写入缺归属链）**：`CivWriterAdapter` 仍写全局档（与 D-108 同一病灶的另一半）⇒ 经它写入的 milestone/reflection 在 API 上不可见。**不能**靠读侧合并全局档修（跨租户泄露），必须补 `session → 归属用户` 链，而 `Session` 现无 owner 字段（`create_session` 也不解析 uid）⇒ **需先设计的接线**（同 experience 复用：先设计再接线）。已写入适配器文档头（不静默） |
+| P1-74 | `f49aa37` | **D-110 收口（README/命名文档的用户可见错误）**：① **安装命令不可用**——README 写 `sh install.sh` 而脚本在 `bench/install.sh`（仓库根无此文件，照抄即 No such file）；② seccomp 白名单写"106 个"实际 **136**；③ cgroup 写"512MB/1.0s/256"实际默认 **512MB/10s/32**（构建类 4GB/600s/512）；④ 反审示例 `--observer-verdict n "理由"` 两 token 形态**必被 clap 拒**（与 D-105 修的 CLI 帮助同源，README 漏改）；⑤ §2 配置示例 `hearth chat --provider …` **缺 goal**（照跑报 missing argument）；⑥ 版本示例写死 0.1.2 与实际 0.2.27 不符 → 改占位形式；⑦ 徽章文案与 `run_local.rs` 实际打印不一致；⑧ `hearth-naming.md` 称"CLI 名 `hearth-rs`"（**不是可执行名**）+"待做 seccomp"已过时。**新增门禁** `codex-cli/tests/readme_paths_gate.rs`（README 相对链接与 `sh <script>` 指向的文件必须存在；跳过绝对路径/URL/target/占位符），**先红后绿**（还原即报 `["install.sh"]`） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -328,7 +333,10 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-105** | **CLI 帮助/实现三处不一致**：① `config get model`/`read-roots` 报"未知字段"（set 却支持）⇒ 能设不能读；② `note` 帮助写 `[--observer-verdict n "反审"]`（两 token）但参数只收一值，且判定是 `verdict == "n"` 精确等值 ⇒ 帮助所写用法**永不成立**；③ `setup` 写 `.env` 但 CLI **从不读**（仅 service 加载 dotenv）⇒ "配好了却不生效" | CLI 用户可见面审计 | ①② **已修**（P1-69）；③ **登记待办**：`.env` 需在 CLI 侧接线（或改为不再写 .env）——属行为面，单独立卡 | **close（①②）· ③ 登记** |
 | **D-106** | **CLI 从不加载 `.env`**：`hearth setup` 写 `./.env`、仓库有 `.env.example`（明写是 **CLI/Service** 模板），但只有 service 调 `dotenvy::dotenv()` ⇒ 上手路径对 CLI 是死的（配好 key 仍报"未配置"） | CLI 用户可见面审计（承 D-105③） | **已修**（P1-70）：CLI 接线 `.env` 加载（`.env` 已 gitignore；dotenvy 不覆盖进程 env，优先级不变）；`.env.example` 与 `docs/configuration.md` 同步订正 | **close** |
 | **D-107** | **experience"复用"接口退役**（D-100 裁决落地）：`reference_count`（无写入方）/`reuse_rate`（对外暴露的结构性 0）/`upgrade_core()`（恒空，调用点只把 0 打进日志） | D-100 裁决（**联网核实** Reflexion + OEP 后，非拍脑袋） | **已退役**（P1-71）：三项删除、经验库定位为**只写审计档**；xray 锚点收窄 + FNV 复算（条数仍 16 / severity 仍 red）。**真正的复用**列为设计课题：须满足①失败专属②质量过滤+有界窗口③来源标注（D-80 纪律）并先过基准验证 | **close（接口）· 复用课题另立** |
-| **D-84** | **`ToolDispatcher::read_only_view()` 现已无生产调用方**：其唯一生产调用点在 `spawn_sub_agent` 内，随 D-83 一并消失；函数本体与"剥离变异工具"行为仍在（`tool-runtime/src/dispatcher.rs`，自身有单测），且 xray red 能力 `readonly-view-strips` 仍锚定它 | P1-48（D-83）连带发现 | **登记·待裁**：保留（子代理能力日后重启即复用；且它仍是"只读分发器"这一**通用原语**，非子代理专属）还是删除（须同步退役 `readonly-view-strips`）。**倾向保留**，但如实登记免成隐形死码 | **登记** |
+| **D-108** | **文明线公告写进"无人读取的档"**：读接口读 `per_user.civ_for(uid)`（唯一可见 store），写侧写**全局**档（另一文件）⇒ 公告在 API 上不可见（D-48 重接线的可见面未真正生效）；另 `AppState.civ_store`/`workline_store` 两个只写不读字段 | service 内部模块审计 | **已修**（P1-72）：写侧对齐读侧 + warn 留痕 + 清死字段 + **新增门禁**（先红后绿）。**刻意不采用"读侧合并全局档"**（跨租户泄露） | **close** |
+| **D-109** | **agent-loop 的 civ 写入（`CivWriterAdapter`）缺 `session → 归属用户` 链**：它仍写全局档 ⇒ 自动写入的 milestone/reflection 在 API 上不可见；修它需给 `Session` 加 owner（现在没有）并打通 `create_session`，属**需先设计的接线** | P1-72 连带发现（同一病灶另一半） | **登记**：已在适配器文档头如实标注；**倾向**：与 experience 复用同批设计（都是"写入可见面缺失"），先出设计再接线 | **登记** |
+| **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
+| **D-111** | **service 内部批次（已登记，待处理）**：① `install_tool` 失败返回 `ERR_INTERNAL` **配 400**（错误码/状态码自相矛盾）；② `open_artifact`/`open_external` 的"路径非法"用 `ERR_SESSION_NOT_FOUND`+400（与 `submit_interaction` 同语义用 `ERR_INVALID_PARAM` 不一致）；③ `templates.rs` 模板读/解析失败两层 `if let Ok` **静默丢弃**；④ `api` 四个零消费者错误码常量（`ERR_APPROVAL_TIMEOUT`/`ERR_TOOL_ERROR`/`ERR_SANDBOX_ERROR`/`ERR_LLM_ERROR`）；⑤ `service::user::UserContext` 零消费者；⑥ `TemplateManager::get` 零调用；⑦ `webhook.rs` 注释称注册表"per-user keyed by user_id"实为裸 `Vec`；⑧ `AppState.observer` 只写不读（main.rs 注释称"保留 Arc 注入以便后续 L2 检查接入"——需按 D-9 式裁决：留痕 or 删） | service 内部模块审计 | **登记**（下一批次处理）：①②⑦ 属"声称≠实现/契约不一致"（低风险可直接改）；③ 属静默失败（补 warn）；④⑤⑥⑧ 属"定义了但无人用"（逐项判：删除 / 接线 / 留痕） | **登记** |
 | **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **裁决「不改」（by design，2026-10-01）**——理由：这六处读的是**操作者自己的本机文件**（配置/清单/价表/replay 夹具），既不来自不可信来源、也**不具备无界增长特性**（对比 D-70 的只增日志、D-75 的 cwd 项目文件、D-55/D-58 的网络响应）。给它们加上限**不会带来任何安全收益**，却有**真实的回归风险**：合法的超大 `providers.json`/夹具一旦被截断 → JSON 解析失败 → provider 发现/夹具加载**静默降级**（比"读全"更糟）。故**不改**；"全仓文件读只剩 `bounded-io` 一份"的收敛目标限于**确有边界的读**，不为此把每处配置读都套上 cap | **close · 裁决「不改」** |
 | **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **部分已修**（P1-42）：删 `sse_stream` + `PropertySchema`（原位留注）。余项**保留待裁**：`fallback` 固有 `stream()` 删除需先确认无类型推断依赖；`CostMeter` 四个访问器删除会连同断言拿掉、降低 `record()` 覆盖 ⇒ 倾向保留 | **close（部分）· 余项登记** |
 | **D-69** | **`project-xray` 函数名与行为不符**：`wiring.rs` `strip_comments_and_strings` 实际**只剥注释、保留字符串**（名与文档均称"字符串"） → 误导维护者（也正是 D-59 假绿的认知来源） | project-xray 体检发现 | **已修**（P1-34）：改名 `strip_comments_keep_strings` + 文档点明因果，零行为变更 | **close** |
