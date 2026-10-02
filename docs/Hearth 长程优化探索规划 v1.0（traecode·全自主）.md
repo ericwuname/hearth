@@ -18,14 +18,14 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 75**（含 P1-64）。最新两轮 **P1-56 ~ P1-64 ＝ D-92 ~ D-100**（2026-10-02）：
-第一轮＝**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链），
-第二轮＝**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer），
-九张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送；
+**累计卡数 76**（含 P1-65）。最新三轮 **P1-56 ~ P1-65 ＝ D-92 ~ D-101**（2026-10-02）：
+①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
+②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
+③**长程债务收口**（D-74 会话事件缓冲：定稿"重放降级"语义后加上限）。十张卡均已修/订正，
+每卡独立 commit + 门禁四件套 + 推送；
 开放债＝**D-100**（experience 复用回路已断，接线 vs 退役**待顶层裁**）+ **D-84**
-（`read_only_view` 现无生产调用方，倾向保留）+ **D-74**（agent-runtime 会话事件缓冲无界增长，
-需先定"重放降级"语义）+ D-78 余项（`fallback` 固有 `stream()`、`CostMeter` 四个仅自测访问器，
-倾向保留）。
+（`read_only_view` 现无生产调用方，倾向保留）+ D-78 余项（`fallback` 固有 `stream()`、
+`CostMeter` 四个仅自测访问器，倾向保留）。
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -104,6 +104,7 @@
 | P1-62 | `b2177da` | **D-98 收口（两个上下文结构体里"只写不读"的字段批次，净 −45/+26）**：① `subconscious::GuardContext` 的 `goal_text` / `step_count` / `last_success` / `constitution_summary` 由 agent-core 每步填好后**无人读取**——两个现役守卫（`ConstitutionGuard`/`CostGuard`）只读 `last_action` 与 `cost_ratio`；② tool-runtime `ToolContext.deadline_clamped` 唯一写入点是 dispatcher、**全仓零读取方**（dispatcher 判定超时归属用的是**同名局部变量**），连同零调用方的 `remaining_task_time()`（dispatcher 内联同一算法）一并删除。**零行为变更**；xray `cost-guard-live` 锚点未受影响（13/16、0 red） |
 | P1-63 | `e045595` | **D-99 收口（observer 澄清跳过率恒 0，修 + 回归锁）**：metrics 汇总 `NeedApproval` 时把请求类型**硬编码成 `"approval"`**，而 WP-0 早已把内核事件泛化为 `InteractionRequested { kind }`、对外把 **kind 放在 `NeedApproval.action`**（agent-runtime 映射点注释即写"action=kind"，CLI 亦按 `action == "clarification"` 分流）⇒ `req_kind` 永远只有 "approval" ⇒ `kind == "clarification"` 分支恒不进入 ⇒ `clarify_req`/`clarify_skip` 恒 0 ⇒ 报告与规则引擎长期读到一个**结构性 0**。改为读事件自带的 kind（数据一直在事件里，只是没读——D-92/D-98 同族）；顺带去掉同分支无意义的 `if true {…}` 包裹。**先红后绿**：新增 `test_d99_clarify_skip_rate_from_action_kind`，红侧如实 `left: 0.0, right: 1.0` |
 | P1-64 | `e9265d4` | **D-100 收口（experience 复用回路已断，如实订正 + 登记待裁，零行为变更）**：`experience` 模块头自称"JSONL 持久化 + **关键词检索**"却**无任何检索 API**——唯一会 `reference_count += 1` 的 `search()` 已随 D-47「死代码清理」删除 ⇒ `reference_count` 无自增点恒 0 ⇒ `upgrade_core()`（`>=3` 条件）恒空、`metrics().reuse_rate` 恒 0（**经 `GET /api/v1/experience/metrics` 对外暴露**）；注入侧同源：`injected_experience` 每 run/step 恒复位 None（非 None 唯一写入在测试里，生产者随 D-9 线C手术删除）。即"存/剪/计数活着，**'用起来'这一环缺失**"，且 `self-evolution-proof-v17.md` 的招牌结论（reuse_rate=0.49 证明生产路径真实工作）**已失效**。处置：订正模块头 + 三处字段/方法文档 + openapi 摘要如实标注口径 + 给 v17 证明与 CHANGELOG **加 dated 勘误**（历史正文按惯例不改）；**不单方改行为**——该 crate 牵着对外端点 + observer 定时任务 + red 级 wiring 锚点，真正的分歧是"要不要把经验重新注入提示"（v17 利弱模型 / v18 害强模型，当年才做成自适应门控），故登记 **D-100 待顶层裁**（接线 vs 退役） |
+| P1-65 | `6b6c00f` | **D-74 收口（会话事件缓冲加上限 + 绝对 seq 基址，净 +143/−25）**：`Session.events` 无上限只推不减（`get_history` + SSE 断线续传重放的共同数据源）。此前不敢加限的**真隐患**是：重放侧用 `EnvelopeState::new()` **按位置重新编号**后再按 `env.seq <= last_event_id` 过滤 ⇒ 一旦截断，编号整体前移，**早于保留窗口的客户端会静默收到 0 条**（丢事件且无感知）。处置（先定"重放降级"语义再动手）：① 常量 `MAX_SESSION_EVENTS = 50_000` + 唯一入队口 `Session::push_event`——越界**批量**丢最旧 MAX/10 条（摊还 O(1)，避免逐条 `remove(0)` 的 O(n) 搬移）+ 推进基址 + **首次**越界 warn 一次（不刷屏）；② 新增 `events_base_seq`（= 已丢弃数），重放侧 `env.seq = replay_base_seq` ⇒ 重放与实时流**绝对编号一致**：未截断（0）时与历史版本**逐字节相同**，截断后落后客户端**收到保留窗口内全部事件并看到 id 跳变**（标准 Last-Event-ID 降级，可感知）；③ 录制导出与 observer 报告落盘同样以基址起编号；④ 10 处 `events.push` 全部收口，两处 SSE 出口改用 `session_events_with_base()`。回归锁 `test_d101_event_buffer_capped_with_absolute_base`（断言 `base + len == 总 push 数`，绝对编号**不丢不重**） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -294,7 +295,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-71** | **`resource-monitor` ROI/critical 从未接线**：`RoiReport`/`compute_roi`/`is_critical` 全仓零生产调用方（仅自测），且 `compute_roi` 用**硬编码假价**估成本，与 D-46 口径冲突 | resource-monitor 体检 | **已修**（P1-37）：**删除**（不订正） | **close** |
 | **D-72** | **`observer::rebuttals_for` 只写不读 + "供下次 run bias"文档错误**：写侧 `apply_rebuttal` 现役（CLI `hearth note --observer-verdict`），读侧零调用方 | observer 体检 | **已修**（P1-38）：删死读取口 + 如实订正两处文案（写侧审计档保留） | **close** |
 | **D-73** | **`tool-runtime` 安全声称不实**：自称 "secure …verification"、`install()` 称 "verifying SHA-256 if a file path is provided"（无校验、无 file path 参数）；`sha256`/`command` 零读取；`ResourceLedger::snapshot()` 零生产调用方（注释称 "introspect/报告消费"） | tool-runtime 体检 | **已订正**（P1-39）：纯文案（零行为变更）；注册表本身现役（3 个 API 面） | **close** |
-| **D-74** | **`agent-runtime` 会话事件缓冲无界增长**：`Session.events` 注释称 "ring"，实为无上限 `Vec`（14 push / 0 clear）；且它是**断线续传重放源**，不能简单裁剪 | agent-runtime 体检 | 注释已**如实订正**（P1-40）；**增长处置开放**——须先定"重放降级"语义（丢哪些重放、是否落盘再读回），单独立卡 | **登记·待裁** |
+| **D-74** | **`agent-runtime` 会话事件缓冲无界增长**：`Session.events` 注释称 "ring"，实为无上限 `Vec`（14 push / 0 clear）；且它是**断线续传重放源**，不能简单裁剪（重放侧按位置重新编号，一旦截断会让落后客户端**静默收到 0 条**） | agent-runtime 体检 | **已修**（P1-65/D-101）：上限 `MAX_SESSION_EVENTS = 50_000` + **批量**丢弃（摊还 O(1)，避免逐条 `remove(0)`）→ 收口到唯一入队口 `Session::push_event`；重放侧引入**绝对 seq 基址** `events_base_seq`（未截断=0 ⇒ 与历史版本**逐字节一致**；截断后客户端按 Last-Event-ID 过滤仍正确，**看到 id 跳变**而非静默丢失）。回归锁断言"绝对编号不丢不重"（`base + len == 总 push 数`）。注释订正见 P1-40，增长处置见 P1-65 | **close** |
 | **D-75** | **`agent-core` 读"正在处理的仓库/cwd"文件无界**（第 22~25 落点，性质高于配置读）：`constitution.md`（整份读后再截 6000 字符 ⇒ 截断前先 OOM）、`Hearth.md`（**完全无上限**，且整段注入系统提示）、S12 自检回读 ×2 | agent-core 体检 | **已修**（P1-41）：`bounded-io` 补同步原语；64 KiB / 64 KiB / 8 MiB，均截断留痕；先红后绿；xray 锚点+FNV 同步 | **close** |
 | **D-76** | **`agent-types` 死类型簇（TaskGraph 残族）**：`TaskNode`/`TaskResult`/`TaskGraph`(+impl)/`PlanContext`/`Observation`/`PlanState` 零生产消费者；另 `ContentSource`/`MAX_INJECTED_CHARS`/`format_injected_content`（**提示注入来源标注**）零调用方——防护**未接线** | agent-types 体检 | **已修**（P1-43，净 −341/+84）：删上述类型 + `impl` + 5 条单测；**逐符号反向核验**保留 `MessageContent::ToolResults`+`ToolResult`（活：`context.rs` token 统计）、`TaskStatus`（`sync_from_task_graph` 入参）；当时判 `FileChange`"是活的"**判错了**——它只作为类型被 `RunReport` 携带，合并逻辑其实零调用方（**已由 D-83 订正并删除**）。注入能力缺口 → **D-80** | **close（含一处判断订正）** |
 | **D-79** | **`SessionLedger` 在生产路径"只读不写"**（**比"D-76 死类型"更重的发现**）：写侧 `add` / `sync_from_task_graph` 全仓**无生产调用方**（仅单测；原生产者 TaskGraph 已拆除）；读侧**活的且用户可见**——`loop.rs:2554` prompt 注入（`render_for_prompt`）、`ledger_pending_texts()` 进 report、CLI `run_local.rs:702` 的 `ledger_pending`。⇒ **账本恒空**，`render_for_prompt()` 恒 None，"零遗漏/零遗忘"机制**实际不生效** | agent-types 体检（P1-43 顺带取证） | **裁决「接线」（联网核实业界做法后，2026-10-01）**：业界通行做法是把**任务态（todo/scratchpad/open-items）由 harness 追踪或经显式工具由模型维护，并每轮重新注入 prompt**（LangChain Deep Agents todo-state、Claude Code 重注入 todo、MAGE 执行态记忆、InfiAgent thinking record、LangGraph 类型化 state / `todoListTools`）。本账本的五栏 + 每栏上限 + "只关不删"设计**与业界一致**，缺的只是生产者 ⇒ 退役会白扔一个被业界证明有效的机制。**已实现（P1-44）**：`ledger_record_selfcheck()` 在 S12 自检闸的事实产生点登记 `KnownFailing`（未过→登记、通过→关闭，同前缀去重）；**先红后绿**回归锁 5 断言。⇒ **`known_failing_open` / G-B 门 / prompt 注入从"恒空"变真生效**。**残留**：`Pending` 栏（`ledger_pending_texts()`，CLI 收尾"还剩什么"行）仍无生产者 → **D-81** | **close（KnownFailing 栏）· Pending 栏另立 D-81** |
