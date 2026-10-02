@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 85**（含 P1-74）。最新五轮 **P1-56 ~ P1-74 ＝ D-92 ~ D-110**（2026-10-02）：
+**累计卡数 86**（含 P1-75）。最新五轮 **P1-56 ~ P1-75 ＝ D-92 ~ D-112**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -115,7 +115,7 @@
 | P1-70 | `f709d66` | **D-106 收口（CLI 从不读 `.env`，接线）**：`hearth setup` 会把 `CODEX_URL`/`CODEX_API_KEY` 写进 `./.env`，仓库里也有既定模板 `.env.example`（"复制为 .env 并填入真实值"，且明确写着这是 **CLI/Service** 的模板）——**但只有 service 调 `dotenvy::dotenv()`，CLI 从不加载**（连依赖都没有）⇒ 用户照模板配好 key，`hearth chat` 仍报"未配置"，**整条 onboarding 路径对 CLI 是死的**。处置＝接线（`.env` 已在 `.gitignore` 首行、`git check-ignore` 已核验；service 早已加载；`dotenvy` **不覆盖**进程 env ⇒ 与"参数 > env > config > 默认"不冲突）：`codex-cli` 增 `dotenvy` 依赖 + `hearth_main()` 最开头（**任何 env 读取之前**）加载。顺带订正 `.env.example` 两处过期描述（"CLI chat 写死用 deepseek" 已被 D-102 修；"OpenAI 可选/留空则占位 key" 实为 **service 启动硬前置**）；`docs/configuration.md` 头部补 `.env` 加载与优先级说明 |
 | P1-72 | `655d3e8` | **D-108 收口（文明线公告写进"无人读取的档"）**：读接口 `get_civ_feed` 读 `per_user.civ_for(uid)`（v8.0 多用户隔离后的**唯一可见** store ＝ `MEMORY_DIR/<uid>/civ.jsonl`），而 `create_session` 写**全局**档（`MEMORY_DIR/civilization.jsonl`，**另一个文件**）⇒ "session created" 公告写进无人读取处，`hearth civ feed` 永远看不到（D-48 重接线的可见面因此仍未真正生效）。处置：写侧对齐读侧（handler 增 `HeaderMap` 解析 uid → 写 per-user；失败 best-effort 但 **warn 留痕**）；**刻意不采用"读侧合并全局档"**（全局档含各用户 goal 文本 ⇒ 跨租户泄露，已写进函数文档）；顺带清掉两个**只写不读**的 `AppState` 字段（`civ_store`/`workline_store`）。**新增门禁** `service/tests/civ_visibility_gate.rs`（钉住 `create_session` 必须写 `per_user.civ_for`、不得出现 `civ_store`），**先红后绿** |
 | P1-73 | `655d3e8` | **D-109 登记（agent-loop civ 写入缺归属链）**：`CivWriterAdapter` 仍写全局档（与 D-108 同一病灶的另一半）⇒ 经它写入的 milestone/reflection 在 API 上不可见。**不能**靠读侧合并全局档修（跨租户泄露），必须补 `session → 归属用户` 链，而 `Session` 现无 owner 字段（`create_session` 也不解析 uid）⇒ **需先设计的接线**（同 experience 复用：先设计再接线）。已写入适配器文档头（不静默） |
-| P1-74 | `f49aa37` | **D-110 收口（README/命名文档的用户可见错误）**：① **安装命令不可用**——README 写 `sh install.sh` 而脚本在 `bench/install.sh`（仓库根无此文件，照抄即 No such file）；② seccomp 白名单写"106 个"实际 **136**；③ cgroup 写"512MB/1.0s/256"实际默认 **512MB/10s/32**（构建类 4GB/600s/512）；④ 反审示例 `--observer-verdict n "理由"` 两 token 形态**必被 clap 拒**（与 D-105 修的 CLI 帮助同源，README 漏改）；⑤ §2 配置示例 `hearth chat --provider …` **缺 goal**（照跑报 missing argument）；⑥ 版本示例写死 0.1.2 与实际 0.2.27 不符 → 改占位形式；⑦ 徽章文案与 `run_local.rs` 实际打印不一致；⑧ `hearth-naming.md` 称"CLI 名 `hearth-rs`"（**不是可执行名**）+"待做 seccomp"已过时。**新增门禁** `codex-cli/tests/readme_paths_gate.rs`（README 相对链接与 `sh <script>` 指向的文件必须存在；跳过绝对路径/URL/target/占位符），**先红后绿**（还原即报 `["install.sh"]`） |
+| P1-75 | `b2c2111` | **D-112 收口（产品运行期产物目录未忽略 ⇒ 明文入库入口）**：CLI 默认在 **cwd** 生成 `.hearth/reports/`、`.hearth/runs/`、`.hearth_snapshots/`、`.hearth_sessions/`、`results/transcripts/`，而 `.gitignore` 此前**只忽略** `.hearth-diag/` ⇒ 在仓库根跑一次 `hearth` 即让 `git status` 冒出这些目录（**本轮运行期冒烟实测复现**）。内容含用户目标文本与运行叙述 ⇒ 与 D-5 同类：既是 git 污染，也是"明文内容入库"入口。处置：逐项按代码默认值补忽略规则（每条注明来源文件）+ 清理冒烟产物 + **新增门禁** `codex-cli/tests/gitignore_runtime_products_gate.rs`（钉住清单，**先红后绿**）。另补交 **D-106 漏掉的 `Cargo.lock`**（新增 dotenvy 依赖只改了 manifest） |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
