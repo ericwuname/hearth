@@ -13,6 +13,13 @@
 > **`.env` 加载（D-106 起）**：**service 与 CLI 都会自动加载工作目录下的 `.env`**
 > （`dotenvy`，从 cwd 向上查找；仓库模板见 `.env.example`，`.env` 已被 `.gitignore` 忽略）。
 > 优先级：**已存在的进程环境变量 > `.env`**（dotenvy 不覆盖），命令行参数优先级最高。
+>
+> **provider 惯例名对 CLI 同样生效（D-117 起）**：下表这批 `<PROVIDER>_API_KEY` /
+> `_BASE_URL` / `_MODEL`（AGNES / DEEPSEEK / OPENAI / GEMINI / OLLAMA / VLLM）**CLI 直跑
+> 也读取**——此前 CLI 只认 `HEARTH_*`，照 `.env.example` 配好却报"未配置 API key"。
+> CLI 侧的完整优先级：**命令行参数 > `HEARTH_*`（`HEARTH_API_KEY`/`HEARTH_MODEL`/
+> `HEARTH_LLM_URL`/`HEARTH_PROVIDER`）> `<PROVIDER>_*` > `config.toml`**。
+> 注意 CLI 默认 provider 是 `deepseek`；配了哪个通道就把 `HEARTH_PROVIDER` 指到它。
 
 ## 服务端口
 

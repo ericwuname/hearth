@@ -156,6 +156,13 @@ impl Config {
         cli_model: Option<&str>,
     ) -> ResolvedConfig {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        // D-117：provider 先解析——下方 model/url/api_key 都要按 **provider** 取惯例
+        // env（`AGNES_API_KEY` 等），否则 `.env` 照模板配好也"不生效"。
+        let provider = cli_provider
+            .map(String::from)
+            .or_else(|| env("HEARTH_PROVIDER"))
+            .or_else(|| self.provider.clone())
+            .unwrap_or_else(|| "deepseek".to_string());
         // RC18: explicit sources (arg/env count as explicit; file does not)
         let explicit_provider = cli_provider
             .map(|s| s.to_string())
@@ -166,26 +173,28 @@ impl Config {
             .or_else(|| env("HEARTH_URL"));
         let mut url_warning: Option<String> = None;
         let mut r = ResolvedConfig {
-            provider: cli_provider
-                .map(String::from)
-                .or_else(|| env("HEARTH_PROVIDER"))
-                .or_else(|| self.provider.clone())
-                .unwrap_or_else(|| "deepseek".to_string()),
+            provider: provider.clone(),
             // T1 (v0.2.3): model 三级覆盖 arg > env > file（此前只有 file——无法 --model 切换）
+            // D-117：env 层再补该通道的惯例名（`AGNES_MODEL` 等），与 service 对齐。
             model: cli_model
                 .map(String::from)
                 .or_else(|| env("HEARTH_MODEL"))
+                .or_else(|| provider_env(&provider, "MODEL"))
                 .or_else(|| self.model.clone()),
             // RC16 (P3-BACKLOG D4): HEARTH_LLM_URL = new LLM base name;
             // HEARTH_URL kept one cycle as LLM-base compat (no longer triggers service mode).
+            // D-117：再补该通道的惯例端点（`AGNES_BASE_URL` 等）。
             url: cli_url
                 .map(String::from)
                 .or_else(|| env("HEARTH_LLM_URL"))
                 .or_else(|| env("HEARTH_URL"))
+                .or_else(|| provider_env(&provider, "BASE_URL"))
                 .or_else(|| self.url.clone()),
+            // D-117：再补该通道的惯例 key（`AGNES_API_KEY` / `DEEPSEEK_API_KEY` …）。
             api_key: cli_api_key
                 .map(String::from)
                 .or_else(|| env("HEARTH_API_KEY"))
+                .or_else(|| provider_env(&provider, "API_KEY"))
                 .or_else(|| self.api_key.clone()),
             url_warning: None,
             read_roots: self.read_roots.clone(),
@@ -243,6 +252,36 @@ pub fn check_provider_url_mismatch(provider: &str, url: &str) -> Option<String> 
         ));
     }
     None
+}
+
+/// D-117（2026-10-02, traecode）：CLI 侧的 provider **惯例 env 前缀**。
+///
+/// 与 `service`（`main.rs` 的 provider 注册）读取的 env 名保持一致——`.env`、
+/// `.env.example`、`docs/configuration.md` 用的都是这套名字
+/// （`AGNES_API_KEY` / `DEEPSEEK_BASE_URL` / `OPENAI_MODEL` …），但 CLI 此前**只认
+/// `HEARTH_*`** ⇒ 用户照模板配好 `.env`，`hearth chat` 仍报"未配置 API key"
+/// （D-106 接线了 `.env` **加载**，却漏了**名字对齐**——同一"配好了却不生效"病灶）。
+///
+/// 只覆盖 CLI 真正支持的通道（`build_single_provider` 的 match 臂）。
+pub fn provider_env_prefix(provider: &str) -> Option<&'static str> {
+    match provider {
+        "deepseek" => Some("DEEPSEEK"),
+        "openai" => Some("OPENAI"),
+        "gemini" => Some("GEMINI"),
+        "agnes" => Some("AGNES"),
+        "ollama" => Some("OLLAMA"),
+        "vllm" => Some("VLLM"),
+        _ => None,
+    }
+}
+
+/// 读该通道的惯例 env `<PREFIX>_<SUFFIX>`（空串视为未设）；未知 provider → `None`。
+pub fn provider_env(provider: &str, suffix: &str) -> Option<String> {
+    provider_env_prefix(provider).and_then(|p| {
+        std::env::var(format!("{p}_{suffix}"))
+            .ok()
+            .filter(|v| !v.is_empty())
+    })
 }
 
 fn merge_allowlist(env_val: Option<String>, cfg: Option<&[String]>) -> Vec<String> {
@@ -318,6 +357,66 @@ mod tests {
         let r = file.resolve(Some("vllm"), None, None, None, None);
         assert_eq!(r.provider, "vllm");
         std::env::remove_var("HEARTH_PROVIDER");
+    }
+
+    /// D-117 回归锁：CLI 必须认**provider 惯例 env**（`AGNES_API_KEY` / `AGNES_BASE_URL` /
+    /// `AGNES_MODEL`）——与 service、`.env.example`、`docs/configuration.md` 同一套名字。
+    ///
+    /// 红侧（修复前）：CLI 只认 `HEARTH_*` ⇒ 用户照模板配好 `.env`，`api_key` 仍为 `None`，
+    /// `hearth chat` 报"未配置 API key"（"配好了却不生效"，D-105③/D-106 同族）。
+    #[test]
+    fn test_d117_provider_convention_env_is_honored() {
+        let _env_ser = p3_tests::ENV_SER.lock().unwrap_or_else(|e| e.into_inner());
+        const CLEAR: [&str; 8] = [
+            "HEARTH_PROVIDER",
+            "HEARTH_API_KEY",
+            "HEARTH_MODEL",
+            "HEARTH_LLM_URL",
+            "HEARTH_URL",
+            "AGNES_API_KEY",
+            "AGNES_BASE_URL",
+            "AGNES_MODEL",
+        ];
+        for k in CLEAR {
+            std::env::remove_var(k);
+        }
+        let cfg = Config {
+            provider: Some("agnes".into()),
+            ..Config::default()
+        };
+        std::env::set_var("AGNES_API_KEY", "agnes-key");
+        std::env::set_var("AGNES_BASE_URL", "https://api.agnes-ai.cn/v1");
+        std::env::set_var("AGNES_MODEL", "agnes-2.5-flash");
+
+        let r = cfg.resolve(None, None, None, None, None);
+        assert_eq!(
+            r.api_key.as_deref(),
+            Some("agnes-key"),
+            "AGNES_API_KEY 必须被 CLI 采纳（D-117）"
+        );
+        assert_eq!(
+            r.url.as_deref(),
+            Some("https://api.agnes-ai.cn/v1"),
+            "AGNES_BASE_URL 必须被 CLI 采纳（D-117）"
+        );
+        assert_eq!(
+            r.model.as_deref(),
+            Some("agnes-2.5-flash"),
+            "AGNES_MODEL 必须被 CLI 采纳（D-117）"
+        );
+
+        // 优先级不倒退：HEARTH_API_KEY 仍压过惯例名。
+        std::env::set_var("HEARTH_API_KEY", "hearth-key");
+        let r2 = cfg.resolve(None, None, None, None, None);
+        assert_eq!(
+            r2.api_key.as_deref(),
+            Some("hearth-key"),
+            "HEARTH_API_KEY 必须优先于 AGNES_API_KEY（不改既有优先级）"
+        );
+
+        for k in CLEAR {
+            std::env::remove_var(k);
+        }
     }
 
     /// S9（手术包二）：降级链配置解析——config providers 生效 / env 优先 /

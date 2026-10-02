@@ -71,14 +71,22 @@ fn build_provider_inner(cfg: &ResolvedConfig) -> Result<Arc<dyn llm_gateway::Llm
     if cfg.providers.len() > 1 {
         let mut items: Vec<(String, Arc<dyn llm_gateway::LlmProvider>)> = Vec::new();
         for (i, name) in cfg.providers.iter().enumerate() {
+            // D-117：链内每通道的 key 也认该通道的惯例 env（`AGNES_API_KEY` …）——
+            // 否则 `HEARTH_PROVIDERS=agnes,gemini` + 只配 `.env` 会报"未配置 API key"。
             let key = cfg
                 .provider_keys
                 .get(name)
                 .cloned()
+                .or_else(|| crate::config::provider_env(name, "API_KEY"))
                 .or_else(|| cfg.api_key.clone());
-            // 首通道沿用显式 url（--url/config）；其余通道走各自默认端点。
-            let url = if i == 0 { cfg.url.clone() } else { None };
-            let p = build_single_provider(name, None, url, key)?;
+            // 首通道沿用显式 url（--url/config）；其余通道取该通道惯例端点 env，再回落默认。
+            let url = if i == 0 {
+                cfg.url.clone()
+            } else {
+                crate::config::provider_env(name, "BASE_URL")
+            };
+            let model = crate::config::provider_env(name, "MODEL");
+            let p = build_single_provider(name, model, url, key)?;
             items.push((name.clone(), p));
         }
         let chain = llm_gateway::FallbackChain::new(items).with_switch_callback(Arc::new(
