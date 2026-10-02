@@ -31,6 +31,26 @@ TIMEOUT_SECONDS = 180
 RETRY_DELAYS = [2, 4, 8]
 MAX_TOOL_ROUNDS = 20
 HISTORY_CHAR_BUDGET = int(os.environ.get("EMBER_HISTORY_BUDGET", "64000"))
+# D-126（2026-10-02, traecode）：HTTP 响应体读取上限。
+# 病灶：`urllib` 无内建上限，而各调用点直接 `resp.read()`（**整份入内存**）——
+# 对端/中间人返回超大响应即可把进程打爆（与仓储侧 D-55/D-58 的"网络侧无界读入"同族）。
+# 32 MiB ≫ 任何正常模型响应（max_tokens=65536 量级），故不误伤正常路径。
+MAX_HTTP_BODY_BYTES = int(os.environ.get("EMBER_MAX_BODY_BYTES", str(32 * 1024 * 1024)))
+
+
+def _read_body(resp, cap=MAX_HTTP_BODY_BYTES):
+    """有界读取 HTTP 响应体；超上限**显式报错**（不静默截断）。
+
+    为什么不静默截断：这两个调用点接下来要做 `json.loads` —— 截断后的 JSON 必然解析
+    失败，报出来的错会是"JSON 解析错误"，把真正的原因（响应体过大）盖掉。故此处直接
+    抛出可读原因。
+    """
+    data = resp.read(cap + 1)
+    if len(data) > cap:
+        raise RuntimeError("响应体超过 %d 字节上限——已拒绝（避免整份读入内存）" % cap)
+    return data
+
+
 KEEP_RECENT_MSGS = 12  # 压缩时保留的最近消息条数（≈6 轮）
 
 TOOLS_SCHEMA = [
@@ -61,7 +81,8 @@ TOOLS_SCHEMA = [
                 "何时用: 查看源码/日志/配置；大文件用 offset+limit 分块阅读。\n"
                 "参数: path (string, 必填); offset (int, 可选, 起始行号 1 起, 缺省=第 1 行); limit (int, 可选, 读取行数, 缺省=读到文件尾)。\n"
                 "示例: read(path=\"app.log\", offset=101, limit=50)。\n"
-                "边界: 无 offset/limit 时超 64KB 截断；有分页时返回行号范围标注; 末尾不足 limit 时返回实际行数。\n"
+                "边界: 无 offset/limit 时超 64KB 截断；文件超 8MB 时只返回开头部分（需后续内容请分页）；"
+                "有分页时返回行号范围标注; 末尾不足 limit 时返回实际行数。\n"
                 "错误解读: 返回以 '错误:' 开头表示失败。"
             ),
             "parameters": {
@@ -252,7 +273,8 @@ def chat_plain(cfg, messages, max_tokens=800):
         "Authorization": "Bearer %s" % cfg["key"],
     })
     with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
+        # D-126：有界读取（旧实现 `resp.read()` 无上限）。
+        payload = json.loads(_read_body(resp).decode("utf-8"))
     ch = payload.get("choices") or []
     if not ch:
         raise RuntimeError("摘要调用无 choices")
@@ -349,7 +371,8 @@ def chat_once(cfg, messages):
         "Authorization": "Bearer %s" % cfg["key"],
     })
     with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
+        # D-126：有界读取（旧实现 `resp.read()` 无上限）。
+        payload = json.loads(_read_body(resp).decode("utf-8"))
     choices = payload.get("choices") or []
     if not choices:
         raise RuntimeError("响应缺少 choices（前 200 字符: %s）" % json.dumps(payload, ensure_ascii=False)[:200])
@@ -365,7 +388,9 @@ def call_model(cfg, messages):
         except urllib.error.HTTPError as e:
             detail = ""
             try:
-                detail = e.read().decode("utf-8", "replace")[:300]
+                # D-126：只读前 300 字节（旧实现 `e.read()` 先把**整份**错误体读进内存
+                # 再切片 `[:300]`——错误路径同样可被超大响应打爆）。
+                detail = e.read(301).decode("utf-8", "replace")[:300]
             except Exception:
                 pass
             if e.code in (401, 403):
@@ -384,7 +409,12 @@ def call_model(cfg, messages):
 def run_tool(name, raw_args):
     fn = TOOL_IMPL.get(name)
     if fn is None:
-        return "错误: 未知工具 '%s'（可用: bash / read / write）" % name
+        # D-126：可用名单**从 TOOL_IMPL 派生**——旧实现把它硬编码成
+        # "bash / read / write"，而 TOOL_IMPL 早已加入 `edit`（M5）：模型一旦调用
+        # 不存在的工具名，拿到的"可用工具"提示是**错的**（少了 edit），既误导模型
+        # 也误导读日志的人。派生后不会再随工具增减而漂移。
+        return ("错误: 未知工具 '%s'（可用: %s）——请只用上面列出的工具名。"
+                % (name, " / ".join(sorted(TOOL_IMPL))))
     if isinstance(raw_args, str):
         try:
             args = json.loads(raw_args) if raw_args.strip() else {}

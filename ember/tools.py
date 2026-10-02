@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""EMBER-M1 三工具实现：bash / read / write（仅 Python 标准库）。
+"""EMBER 工具实现：bash / read / write / edit（仅 Python 标准库）。
 
 设计目标：
 - 每个工具执行**不抛异常裸奔**——失败也返回结构化文本说明（供模型读取与自纠）；
 - 输出统一截断策略：>64KB 时保留头 2/3 + 尾 1/3，中间以 [truncated] 标记；
+- D-126（2026-10-02）：**读入一律有界**——`read` 的整份/分页两条路径与 `edit`
+  都不得把任意大的文件整份读进内存（详见 `READ_MAX_BYTES` / `EDIT_MAX_BYTES`）；
 - 工具参数为 OpenAI 兼容 Chat Completions 的 tool_calls 载荷（JSON 字符串或 dict）。
 """
 import json
@@ -13,6 +15,17 @@ import subprocess
 
 TRUNCATE_LIMIT = 64 * 1024  # 64KB
 BASH_TIMEOUT_SECONDS = 60
+
+# D-126（2026-10-02, traecode）：**单次工具调用最多入内存的字节数**。
+#
+# 病灶：旧实现在"整份 read 再截断"路径上 `f.read()` **无上限**、分页路径 `f.readlines()`
+# 也把**全部行**读进内存——把 read 指向一个大日志/二进制即可让进程 OOM（与仓储侧
+# D-38/D-51/D-53 同一缺陷族："先整份读入再截断"）。故此处改为**有界读入**。
+READ_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB ≫ 任何该工具的可用返回量（输出还会再截到 64KB）
+
+# D-126：`edit` 走"读-改-写"（**不能**截断读，截断会静默写坏文件），故只能是
+# **尺寸门**：超上限显式拒绝并给替代路径（与仓储侧 D-53 对 apply_patch 的处置同款）。
+EDIT_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB
 
 
 def _truncate(text):
@@ -168,8 +181,20 @@ def read(path, offset=None, limit=None):
     try:
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             if offset is None and limit is None:
-                # 完全向后兼容：读全部 + 64KB 截断
-                text = f.read()
+                # 完全向后兼容：读全部 + 64KB 截断。
+                # D-126：读取本身**有界**（旧实现 `f.read()` 无上限 ⇒ 大文件即 OOM）。
+                # 语义：≤READ_MAX_BYTES 的文件与旧实现**逐字节相同**；超上限时只返回
+                # 开头部分并**明确说明**（不再声称"保留尾 1/3"——那需要整份入内存）。
+                text = f.read(READ_MAX_BYTES + 1)
+                if len(text) > READ_MAX_BYTES:
+                    text = text[:READ_MAX_BYTES]
+                    return (
+                        text
+                        + "\n[oversize] 文件超过 %d 字节上限，**只返回开头部分**"
+                          "（旧实现会把整份读进内存，大文件即 OOM）。"
+                          "需要后续内容请用 read 分页（offset/limit）或 bash 分段查看。"
+                          % READ_MAX_BYTES
+                    )
                 text, truncated = _truncate(text)
                 note = ""
                 if truncated:
@@ -177,17 +202,34 @@ def read(path, offset=None, limit=None):
                             "需要完整内容请用 read 分页（offset/limit）或 bash 分段查看。")
                 return text + note
             else:
-                # 分页模式：按行读取
-                lines = f.readlines()
-                total_lines = len(lines)
+                # 分页模式：按行读取。
+                # D-126：旧实现 `f.readlines()` 把**全部行**读进内存（分页本就是为了
+                # 避免这一点）；改为**流式**扫描，只保留 [start, end] 区间，内存与文件
+                # 大小无关。
                 start = offset if offset is not None else 1
+                end = start + limit - 1 if limit is not None else None
+                selected = []
+                total_lines = 0
+                selected_bytes = 0
+                overflow = False
+                for i, line in enumerate(f, 1):
+                    total_lines = i
+                    if i >= start and (end is None or i <= end):
+                        selected.append(line)
+                        selected_bytes += len(line.encode("utf-8"))
+                        if selected_bytes > READ_MAX_BYTES:
+                            overflow = True
+                            break
                 if start > total_lines:
                     return "错误: offset=%d 超出文件范围（共 %d 行）。" % (start, total_lines)
-                end = start + limit - 1 if limit is not None else total_lines
-                end = min(end, total_lines)
-                selected = lines[start - 1:end]
                 text = "".join(selected)
-                range_note = "\n[第 %d-%d 行（共 %d 行）]" % (start, end, total_lines)
+                if overflow:
+                    # 提前中断 ⇒ **总行数未知**（没读到 EOF），不得编造"共 N 行"。
+                    range_note = ("\n[第 %d 行起（本页超过 %d 字节上限，已就地截断）——"
+                                  "请缩小 limit 后重读]" % (start, READ_MAX_BYTES))
+                else:
+                    range_end = min(end, total_lines) if end is not None else total_lines
+                    range_note = "\n[第 %d-%d 行（共 %d 行）]" % (start, range_end, total_lines)
                 return text + range_note
     except FileNotFoundError:
         return "错误: 文件不存在: %s。建议: 用 bash(ls) 确认文件名与路径。" % p
@@ -255,6 +297,18 @@ def edit(path, old=None, new=None):
         return "错误: edit 工具缺少 path 参数。示例: edit(path=\"a.py\", old=\"x\", new=\"y\")"
     if not old_s:
         return "错误: edit 工具缺少 old 参数（要替换的原文，不能为空）。"
+    # D-126：尺寸门。edit 是**读-改-写**——截断读会静默写坏文件（只改了前半段就把
+    # 截断结果整体写回），故这里**不能**像 read 那样截断，只能**显式拒绝**并给替代路径
+    # （与仓储侧 D-53 对 apply_patch 的处置同款）。旧实现 `f.read()` 无上限 ⇒ 大文件即 OOM。
+    try:
+        size = os.path.getsize(p)
+    except OSError as e:
+        return "错误: 无法读取文件大小 %s: %s。" % (p, e)
+    if size > EDIT_MAX_BYTES:
+        return ("错误: 文件 %s 有 %d 字节，超过 edit 的 %d 字节上限——edit 需整份读入"
+                "（读-改-写不能截断，否则会写坏文件），故此处**拒绝**而非冒险。"
+                "建议: 用 read 分页定位后以 bash（sed/awk）做局部替换。"
+                % (p, size, EDIT_MAX_BYTES))
     try:
         with open(p, "r", encoding="utf-8") as f:
             text = f.read()

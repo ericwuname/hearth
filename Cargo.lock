@@ -398,6 +398,7 @@ dependencies = [
  "agent-types",
  "anyhow",
  "api",
+ "bounded-io",
  "chrono",
  "clap",
  "colored",
