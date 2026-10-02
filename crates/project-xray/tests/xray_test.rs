@@ -80,7 +80,11 @@ fn real_workspace_wiring_all_green() {
         // + 本仓 v17/v18 实测）退役；经验库定位为**只写审计档**。剪枝（prune）
         // 仍每小时真实执行 ⇒ 该项收窄为真实生效的那一环。
         // **纯锚点/文案**——能力条数（仍 16）、severity（仍 red）均不变。
-        spec_hash == 0x8d515d8fb29c18f9, // 2026-10-02 复算（FNV-1a 64；D-107 经验复用接口退役）
+        // 2026-10-02 复算（D-109）：`civ-auto-written` 的后两环锚点由
+        // `set_civ_writer(`（单个全局 writer，写全局档 ⇒ API 不可见）改为
+        // `set_civ_writer_factory(`（按归属用户构造 writer，落到 `per_user.civ_for(uid)`
+        // 的可见档）。**纯锚点/文案**——能力条数（仍 16）、severity（仍 red）不变。
+        spec_hash == 0x457ac49206c92a81, // 2026-10-02 复算（FNV-1a 64；D-109 civ 写入归属链）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

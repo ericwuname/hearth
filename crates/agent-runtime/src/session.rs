@@ -153,6 +153,11 @@ impl Session {
     }
 }
 
+/// D-109（2026-10-02, traecode）：文明线写入器**工厂**的类型别名——按归属用户（owner）
+/// 构造该用户的写入器。组合根（service）在闭包内把 owner 绑定到 per-user store。
+/// （抽别名同时消除 clippy `type_complexity`。）
+pub type CivWriterFactory = Arc<dyn Fn(&str) -> Arc<dyn agent_core::CivWriter> + Send + Sync>;
+
 /// Manages all active sessions.
 pub struct SessionManager {
     sessions: RwLock<HashMap<String, Arc<Mutex<Session>>>>,
@@ -168,8 +173,13 @@ pub struct SessionManager {
     cost_meter: Arc<Mutex<CostMeter>>,
     /// P5: MemoryStore for session persistence across restarts.
     memory_store: Option<Arc<dyn MemoryStore>>,
-    /// v13 S3-b: Civilization writer injected into every new AgentLoop.
-    civ_writer: Option<Arc<dyn agent_core::CivWriter>>,
+    /// D-109（2026-10-02, traecode）：文明线写入器的**工厂**——按**归属用户**（owner）
+    /// 构造该用户的写入器。旧实现是**单个全局** writer（写全局档
+    /// `MEMORY_DIR/civilization.jsonl`），而 API 读侧读的是 per-user 档
+    /// （`per_user.civ_for(uid)`）⇒ 自动写入的 milestone/reflection 在 API 上不可见。
+    /// 现改为工厂：组合根在闭包内把 owner 绑定到 per-user store，写入与读取落到**同一个
+    /// 文件**（写侧对齐读侧，跨租户隔离不破）。
+    civ_writer_factory: Option<CivWriterFactory>,
     /// Q3 (v24-post): Observer OS 句柄——会话结束后评估事件流并落盘报告。
     observer: Option<Arc<observer::Observer>>,
 }
@@ -188,7 +198,7 @@ impl SessionManager {
             experience_store: None,
             cost_meter: Arc::new(Mutex::new(CostMeter::new())),
             memory_store: None,
-            civ_writer: None,
+            civ_writer_factory: None,
             observer: None,
         }
     }
@@ -198,9 +208,13 @@ impl SessionManager {
         self.observer = Some(o);
     }
 
-    /// v13 S3-b: Set the civilization writer to inject into each new AgentLoop.
-    pub fn set_civ_writer(&mut self, writer: Arc<dyn agent_core::CivWriter>) {
-        self.civ_writer = Some(writer);
+    /// D-109（2026-10-02, traecode）：注入文明线写入器**工厂**——按归属用户（owner）
+    /// 构造该用户的写入器。工厂在 [`SessionManager::create_session_with_owner`] 里
+    /// 以该会话的 owner 调用一次；组合根（service）在闭包内把 owner 绑定到 per-user
+    /// store，使 agent-loop 的自动写入与 API 读侧（`per_user.civ_for(uid)`）落到
+    /// **同一个文件**（写侧对齐读侧；读写不会跨租户串档）。
+    pub fn set_civ_writer_factory(&mut self, factory: CivWriterFactory) {
+        self.civ_writer_factory = Some(factory);
     }
 
     /// v11.0: Set the experience store to inject into each new AgentLoop.
@@ -302,10 +316,24 @@ impl SessionManager {
         self.cost_meter.clone()
     }
 
-    /// Create a new session.
+    /// Create a new session（无归属上下文——owner 取 `"default"`）。
+    ///
+    /// D-109：需要按用户归属落档的调用方（HTTP handler）请用
+    /// [`SessionManager::create_session_with_owner`]。
     pub async fn create_session(
         &self,
         req: SessionCreate,
+    ) -> anyhow::Result<SessionCreateResponse> {
+        self.create_session_with_owner(req, "default").await
+    }
+
+    /// D-109（2026-10-02, traecode）：带**归属用户**的会话创建。`owner` 用于给
+    /// agent-loop 注入**该用户作用域**的文明线写入器——否则自动写入的 milestone/
+    /// reflection 会落进无人读取的全局档，在 `hearth civ feed` / API 上不可见。
+    pub async fn create_session_with_owner(
+        &self,
+        req: SessionCreate,
+        owner: &str,
     ) -> anyhow::Result<SessionCreateResponse> {
         let session_id = uuid::Uuid::new_v4().to_string();
         let provider_name = req.provider.clone();
@@ -353,9 +381,10 @@ impl SessionManager {
         if let Some(ref store) = self.experience_store {
             agent.set_experience_store(store.clone());
         }
-        // v13 S3-b: Inject civ writer so do_reflect/do_observe auto-append.
-        if let Some(ref cw) = self.civ_writer {
-            agent.set_civ_writer(cw.clone());
+        // D-109: 注入**按 owner 构造**的文明线写入器——写入落到该用户的可见档
+        //（`per_user.civ_for(owner)`）。run() 收尾由 `note_civ_outcome` 单点调用。
+        if let Some(ref factory) = self.civ_writer_factory {
+            agent.set_civ_writer(factory(owner));
         }
 
         // P5: Inject shared CostMeter into AgentLoop for real usage tracking

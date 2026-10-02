@@ -182,7 +182,11 @@ pub async fn create_session(
         Err(e) => tracing::warn!(user = %uid, "per-user civ store 不可用，公告未写入: {e}"),
     }
 
-    match state.sessions.create_session(req).await {
+    // D-109（2026-10-02, traecode）：把 uid 一并交给会话创建——会话归属该用户后，
+    // agent-loop 的文明线**自动写入**（经组合根注册的写入器工厂）也会落到
+    // `per_user.civ_for(uid)`，与本函数的公告及 API 读侧**同一个档**（此前自动写入
+    // 落全局档 ⇒ `hearth civ feed` 看不到；见 main.rs `CivWriterAdapter`）。
+    match state.sessions.create_session_with_owner(req, &uid).await {
         Ok(resp) => Ok((StatusCode::CREATED, Json(resp))),
         Err(e) => Err(api_err(
             ERR_INVALID_PARAM,

@@ -51,3 +51,39 @@ fn civ_announcement_goes_to_visible_per_user_store() {
          并同步更新本门禁。"
     );
 }
+
+/// D-109（2026-10-02, traecode）：`create_session` 的公告只是**一条**；真正持续写入
+/// 的是 agent-loop 经 `CivWriterAdapter` 落下的 milestone/reflection。若该适配器仍
+/// 写全局档，自动写入的条目在 API 上依旧不可见（与 D-108 同一病灶的另一半）。
+///
+/// 判据（源码级，宁可漏报不误报）：`main.rs` 里
+/// ① 适配器必须经 `per_user.civ_for` 落档（写侧对齐读侧）；② **不得**再出现全局档名
+/// `civilization.jsonl`（该全局 store 已无人读，见 D-108）。
+///
+/// 文件头自报盲区：逐行剥掉 `//` 行注释后再匹配（这样"退役说明注释"可照常点名全局档名，
+/// 而真正的**代码**一旦构造全局档即报红）；只扫 `crates/service/src/main.rs` 全文，
+/// 只钉 store 选择，不钉 owner 归属链的正确性（那由 create_session 传入 uid + 单测覆盖）。
+#[test]
+fn civ_auto_write_goes_to_visible_per_user_store() {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("main.rs");
+    let raw = std::fs::read_to_string(&p).expect("crates/service/src/main.rs 必须存在");
+    let src: String = raw
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        src.contains("per_user.civ_for"),
+        "agent-loop 的 civ 自动写入（CivWriterAdapter）必须落进 `per_user.civ_for(owner)` —— \
+         那是 API/CLI 唯一读取的档（D-109）。若改了实现方式，请同步更新本门禁的判据。"
+    );
+    assert!(
+        !src.contains("civilization.jsonl"),
+        "`main.rs` 不得再构造/写入**全局** civ 档（`civilization.jsonl`）—— 全仓无人读它，\
+         写进去的条目永久不可见（D-108/D-109 病灶）。若确需保留全局档，请连同读侧一起改，\
+         并同步更新本门禁。"
+    );
+}

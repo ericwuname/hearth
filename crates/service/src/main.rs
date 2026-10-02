@@ -74,17 +74,23 @@ async fn openapi_json() -> axum::response::Response {
 /// both sides (dependency inversion preserved). Locked by wiring assertion
 /// `civ-auto-written` (docs/xray/wiring-v13.toml).
 ///
-/// D-109（2026-10-02, traecode）**已登记的缺陷（不静默）**：本适配器写的是**全局**
-/// 文明线档（`MEMORY_DIR/civilization.jsonl`），而 HTTP 读侧 `get_civ_feed` 读的是
-/// **per-user** 档（`per_user.civ_for(uid)`）⇒ 经此写入的 milestone/reflection 条目
-/// 在 API 上**不可见**（`hearth civ feed` 看不到）。
-/// 不能靠"读侧合并全局档"修（全局档含各用户 goal 文本 ⇒ 跨租户泄露），必须给这条
-/// 写入补一层 **session → 归属用户** 的链——而 `Session` 目前没有 owner 字段
-/// （`create_session` 也不解析 uid），属**需先设计的接线**（同 experience 复用：
-/// 先设计再接线）。登记于驱动文档债队列 D-109。
+/// D-109（2026-10-02, traecode）**已收口**：本适配器曾写**全局**文明线档
+/// （`MEMORY_DIR/civilization.jsonl`），而 HTTP 读侧 `get_civ_feed` 读的是 **per-user**
+/// 档（`per_user.civ_for(uid)`）⇒ 经此写入的 milestone/reflection 在 API 上**不可见**
+/// （D-108 病灶的另一半）。修法是给这条写入补 **session → 归属用户** 的链，且**写侧对齐
+/// 读侧**（不能反过来让读侧合并全局档：全局档含各用户 goal 文本 ⇒ 跨租户泄露）。
+///
+/// 实现：本适配器现在**绑定单个 owner**（`owner` 字段），经 `per_user.civ_for(owner)`
+/// 落档——由组合根注册的**工厂**在 `create_session_with_owner(owner)` 时按 owner 构造
+/// （见下方 `set_civ_writer_factory` 调用）。`PerUserStore::civ_for` 是同步方法，故
+/// `append_civ`（同步 trait）内可直接落档，无需异步查表。全局 `civilization.jsonl`
+/// 已随之**停止构造**（无人读它）。
 struct CivWriterAdapter {
-    store: std::sync::Arc<memory::CivilizationStore>,
-    /// P1-4 (audit-fix): 连续写失败计数——暴露到 /readyz（>5 次 → 503）。
+    /// per-user 存储多路复用器——`civ_for(owner)` 即 API 读侧读取的那个档。
+    per_user: std::sync::Arc<service::per_user::PerUserStore>,
+    /// 本适配器所属会话的**归属用户**（创建会话时由鉴权层解出的 uid）。
+    owner: String,
+    /// P1-4 (audit-fix): 写失败计数——暴露到 /readyz（>5 次 → 503）。
     failures: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -112,7 +118,18 @@ impl agent_core::CivWriter for CivWriterAdapter {
         };
         // Civ writing must never fail the agent loop — log and move on.
         // P1-4: 失败计数（连续失败暴露到 /readyz，不再是静默 warn）。
-        if let Err(e) = self.store.append(entry) {
+        // D-109：写进**该 owner 的可见档**——与 API 读侧（`per_user.civ_for(uid)`）
+        // 同一个文件；store 构造失败与 append 失败都计入 failures 并留痕。
+        let store = match self.per_user.civ_for(&self.owner) {
+            Ok(s) => s,
+            Err(e) => {
+                self.failures
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tracing::warn!(owner = %self.owner, "civ auto-write: per-user store 不可用: {e}");
+                return;
+            }
+        };
+        if let Err(e) = store.append(entry) {
             self.failures
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             tracing::warn!("civ auto-write failed: {e}");
@@ -582,22 +599,29 @@ async fn main() -> anyhow::Result<()> {
     }
     sessions.set_experience_store(experience_store.clone());
 
-    // 6C: civilization store (v13 S3-b: constructed BEFORE Arc::new(sessions)
-    // so the CivWriter can be injected while sessions is still mutable).
-    let civ_store = Arc::new(
-        memory::CivilizationStore::new(
-            &std::path::PathBuf::from(&memory_dir),
-            "civilization.jsonl",
-        )
-        .unwrap_or_else(|e| startup_fatal("failed to init civilization store", e)),
-    );
-    // v13 S3-b: wire civ auto-write into every future AgentLoop.
+    // v8.0: per-user store multiplexer（D-109：提前到此处构造——文明线写入器**工厂**
+    // 需要它把每个会话的写入绑定到该用户的可见档）。
+    let per_user = Arc::new(service::per_user::PerUserStore::new(std::path::Path::new(
+        &memory_dir,
+    )));
+
+    // D-109: 注册**按 owner 构造**文明线写入器的工厂——使 agent-loop 的自动写入与 API
+    // 读侧（`per_user.civ_for(uid)`）落到**同一个文件**。旧的**全局** `civilization.jsonl`
+    // store 已随之停止构造（全仓无人读它，见 D-108）。
+    // P1-4: 失败计数（连续失败暴露到 /readyz，>5 → 503）。
     let civ_write_failures: std::sync::Arc<std::sync::atomic::AtomicU64> =
         std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    sessions.set_civ_writer(Arc::new(CivWriterAdapter {
-        store: civ_store.clone(),
-        failures: civ_write_failures.clone(),
-    }));
+    {
+        let pu = per_user.clone();
+        let fails = civ_write_failures.clone();
+        sessions.set_civ_writer_factory(Arc::new(move |owner: &str| {
+            Arc::new(CivWriterAdapter {
+                per_user: pu.clone(),
+                owner: owner.to_string(),
+                failures: fails.clone(),
+            }) as Arc<dyn agent_core::CivWriter>
+        }));
+    }
 
     let sessions = Arc::new(sessions);
 
@@ -647,9 +671,9 @@ async fn main() -> anyhow::Result<()> {
         std::process::id()
     );
 
-    // 6C: civ_store 于上方（v13 S3-b）构造，供 `CivWriterAdapter`（agent-loop 文明线
-    // 自动写入）持有。**D-108**：它不再进 `AppState`——路由的可见面是 per-user store
-    // （见 `PerUserStore`），全局 store 只是该适配器的写入目标（归属链待设计，见 D-109）。
+    // D-108/D-109：文明线的**可见面**是 per-user store（`PerUserStore`，见上方工厂）。
+    // 全局 `civilization.jsonl` store 已停止构造——它既无人读（D-108），也不再有写入方
+    // （D-109 已把 CivWriterAdapter 改为按 owner 写 per-user 档）。
 
     // 6D: work line store
     let workline_store = Arc::new(
@@ -676,10 +700,8 @@ async fn main() -> anyhow::Result<()> {
     // v7.0: telemetry collector
     let telemetry = Arc::new(routes::TelemetryCollector::default());
 
-    // v8.0: per-user store multiplexer
-    let per_user = Arc::new(service::per_user::PerUserStore::new(std::path::Path::new(
-        &memory_dir,
-    )));
+    // v8.0: per-user store multiplexer —— 已在上方（D-109）提前构造并同时供
+    // 文明线写入器工厂使用；此处不再重复构造。
 
     // v8.0: agent templates
     let templates_dir =
@@ -925,4 +947,63 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D-109 行为锁：文明线**自动写入**必须落到**该 owner 的可见档**
+    /// （`MEMORY_DIR/<owner>/civ.jsonl`）——即 API/CLI 读侧 `per_user.civ_for(uid)`
+    /// 读取的同一个文件。
+    ///
+    /// 红侧（修复前）：适配器写的是**全局**档（`civilization.jsonl`）⇒ `alice/civ.jsonl`
+    /// 不会出现 ⇒ 本测失败。
+    #[test]
+    fn civ_adapter_writes_to_owner_per_user_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let per_user = std::sync::Arc::new(service::per_user::PerUserStore::new(tmp.path()));
+        let failures = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let writer = CivWriterAdapter {
+            per_user: per_user.clone(),
+            owner: "alice".to_string(),
+            failures: failures.clone(),
+        };
+
+        agent_core::CivWriter::append_civ(
+            &writer,
+            "milestone",
+            "交付完成",
+            "sess-1",
+            vec!["auto".to_string()],
+        );
+
+        assert_eq!(
+            failures.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "写入不应失败"
+        );
+        let file = tmp.path().join("alice").join("civ.jsonl");
+        assert!(
+            file.exists(),
+            "写入必须落在 owner 的 per-user 档（读接口读的就是它）: {}",
+            file.display()
+        );
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("交付完成"), "条目内容应已落盘: {text}");
+        // 跨租户隔离：不得写到别的用户档。
+        assert!(
+            !tmp.path().join("bob").join("civ.jsonl").exists(),
+            "不得写到他人档（写侧必须按 owner 隔离）"
+        );
+        // 读回路径与 API 一致：`civ_for(owner)` 能看到刚写入的条目。
+        let visible = per_user.civ_for("alice").unwrap();
+        assert!(
+            visible
+                .recent(10)
+                .iter()
+                .any(|e| e.content.contains("交付完成")),
+            "经 per_user.civ_for(owner) 读回应能看到该条目"
+        );
+    }
 }

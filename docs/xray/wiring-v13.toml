@@ -148,15 +148,18 @@ file = "crates/agent-core/src/loop.rs"
 any = ["self.note_civ_outcome(&goal_text, &report)"]
 meaning = "run() 收尾单点调用（删此行 = 能力再次断线）"
 
+# D-109（2026-10-02, traecode）：注入点由 `set_civ_writer`（单个全局 writer，写全局档 ⇒
+# API 不可见）改为 `set_civ_writer_factory`（按归属用户构造 writer）——使 agent-loop 的
+# civ 自动写入落到该用户的可见档（`per_user.civ_for(uid)`），与 API 读侧同一个文件。
 [[capability.chain]]
 file = "crates/agent-runtime/src/session.rs"
-any = ["set_civ_writer("]
-meaning = "SessionManager 注入每个 AgentLoop"
+any = ["set_civ_writer_factory("]
+meaning = "SessionManager 按 owner 构造并注入每个 AgentLoop（D-109）"
 
 [[capability.chain]]
 file = "crates/service/src/main.rs"
-all = ["CivWriterAdapter", "set_civ_writer("]
-meaning = "组合根把 CivilizationStore 适配进来"
+all = ["CivWriterAdapter", "set_civ_writer_factory("]
+meaning = "组合根按 owner 把文明线适配到 per-user 档（D-109）"
 
 # ── v16.0 S1: experience 持久化 ─────────────────────────────
 [[capability]]
