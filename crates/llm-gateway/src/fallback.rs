@@ -86,23 +86,11 @@ impl FallbackChain {
             .collect()
     }
 
-    /// Execute a streaming chat completion through the fallback chain.
-    ///
-    /// Streaming fallback is NOT transparent — we return the stream
-    /// from the first provider that accepts the request. If streaming
-    /// fails mid-stream, the caller should retry via `chat()`.
-    pub fn stream(&self, req: ChatRequest) -> BoxStream<'static, Result<StreamEvent>> {
-        // For streaming, we only try the primary provider.
-        // Mid-stream failures can't be transparently retried.
-        if let Some((name, provider)) = self.providers.first() {
-            tracing::debug!(primary = %name, "streaming via primary provider");
-            provider.stream(req)
-        } else {
-            Box::pin(futures::stream::once(async {
-                Err(anyhow::anyhow!("fallback chain is empty"))
-            }))
-        }
-    }
+    // D-115（2026-10-02, traecode）：原固有的 `stream()` **已删除**（D-78 余项收口）
+    // ——它与下方 `impl LlmProvider for FallbackChain` 的 `stream()` **函数体逐字重复**，
+    // 且全仓零生产调用方（生产路径一律以 `Arc<dyn LlmProvider>` 注册、走 trait 方法）。
+    // 保留两份同体实现是一个漂移陷阱（改一处忘另一处即行为分叉）。删除后，任何
+    // `FallbackChain` 的具体类型调用 `stream()` 由 trait 实现兜底（语义完全一致）。
 }
 
 // P5: FallbackChain implements LlmProvider so it can be registered

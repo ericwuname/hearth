@@ -218,8 +218,15 @@ impl ToolDispatcher {
     /// stale snapshot, and the surviving file contained both
     /// `#[derive(Default)]` and a hand-written `impl Default` — `E0119`, which
     /// then drove the parent into an unbounded replan loop until the run timed
-    /// out. Mutation is therefore the root agent's exclusive responsibility;
+    /// timeout. Mutation is therefore the root agent's exclusive responsibility;
     /// sub-agents may only observe and report.
+    ///
+    /// D-84（2026-10-02, traecode）现状登记：上面的子代理场景已随 D-83（子代理委派
+    /// 子系统整段删除）消失 ⇒ 本方法的**唯一生产调用方不复存在**（现仅单测调用）。
+    /// **裁决：保留**——① 它是被 xray **red 锚点** `readonly-view-strips` 锁定的
+    /// 只读视图**原语**（"只读视图必须剥离全部写工具"，与 MUTATING_TOOLS 同锁）；
+    /// ② 该锚点是安全属性锁，删除原语即失去这道可回归的防线；③ 若子代理能力日后
+    /// 重启，本原语可原样复用。故不删、只如实标注"当前无生产消费者"。
     pub fn read_only_view(&self) -> Self {
         Self {
             tools: self
