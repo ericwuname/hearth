@@ -31,6 +31,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # D-127（2026-10-02, traecode）：以下构建/测试步骤一律带 `--locked`——
+      # 让 `Cargo.lock` 与 `Cargo.toml` 不一致时**直接失败**，而不是被 cargo 默认
+      # 静默重写（"本地全绿但锁其实已漂移"＝可复现性受损；实测 P1-90 漏提交锁时就是这样）。
+      # 由 `crates/codex-cli/tests/toolchain_pin_gate.rs::ci_cargo_steps_are_locked` 强制。
+      # 例外：`cargo fmt` 不接受 `--locked`。
+      #
       # 门禁作用域（docs/core-revalidation/decision-status.md「测试环境模板」）：
       # `cargo test` 的作用域要求 **cgroup 可用**且 **不设** HEARTH_ALLOW_NO_CGROUP
       # —— 后者与 sandbox 的 `test_rt4_cgroup_fail_closed` 互斥（会把 fail-closed 短路）。
@@ -59,17 +65,17 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: test
-        run: cargo test --workspace -- --nocapture
+        run: cargo test --locked --workspace -- --nocapture
 
       # v13 S2: the 4th gate — wiring assertions (anti-regression firewall).
       # Any red break (a locked capability regressed) fails the build.
       # NOTE: the old `cargo test -p telemetry` eval step was removed — the
       # telemetry crate no longer exists in the workspace (step always failed).
       - name: xray wiring
-        run: cargo run -p project-xray --bin codex-xray -- wiring --root . --spec docs/xray/wiring-v13.toml
+        run: cargo run --locked -p project-xray --bin codex-xray -- wiring --root . --spec docs/xray/wiring-v13.toml
 
       - name: xray scan
-        run: cargo run -p project-xray --bin codex-xray -- scan --root . --out xray-out/facts.json
+        run: cargo run --locked -p project-xray --bin codex-xray -- scan --root . --out xray-out/facts.json

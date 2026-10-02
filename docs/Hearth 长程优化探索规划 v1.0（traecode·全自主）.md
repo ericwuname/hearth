@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 102**（含 P1-91）。最新五轮 **P1-56 ~ P1-91 ＝ D-92 ~ D-126**（2026-10-02）：
+**累计卡数 103**（含 P1-92）。最新五轮 **P1-56 ~ P1-92 ＝ D-92 ~ D-127**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -58,8 +58,11 @@ spec 里写 `"Red"`/拼错会被下游按"非 red ⇒ 不阻断"**静默放行**
 `std::fs::read_to_string` **无上限**，与 D-51/D-70/D-86 同族）；
 ⑲**非 Rust 侧（ember）体检**——命中 **D-126**（工具集 `read`/`edit` 的
 "整份读入再截断"、HTTP `resp.read()` 无上限、`edit` 读-改-写无尺寸门；
-以及"未知工具"提示**硬编码三工具**而实际四工具 ⇒ 模型拿到错的可用名单）。
-共 **35** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+以及"未知工具"提示**硬编码三工具**而实际四工具 ⇒ 模型拿到错的可用名单）；
+⑳**可复现性门禁**——命中 **D-127**（CI 的 cargo 步骤**不带 `--locked`**：
+`Cargo.lock` 与 `Cargo.toml` 不一致时 cargo **静默重写锁**并让 CI 假绿——
+P1-90 漏提交锁时正是如此；已补 flag + 门禁）。
+共 **36** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **活体端到端冒烟**一次：`.env(AGNES_*)`→CLI→provider=agnes→答出结果→exit 0）；
 开放债＝**无**（D-116 已经 A/B 实测并裁决「保持默认关」；D-119/D-120 已收口）。
 唯一后续选项（非阻塞）：用 D-118 已能捕获的**真实错误细节**重建更富信息的语料，
@@ -166,6 +169,7 @@ LLM key 已可用——实测 `agnes-3.0-flash` HTTP 200。）
 | P1-89 | （本卡） | **D-124 收口（CLI 写操作：HTTP 状态码从不检查 ⇒ 失败被当成功 + `tasks done` 无条件谎报）**：三处同族缺陷。① **`client::json_capped` 只看体不看码**——而 service 的错误响应**本身就是 JSON**（`ErrorResponse` = `{"error":{"code","message"}}`）⇒ **4xx/5xx 带 JSON 错误体被当作成功响应返回**，调用方（`get_json`/`post_json` 全体）据此误判；反向地，"**200 + 空体**"（`POST /api/v1/workline/nodes/:id` 更新即返回 `StatusCode::OK` 空体）又解析失败——**两个方向都拧着**。② `tasks done` 用 `let _ = post_json(...)` 丢弃 Result **再无条件** `println!("marked done")` ⇒ 无论 404/500/空体，**一律宣告成功**（与同分支 `add/list` 用 `?` 自相矛盾）。③ `whoami`/`template`/`tools` 把错误 `println!("error: {e}")` 打 **stdout 且 exit 0** ⇒ 脚本无法用退出码判失败（与本 crate 其他子命令不一致）。处置：`json_capped` **先查状态码**（非 2xx 上抛，带状态码 + 有界错误体）；新增只认状态码、不解析体的写原语 **`post_ok`**（"写操作无回执"端点专用）；`tasks done` 改走 `post_ok` + `?`（并顺带按 D-61 口径对用户提供的 id 做 `pct_encode`，旧实现直拼进路径）；三处 stdout 错误改 `return Err(e)`（**stderr + 非零退出**，与全 crate 一致）。**先红后绿**：临时把 `json_capped` 的状态检查置假 ⇒ 锁如实 FAILED（404 的错误体被当成功体）；**活体实证三例**（本地一次性 HTTP 桩）：404 → `Error: server error 404 …` + **exit 1** 且**不再**打印 `marked done`；**200 空体 → 仍 `marked done` + exit 0**（证明 `post_ok` 不可省）；`tools` 404 → exit 1 |
 | P1-90 | （本卡） | **D-125 收口（CLI 侧文件读入有界化，第 26~30 落点）**：CLI 的四个（共五处）读口一律 `std::fs::read_to_string`（**无上限**），而它们读的都是**只增**的档：`session_store::load_turns`（`<sid>.jsonl` 每轮写整份历史快照）/`load_graph_with_revision`/`load_taskgoal`/`load_run_state`（`runs/<id>.json` 含产物清单）、`lib::headless_answer`（把整份会话档读进来只为取**最后一条** assistant 文本）、`repl` 的 `/file <路径>`（把整份内容当用户消息提交）、`note::recent_human_abnormal`（扫 `human-*.jsonl`）——一个被撑大/被外部写坏的档就能让 CLI 在开工前先 OOM（与 D-51（memory 会话档）、D-70/D-86（归档）**同族**）。处置：`codex-cli` 接 `bounded-io`，新增共用读口 `read_optional_capped`（**不存在/不可读 → `None` 不炸**；**超限 → 截断 + `tracing::warn` 留痕**——CLI 启动期已装 subscriber 写 stderr，故该 warn **用户可见**，非静默）+ 两个具名上限：会话档 **64 MiB**（与 D-51 对**同一类文件**取值一致）、小块状态档/`/file`/note 档 **8 MiB**（=`MAX_CAPTURED_BYTES`）。`/file` 截断时**明确告知**只提交了前 N 字节。**刻意不"只读头部"**：`headless_answer` 要的是最后一条，头截断会静默给出**错的**答案 ⇒ 用大 cap + 留痕。**先红后绿**：把共用读口临时写回 `read_to_string` ⇒ 锁如实 `left: 4106, right: 4096`（无界）。**不误伤核实**：单测（K-4 往返 / turn 往返）走新读口全过；活体 `hearth sessions`（空目录）与 `hearth replay <不存在>` 行为不变 |
 | P1-91 | （本卡） | **D-126 收口（非 Rust 侧 ember 体检：工具有界读入 + 工具名单漂移）**：`ember`（可双击使用的 Python 版小 CLI）三处同族缺陷。① **`tools.py::read` 两条路径都无界**——整份模式 `f.read()` **先整份入内存再截 64KB**（正是仓储侧 D-38/D-53 的病），分页模式 `f.readlines()` 把**全部行**读进内存（分页本就是为了避免这一点）；`edit` 是**读-改-写**、同样 `f.read()` 无上限。② **`ember.py` 三处 HTTP 无界读**——成功路径两处 `json.loads(resp.read())`、错误路径 `e.read().decode()[:300]`（先整份读再切片）⇒ 对端/中间人返回超大响应即打爆进程（与 D-55/D-58 网络侧同族）。③ **"未知工具"提示硬编码 `bash / read / write`**，而 M5 早已加入第 4 个工具 `edit`（`TOOL_IMPL` 四键、`TOOLS_SCHEMA` 也有 edit 条目）⇒ 模型一旦调错工具名，拿到的"可用工具"名单是**错的**（同 D-121/D-122 的"声称≠实现"，且这条错信息是**喂给模型**的）。处置：`read` 整份模式改**有界读**（`READ_MAX_BYTES` = 8 MiB；≤ 上限的文件输出与旧实现**逐字一致**，超限只返回开头并**明确告知**"不再声称保留尾 1/3"——那需要整份入内存）；分页模式改**流式扫描**（内存与文件大小无关）且**提前中断时不编造"共 N 行"**；`edit` 加**尺寸门**（> 8 MiB 显式拒绝 + 给 bash 替代路径，与 D-53 对 apply_patch 同款，**读-改-写不能截断**）；`ember.py` 三处改有界（成功路径超限**显式报错**而非静默截断——截断的 JSON 只会把真因盖成"解析失败"）；提示改**从 `TOOL_IMPL` 派生**（不再随工具增减漂移）；顺带订正 `tools.py` 模块 docstring（"三工具"）与 README（"三个工具"/能力一览漏 `edit`）、`read` 的 schema 边界描述补 8 MiB。**实证**（直接跑真代码）：分页输出逐字一致（`第 2-3 行（共 5 行）`）、越界 offset 报错一致、**64KB~8MB 输出与旧实现逐字一致（65661==65661 字节）**、>8MB 只返回开头且带 `[oversize]`、`>8MB edit` 显式拒绝且**文件未被改动**、`_read_body` 超限报错/正常原样/恰好等于上限不误判、两文件语法有效。**另补 D-125 的漏项（如实）**：P1-90 只 `git add` 了 `crates/codex-cli/Cargo.toml` 而**漏了 `Cargo.lock`**（新增内部依赖会在锁里加一行 `bounded-io`）⇒ 本卡一并补上，并据此在 P1-92 加 `--locked` 门禁防复发 |
+| P1-92 | （本卡） | **D-127 收口（可复现性：CI 的 cargo 步骤不带 `--locked` ⇒ lockfile 漂移被静默掩盖）**：**由本会话自身的漏项引出**——P1-90 给 `codex-cli` 加内部依赖 `bounded-io` 时只 `git add` 了 `Cargo.toml` 而**漏了 `Cargo.lock`**；而本地与 CI **都不会**报错：cargo 默认**静默重写**锁文件，于是"门禁四件套全绿"掩盖了"仓库里的锁与工程已不一致"（下一个 clone 的人拿到的是被 cargo 悄悄改过的依赖图 ⇒ 可复现性受损，属"本地绿≠真绿"的又一形态，与 D-43/D-91 同族但落在**依赖图**上）。处置：CI 的 4 条构建/测试步骤（`clippy`/`test`/`xray wiring`/`xray scan`）一律加 `--locked`（`cargo fmt` 不接受该 flag，是唯一例外）——此后锁与工程不一致会在 CI **直接失败**。**防复发门禁**：`toolchain_pin_gate.rs` 增 `ci_cargo_steps_are_locked`（逐行只认**真正会执行的命令行**：`run: cargo …` 或块内以 `cargo ` 开头者；YAML 注释/`name:`/`uses:` 一律跳过——首版实现就在注释里的 "cargo test" 上误报过，已据实修掉并写进注释）。**先红后绿**：删掉 `test` 步的 `--locked` ⇒ 门禁如实报 `ci.yml:69 的 cargo test 缺少 --locked`。**机制实证**：临时给 `codex-cli` 加一个未入锁的依赖 ⇒ `cargo metadata --locked` **立即失败**（`cannot update the lock file … because --locked was passed`）；不带 `--locked` 时 cargo 转入**下载/改写锁**（本机无网故同失败，CI 有网即静默假绿）。另证锁已同步：`cargo check --locked --workspace --all-targets` = exit 0。**教训（如实登记）**：过程中我误用 `git checkout -- .github/workflows/ci.yml` 把该文件**未提交**的改动一并还原，已重新应用并复跑门禁转绿——"未提交改动上不要跑 checkout 还原" |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
