@@ -79,12 +79,24 @@ pub fn compute(events: &[EnvelopedEvent]) -> Result<Metrics> {
     for ev in events {
         match &ev.event {
             // ② 交互请求
-            AgentEvent::NeedApproval { approval_id, .. } => {
-                req_kind.insert(approval_id.clone(), "approval".to_string());
-                if true {
-                    // 审批 = blocking 交互（WP-0: approval 恒 blocking=true）
-                    m.interrupt_count += 1;
-                }
+            //
+            // D-99（2026-10-02, traecode）：**`action` 就是 kind**。WP-0 已把内核事件
+            // 泛化为 `InteractionRequested { id, kind, .. }`，对外契约把 `kind` 放进
+            // `NeedApproval.action`（映射点见 `agent-runtime/src/session.rs`：
+            // "对外 API 契约保留 need_approval 事件名（兼容客户端），action=kind"；
+            // CLI 亦按 `action == "clarification"` 分流）。
+            // 此处原先**硬编码 `"approval"`** ⇒ `req_kind` 永远只有 "approval" ⇒
+            // 下方 `kind == "clarification"` 分支恒不进入 ⇒ `clarify_req`/`clarify_skip`
+            // 恒 0 ⇒ `clarify_skip_rate`（报告与 observer-rules）恒 0。
+            // 属"半接线"：数据一直在事件里，只是没读（D-92/D-98 同族）。
+            AgentEvent::NeedApproval {
+                approval_id,
+                action,
+                ..
+            } => {
+                req_kind.insert(approval_id.clone(), action.clone());
+                // 审批 = blocking 交互（WP-0: approval 恒 blocking=true）
+                m.interrupt_count += 1;
             }
             AgentEvent::InteractionResolved {
                 interaction_id,
@@ -306,6 +318,62 @@ mod tests {
             m.wait_ratio
         );
         eprintln!("WP-5 PASS: autonomy_rate + wait_ratio（latency_ms 聚合，Z-16）");
+    }
+
+    /// D-99 回归锁：`clarify_skip_rate` 必须能从事件流真实算出。
+    ///
+    /// 红侧（修复前）：metrics 把每个 `NeedApproval` 的 kind **硬编码为 "approval"**，
+    /// 于是 `clarify_req` 恒 0 ⇒ `clarify_skip_rate` 恒 0（本断言失败）。
+    /// 绿侧：kind 取自 `action`（"action=kind" 契约）——1 次澄清未响应 = 100%。
+    #[test]
+    fn test_d99_clarify_skip_rate_from_action_kind() {
+        let events = vec![
+            env(
+                1,
+                AgentEvent::NeedApproval {
+                    approval_id: "c1".into(),
+                    action: "clarification".into(),
+                    payload: serde_json::Value::Null,
+                },
+                "2026-08-03T00:00:00Z",
+            ),
+            env(
+                2,
+                AgentEvent::InteractionResolved {
+                    interaction_id: "c1".into(),
+                    by: "Timeout".into(),
+                    resolved: false,
+                    latency_ms: None,
+                },
+                "2026-08-03T00:00:05Z",
+            ),
+            // 对照：普通审批（kind="approval"）即便未响应也不得计入澄清跳过率。
+            env(
+                3,
+                AgentEvent::NeedApproval {
+                    approval_id: "a1".into(),
+                    action: "approval".into(),
+                    payload: serde_json::Value::Null,
+                },
+                "2026-08-03T00:00:06Z",
+            ),
+            env(
+                4,
+                AgentEvent::InteractionResolved {
+                    interaction_id: "a1".into(),
+                    by: "human".into(),
+                    resolved: false,
+                    latency_ms: Some(100),
+                },
+                "2026-08-03T00:00:07Z",
+            ),
+        ];
+        let m = compute(&events).unwrap();
+        assert_eq!(
+            m.clarify_skip_rate, 1.0,
+            "1 次澄清未响应 → 跳过率 100%（修复前恒 0：kind 被硬编码为 approval）"
+        );
+        assert_eq!(m.interrupt_count, 2, "两次交互都算 interrupt");
     }
 
     #[test]
