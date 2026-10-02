@@ -809,6 +809,11 @@ async fn main() -> anyhow::Result<()> {
         // v10.5: tool ecosystem
         .route("/api/v1/tools/search", get(routes::search_tools))
         .route("/api/v1/tools/install", post(routes::install_tool))
+        // D-92（2026-10-02, traecode）：补挂工具注册表**读**端点。
+        // 病灶：handler `routes::registry_list` 早已实现、`tool_runtime::registry`
+        // 契约文档也把它与 `search`/`install` 并列为三件套，但**从未挂到 Router** ⇒
+        // 按文档调用必 404（"声称≠实现"在 API 面的投射，D-44/D-90 同族）。
+        .route("/api/v1/tool-registry", get(routes::registry_list))
         // v11.3: experience metrics
         .route(
             "/api/v1/experience/metrics",

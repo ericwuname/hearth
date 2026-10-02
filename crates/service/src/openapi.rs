@@ -2,11 +2,11 @@
 //!
 //! **病灶**：`ApiDoc` 的 `#[openapi(...)]` 里只有 `components(schemas(...))`，注释写着
 //! "path annotations deferred"。于是 `/openapi.json` 对外提供的是一份**声明了 0 个端点
-//! 的 OpenAPI 文档**——而服务实际注册了 27 条路由；`/swagger-ui`（已 vendor 的交互 UI）
+//! 的 OpenAPI 文档**——而服务实际注册了 28 条路由；`/swagger-ui`（已 vendor 的交互 UI）
 //! 读的正是这份文档 ⇒ 打开浏览器看到的是**空 API**。属"半接线活特性"
 //! （同 D-48 的 civ 线 / D-79 的会话账本）：端点活着、消费者也活着，缺的只是**内容**。
 //!
-//! **处置：接线而非退役**——补全 `paths`。为不改动 27 个 handler（逐个手写
+//! **处置：接线而非退役**——补全 `paths`。为不改动 28 个 handler（逐个手写
 //! `#[utoipa::path]` 极易再次漂移），改为**运行时注入 paths**：由 [`API_ROUTES`]
 //! 镜像表驱动 [`build_openapi_document`]。
 //!
@@ -80,6 +80,10 @@ pub const API_ROUTES: &[(&str, &[(&str, &str)])] = &[
     ("/api/v1/tools", &[("get", "列出已注册工具")]),
     ("/api/v1/tools/search", &[("get", "搜索工具生态")]),
     ("/api/v1/tools/install", &[("post", "安装工具")]),
+    (
+        "/api/v1/tool-registry",
+        &[("get", "列出已登记工具清单（含 TOOLS_DIR 自动发现的）")],
+    ),
     ("/api/v1/experience/metrics", &[("get", "经验库指标")]),
 ];
 
