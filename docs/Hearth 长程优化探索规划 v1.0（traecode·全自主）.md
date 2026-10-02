@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 90**（含 P1-79）。最新五轮 **P1-56 ~ P1-79 ＝ D-92 ~ D-114**（2026-10-02）：
+**累计卡数 91**（含 P1-80）。最新五轮 **P1-56 ~ P1-80 ＝ D-92 ~ D-115**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -28,12 +28,13 @@
 多处与代码不符）；
 ⑥**入库卫生第 3 轮**（误跟踪的 Python 字节码缓存 ⇒ 摘除 + 门禁防复发）；
 ⑦**agent-core 未体检模块体检**（terminal/context/scheduler/talent/constitution）——
-发现并退役一整层"被结构性架空"的失败分类/恢复策略决策支持层。
-共 **24** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+发现并退役一整层"被结构性架空"的失败分类/恢复策略决策支持层；
+⑧**零调用方小项收口**（D-78 余项重复 `stream()` 删除 + D-84 `read_only_view` 裁决保留）。
+共 **25** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **运行期冒烟**一次：`.env`→provider→请求→401 诚实降级全链路正常）；
 开放债＝**D-109**（agent-loop 的 civ 写入缺 session→owner 归属链，需先设计）+
-**D-84**（`read_only_view`，倾向保留）+ D-78 余项 + **经验复用（设计课题）**：须满足
-"失败专属 / 质量过滤+有界窗口 / 来源标注"三前置并先过基准验证。
+**经验复用（设计课题）**：须满足"失败专属 / 质量过滤+有界窗口 / 来源标注"三前置
+并先过基准验证。（D-78 余项与 D-84 已随 P1-80 收口。）
 
 | 卡 | commit | 战果 |
 |---|---|---|
@@ -122,6 +123,7 @@
 | P1-77 | `82f1d3e` | **D-111② 收口（service 死项/不实文档）**：① 删 `service::user::UserContext`（自称"每请求注入"，实为**无构造方无读取方**的死类型；真实身份解析是 `get_user_id` + `PerUserStore::civ_for(uid)`）；② 删 `TemplateManager::get`（零调用，`/templates` 只用 `list()`）；③ 删 `AppState.observer`（请求态**零读取方**；真正的第三权接线是 `sessions.set_observer(...)`，拷贝只会让人误以为每请求都过 Observer）。**保留而非删除**并如实留痕：`api` 的四个零生产者错误码常量（对外错误码词表，删掉＝单方缩小契约面；标注"现役 5 个 / 预留 4 个，启用须同时接线"）。**D-111 至此全部收口** |
 | P1-78 | `d47641f` | **D-113 收口（入库卫生第 3 轮：解释器字节码缓存）**：`.gitignore` 只窄忽略 `window-framework/src/__pycache__/` ⇒ `bench/`、`docs/data/`、`ember/` 三处共 **4 个 `__pycache__/*.pyc` 被误跟踪**（CPython 自动生成的字节码，非源码）。处置：`git rm --cached` 4 文件（内容留盘）+ 窄规则改全局 `__pycache__/`+`*.pyc`+`*.pyo` + 门禁 `gitignore_runtime_products_gate.rs` 新增 `interpreter_caches_are_gitignored`（**先红后绿**：移除规则即如实报红）。**与 D-5/D-112 同一族**（运行期产物不得入库） |
 | P1-79 | `e67ae48` | **D-114 收口（agent-core 未体检模块体检：退役"被结构性架空"的失败分类/恢复策略层）**：`terminal.rs` 四组纯函数（`classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness`）**全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）早于 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块亦随线C手术（D-10）消失 ⇒ 生产者结构性消失且 R6-5 明载"勿复活旧通道" ⇒ **退役删除**（同 D-66/D-83/D-85 口径，非重新接线）。连带移除 loop.rs 中**恒空**的两处 report 投影 + handover 字段 + 快照白名单两键，据实订正 3 处指向已删生产者的过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集（并订正 `is_terminal_state` 的不实 doc）。**新增门禁** `retired_failure_channel_gate.rs`（逐行剥 `//` 后文本级拦截退役标识符；**先红后绿**——注入代码即报红）。净 −432/+122 |
+| P1-80 | `a9b34c7` | **D-78 余项 + D-84 收口（零调用方小项，须先确认再删）**：① `FallbackChain` 的**固有** `stream()` 与 `impl LlmProvider` 的 `stream()` 函数体**逐字重复**、且零生产调用方（生产一律经 `Arc<dyn LlmProvider>` 走 trait；具体类型调用点仅在单测）⇒ **删除固有份**（同体两份是漂移陷阱），删除后具体类型调用由 trait 兜底、语义一致（llm-gateway 33 测全过）；`CostMeter` 四访问器按原判保留（其断言承担 `record()` 覆盖）。② `ToolDispatcher::read_only_view()` 唯一生产调用方（子代理）已随 D-83 消失、现仅单测调用 ⇒ **裁决保留**并如实登记——它是 xray **red 锚点** `readonly-view-strips`（安全属性锁）锁定的只读视图原语，删之即失去回归防线，且子代理重启可复用 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -346,7 +348,8 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-114** | **agent-core「失败分类 / 恢复策略」决策支持层被结构性架空**：`terminal.rs` 的 `classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness` **全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）已被 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块随线C手术（D-10）消失 ⇒ loop.rs 仍**读**这两键却**无写入方**（恒 null，且投影进 run report/handover） | agent-core 逐文件体检（terminal/context/scheduler/talent/constitution） | **已退役删除**（P1-79，同 D-66/D-83/D-85 口径——生产者结构性消失且 R6-5 明载"勿复活旧通道"，故**不重新接线**）：删四组纯函数 + 上下游恒空字段 + 快照白名单两键 + 订正 3 处过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集；**新增门禁** `retired_failure_channel_gate.rs`（先红后绿）钉住退役 | **close** |
 | **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
 | **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **裁决「不改」（by design，2026-10-01）**——理由：这六处读的是**操作者自己的本机文件**（配置/清单/价表/replay 夹具），既不来自不可信来源、也**不具备无界增长特性**（对比 D-70 的只增日志、D-75 的 cwd 项目文件、D-55/D-58 的网络响应）。给它们加上限**不会带来任何安全收益**，却有**真实的回归风险**：合法的超大 `providers.json`/夹具一旦被截断 → JSON 解析失败 → provider 发现/夹具加载**静默降级**（比"读全"更糟）。故**不改**；"全仓文件读只剩 `bounded-io` 一份"的收敛目标限于**确有边界的读**，不为此把每处配置读都套上 cap | **close · 裁决「不改」** |
-| **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **部分已修**（P1-42）：删 `sse_stream` + `PropertySchema`（原位留注）。余项**保留待裁**：`fallback` 固有 `stream()` 删除需先确认无类型推断依赖；`CostMeter` 四个访问器删除会连同断言拿掉、降低 `record()` 覆盖 ⇒ 倾向保留 | **close（部分）· 余项登记** |
+| **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **已全部收口**：P1-42 删 `sse_stream` + `PropertySchema`；P1-80 收口余项——**确认无生产调用方**（仅单测）后删 `fallback` 固有 `stream()`（与 trait 实现逐字重复，是漂移陷阱）；`CostMeter` 四访问器**裁决保留**（其断言承担 `record()` 覆盖） | **close** |
+| **D-84** | **`ToolDispatcher::read_only_view()` 现无生产调用方**：其唯一生产消费者是子代理委派（D-83 已整段删除），现仅单测调用 | D-83 连带发现 | **裁决「保留」**（P1-80）：它是 xray **red 锚点** `readonly-view-strips` 锁定的只读视图**安全原语**（删原语即失去该回归防线），子代理能力若重启可原样复用；已在源码 doc 如实登记"当前无生产消费者" | **close · 裁决保留** |
 | **D-69** | **`project-xray` 函数名与行为不符**：`wiring.rs` `strip_comments_and_strings` 实际**只剥注释、保留字符串**（名与文档均称"字符串"） → 误导维护者（也正是 D-59 假绿的认知来源） | project-xray 体检发现 | **已修**（P1-34）：改名 `strip_comments_keep_strings` + 文档点明因果，零行为变更 | **close** |
 | **D-42** | **全量测试 flaky（≈1/3 概率）**：`HEARTH_ARCHIVE_FILE` 是进程级全局 env，agent-core 内十余个测试在读写它，`ENV_SER` 串行锁**未覆盖全部触点** → 并行执行时互踩 | P1-06 全量跑实测 → P1-09 定位 | **根因已定位 + 已修**：`test_maybe_compact_folds_old_turns` **会触发压缩**（→ 经 `archive_path()` 读进程全局 env）却**不持锁**，把本测 8 个轮次追加进并行测试 `test_r56_*` 的归档文件；对侧 `archive_digest(sid, 8)` 有 `max_turns=8` 上限且**按行序截断** → 对侧自己的 turn#102 被挤出窗口 → 假红。**已确定性复现**（digest 打印 100/101 后接 0..5，102 消失）→ 修复 = 持双锁 + 显式临时归档 + 复原（顺带消除"压缩不设 env 时污染真实 HOME"）。纪律写入 tests 模块头 | **close** |
 | **D-43** | **本仓 CI 长期红**（clippy 步 `-D warnings`）与本地口径不一致——已在 P1-06 修掉全部报错；P1-07 修好 clippy 后 test 步**首次真正执行**，又暴露 4 例 Linux 红（cgroup） | P1-06 发现 → P1-07 闭环 | **已修 · 已实测**：CI run `36765112148` **七步全过**（cgroup delegation/fmt/clippy/test/xray wiring/xray scan）——**19 天来首次绿**。根因链：clippy 红 → test 步从未跑 → 4 例 cgroup 依赖用例长期无人知 | **close** |
