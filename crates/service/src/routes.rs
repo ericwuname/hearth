@@ -32,12 +32,13 @@ pub struct AppState {
     pub allow_no_auth: bool,
     /// P1-4 (audit-fix): civ 写失败计数（连续失败 >5 → readyz 503）。
     pub civ_write_failures: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    /// 6C: shared civilization store for all sessions.
-    pub civ_store: Arc<memory::CivilizationStore>,
+    // D-108：原 `civ_store` / `workline_store` 两字段**已删**——它们在整个
+    // `routes.rs` 里零读取方（`civ_store` 仅在 `create_session` 里被 append，
+    // 而该写入 D-108 已改投 per-user store；`workline_store` 从未被任何 handler 读，
+    // 路由读的是 `per_user.workline_for()`）。两个 store 本体仍由 `main.rs` 的
+    // 组合根持有并供各自的后台任务/适配器使用，只是不再塞进请求态（"只写不读"字段）。
     /// v10.5: Tool registry for search/install.
     pub tool_registry: Arc<tool_runtime::ToolRegistry>,
-    /// 6D: shared work line store.
-    pub workline_store: Arc<memory::WorkLineStore>,
     /// v7.0: shared telemetry collector.
     pub telemetry: Arc<TelemetryCollector>,
     /// WP-4 (v23 phase4): Observer（第三权）——只读事件流，零执行权。
@@ -123,8 +124,24 @@ pub async fn require_api_key(
 }
 
 /// POST /api/v1/sessions
+///
+/// D-108（2026-10-02, traecode）：**"会话创建"公告必须写进 API 真正读取的那个 store**。
+///
+/// 病灶：读接口 `get_civ_feed` 读的是 `per_user.civ_for(uid)`（v8.0 多用户隔离改造后
+/// 的**唯一可见** store，落在 `MEMORY_DIR/<uid>/civ.jsonl`），而本 handler 原写**全局**
+/// 文明线 store（`MEMORY_DIR/civilization.jsonl`）——两者是**不同文件**，于是这条公告
+/// （以及 agent-loop 经 `CivWriterAdapter` 写入的同款条目）写进了**无人读取的档**：
+/// 用户 `hearth civ feed` / `GET /api/v1/civilization` 永远看不到（"写了但不可见"，
+/// D-48 重接线的可见面因此仍未真正生效）。
+///
+/// 注意**不能**反过来"让读侧合并全局 store"——全局档含各用户的目标文本（
+/// `goal={req.goal}` 与 run 叙述），合并即跨租户泄露。故唯一安全修法是**写侧对齐读侧**。
+///
+/// 写失败**不阻断建会话**（公告是 best-effort），但必须**留痕**（不再 `let _ =` 静默）。
+/// 防复发：`crates/service/tests/civ_visibility_gate.rs` 钉住本函数的 store 选择。
 pub async fn create_session(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<SessionCreate>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // v10.3: Real telemetry — increment session counter
@@ -153,7 +170,16 @@ pub async fn create_session(
         created_at: chrono::Utc::now().to_rfc3339(),
         tags: vec!["session_create".into()],
     };
-    let _ = state.civ_store.append(civ_entry);
+    // D-108：写入**可见的** per-user 文明线档（病灶与理由见本函数上方文档）。
+    let uid = get_user_id(&headers, &state.user_store);
+    match state.per_user.civ_for(&uid) {
+        Ok(store) => {
+            if let Err(e) = store.append(civ_entry) {
+                tracing::warn!(user = %uid, "civ 公告写入失败（不阻断建会话）: {e}");
+            }
+        }
+        Err(e) => tracing::warn!(user = %uid, "per-user civ store 不可用，公告未写入: {e}"),
+    }
 
     match state.sessions.create_session(req).await {
         Ok(resp) => Ok((StatusCode::CREATED, Json(resp))),

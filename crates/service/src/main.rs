@@ -73,6 +73,15 @@ async fn openapi_json() -> axum::response::Response {
 /// `CivilizationStore` — the composition root is the ONLY place that sees
 /// both sides (dependency inversion preserved). Locked by wiring assertion
 /// `civ-auto-written` (docs/xray/wiring-v13.toml).
+///
+/// D-109（2026-10-02, traecode）**已登记的缺陷（不静默）**：本适配器写的是**全局**
+/// 文明线档（`MEMORY_DIR/civilization.jsonl`），而 HTTP 读侧 `get_civ_feed` 读的是
+/// **per-user** 档（`per_user.civ_for(uid)`）⇒ 经此写入的 milestone/reflection 条目
+/// 在 API 上**不可见**（`hearth civ feed` 看不到）。
+/// 不能靠"读侧合并全局档"修（全局档含各用户 goal 文本 ⇒ 跨租户泄露），必须给这条
+/// 写入补一层 **session → 归属用户** 的链——而 `Session` 目前没有 owner 字段
+/// （`create_session` 也不解析 uid），属**需先设计的接线**（同 experience 复用：
+/// 先设计再接线）。登记于驱动文档债队列 D-109。
 struct CivWriterAdapter {
     store: std::sync::Arc<memory::CivilizationStore>,
     /// P1-4 (audit-fix): 连续写失败计数——暴露到 /readyz（>5 次 → 503）。
@@ -638,7 +647,9 @@ async fn main() -> anyhow::Result<()> {
         std::process::id()
     );
 
-    // 6C: civ_store constructed earlier (v13 S3-b) — reused in AppState below.
+    // 6C: civ_store 于上方（v13 S3-b）构造，供 `CivWriterAdapter`（agent-loop 文明线
+    // 自动写入）持有。**D-108**：它不再进 `AppState`——路由的可见面是 per-user store
+    // （见 `PerUserStore`），全局 store 只是该适配器的写入目标（归属链待设计，见 D-109）。
 
     // 6D: work line store
     let workline_store = Arc::new(
@@ -718,8 +729,6 @@ async fn main() -> anyhow::Result<()> {
         api_key,
         allow_no_auth,
         civ_write_failures,
-        civ_store,
-        workline_store,
         telemetry,
         // WP-4 (v23 phase4): Observer（第三权，零执行权）——L2 fail-closed：
         // 构造失败 → service 拒启（Observer 是纯结构体，new() 无失败路径，
