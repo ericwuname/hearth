@@ -74,7 +74,13 @@ fn real_workspace_wiring_all_green() {
         // 2026-10-01 复算（D-83）：`subagent-uses-readonly` 条目退役——子代理委派子系统
         // 整段删除后，其 `read_only_view()` 唯一生产调用点消失，severity 由 red 降为 yellow
         // （不阻断门禁）。**纯退役登记 + 条数不变（仍 16）**。
-        spec_hash == 0x726b50655dc2952d, // 2026-10-01 复算（FNV-1a 64；D-83 子代理委派退役）
+        // 2026-10-02 复算（D-107）：`experience-prune-wired` 的 claim 与锚点收窄——
+        // 原第二环锚 `observer_experience.upgrade_core()` 因**依赖无写入方的
+        // `reference_count`（恒空查询）**随 D-100 裁决（联网核实 Reflexion/OEP
+        // + 本仓 v17/v18 实测）退役；经验库定位为**只写审计档**。剪枝（prune）
+        // 仍每小时真实执行 ⇒ 该项收窄为真实生效的那一环。
+        // **纯锚点/文案**——能力条数（仍 16）、severity（仍 red）均不变。
+        spec_hash == 0x8d515d8fb29c18f9, // 2026-10-02 复算（FNV-1a 64；D-107 经验复用接口退役）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

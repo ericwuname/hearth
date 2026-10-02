@@ -5519,7 +5519,6 @@ impl Agent for AgentLoop {
                 solution: format!("steps={} ok={}", report.steps, report.ok),
                 success: report.ok,
                 effectiveness: if report.ok { 0.7 } else { 0.3 },
-                reference_count: 0,
                 created_at: Utc::now().to_rfc3339(),
             };
             let store_clone = store.clone();

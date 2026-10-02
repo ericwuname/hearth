@@ -228,13 +228,22 @@ meaning = "完成事实核验仍在：written_files 为空 → 拒绝 Done（loo
 # ── v20.0 S3: 经验遗忘机制部署 ─────────────────────────────
 [[capability]]
 id = "experience-prune-wired"
-claim = "observer 每小时巡检执行 experience prune + upgrade_core（遗忘机制已部署，非死代码）"
+claim = "observer 每小时巡检执行 experience prune（遗忘机制已部署，非死代码）"
 severity = "red"
 
 [[capability.chain]]
 file = "crates/service/src/main.rs"
-all = ["observer_experience.prune(0.3, 90)", "observer_experience.upgrade_core()"]
+all = ["observer_experience.prune(0.3, 90)"]
 meaning = "组合根 observer 任务真实调用遗忘函数"
+# 2026-10-02 收窄（D-107，traecode）：本项原含第二环锚点
+# `observer_experience.upgrade_core()`，claim 也写作 "prune + upgrade_core"。
+# 但 `upgrade_core()` 的过滤条件依赖 `Experience.reference_count`，而该字段
+# **无任何写入方**（唯一自增点 `search()` 已随 D-47 删除）⇒ 该查询恒返回空、
+# 调用点仅把"0"打进一条日志。D-100 裁决（联网核实 Reflexion/OEP + 本仓 v17/v18
+# 实测）后按 D-72 先例**退役复用接口**：`reference_count` / `reuse_rate` /
+# `upgrade_core()` 一并删除，经验库定位为**只写审计档**。
+# 故锚点收窄为**真实生效的剪枝**（prune 仍每小时执行、真实删除旧弱条目）；
+# severity 仍为 red，条数仍为 16（本项未删条，只是把死锚点换掉）。
 # 引擎是子串存在性断言，锚定"新写法必须在"：一旦被改回 /2，
 # saturating_sub(2).max(8) 消失 → 断裂 → RED。
 #

@@ -1,16 +1,23 @@
-// v16.0: Experience store — JSONL 持久化 + 剪枝 + 计数。
+// v16.0: Experience store — JSONL 持久化 + 剪枝 + 计数（**只写审计档**）。
 //
-// D-100（2026-10-02, traecode）**文档订正（零行为变更）**：本模块头此前自称
-// "JSONL 持久化 + **关键词检索**"——**不实**：本文件根本没有检索 API（`search()`
-// 是唯一会 `reference_count += 1` 的写方，已随 D-47 作为死代码删除），全文只有
-// `append` / `prune` / `metrics` / `upgrade_core`。据此本 crate 的**复用回路当前是断的**：
-//   · `reference_count` 恒 0（无任何自增点）；
-//   · `upgrade_core()` 因 `reference_count >= 3` 恒不命中 ⇒ 恒返回空；
-//   · `metrics().reuse_rate` 恒 0，而它由 `GET /api/v1/experience/metrics` 对外暴露。
-// 另：`agent-core` 的注入侧同源——`injected_experience` 每个 run/step 都被复位为
-// None，唯一非 None 写入只在测试里（生产者随 D-9 线C手术删除，注释已如实在位）。
-// 即：**存/剪/计数活着，"用起来"这一环缺失**。去留（接线检索注入 vs 退役整套）
-// 属产品方向，登记为 D-100 债待裁，不在此单方改行为。
+// D-100 → D-107（2026-10-02, traecode）**裁决 + 收口**：本 crate 的"复用回路"已断——
+// 唯一会 `reference_count += 1` 的 `search()` 随 D-47 删除，`agent-core` 的注入点
+// `injected_experience` 也随 D-9 失去生产者（每 run/step 恒复位 None）。据此按 D-72
+// 先例**退役"复用"接口**：删掉 `reference_count`（无任何写入方的字段）、
+// `reuse_rate`（对外暴露的结构性 0 指标）与 `upgrade_core()`（恒空的查询），
+// 保留**只写审计档**本体（追加 / 剪枝 / 真实计数）。
+//
+// **为何不按"接线"处理**（联网核实 + 本项目实测，2026-10-02）：
+//   · Reflexion 范式（Shinn et al. 2023）与本仓 v17（弱模型 +20pt）都表明"失败教训回灌"
+//     有效，但**必须**配三道前置：① 只回灌**失败**教训；② 质量过滤 + **有界窗口**
+//     （业界明确：低质反思"浪费上下文并损害后续尝试"）；③ **来源加权**——
+//     arXiv 2605.18930（OEP，2026-05）实证：自进化 agent 的"局部正确但不可迁移"经验会被
+//     蒸馏成过度泛化规则、显著抬高下游失败率（GPT-4o 上 ASR >50%）；
+//   · 本仓 v18 实测：全局注入**害强模型**（−5pt）——与业界"不做无门控全局注入"一致；
+//   · 注入文本源自既往 run（可能含 web 抓取内容），属**间接提示注入面**，须按 D-80 纪律
+//     带"来源 + 权威序"标注。
+// ⇒ 真正的复用是**需先设计 + 基准验证**的课题（驱动文档 D-100 行已登记裁决），
+//    不靠恢复一个已删的 `search()` 草率接线。
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -23,9 +30,6 @@ pub struct Experience {
     pub solution: String,
     pub success: bool,
     pub effectiveness: f32,
-    /// D-100：**当前恒 0**——唯一自增点是已删除的 `search()`（D-47），
-    /// 无任何现役写方。依赖它的 `upgrade_core()` 与 `reuse_rate` 因此恒空/恒 0。
-    pub reference_count: u32,
     pub created_at: String,
 }
 
@@ -156,34 +160,21 @@ impl ExperienceStore {
         removed
     }
 
-    /// Return experiences promoted to "core" status (high refs + effectiveness).
-    ///
-    /// D-100：**当前恒返回空**——过滤条件是 `reference_count >= 3`，而该字段
-    /// 无任何现役自增点（见模块头）。调用方（service observer 每小时巡检）
-    /// 目前只把它返回的**条数**打进一条日志，故删除它不改变任何行为——
-    /// 但它是"复用回路"的公开接口，去留随 D-100 的接线/退役裁决一并处理。
-    pub async fn upgrade_core(&self) -> Vec<Experience> {
-        let entries = self.entries.read().await;
-        entries
-            .iter()
-            .filter(|e| e.reference_count >= 3 && e.effectiveness >= 0.8)
-            .cloned()
-            .collect()
-    }
-
     /// Compute growth metrics for observability.
+    ///
+    /// D-107：三项指标都取自**真实写入的事实**（条数 / 高质量率 / 失败率）；
+    /// 原先的 `reuse_rate` 已删除——它读的 `reference_count` 无任何写入方，
+    /// 对外恒报 0（拿"结构性 0"当业务指标比不报更糟）。
     pub async fn metrics(&self) -> GrowthMetrics {
         let entries = self.entries.read().await;
         let total = entries.len() as f32;
         if total == 0.0 {
             return GrowthMetrics::default();
         }
-        let reused = entries.iter().filter(|e| e.reference_count > 0).count() as f32;
         let high = entries.iter().filter(|e| e.effectiveness >= 0.8).count() as f32;
         let failures = entries.iter().filter(|e| !e.success).count() as f32;
         GrowthMetrics {
             total_experiences: entries.len() as u64,
-            reuse_rate: reused / total,
             high_quality_rate: high / total,
             failure_rate: failures / total,
         }
@@ -194,12 +185,6 @@ impl ExperienceStore {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct GrowthMetrics {
     pub total_experiences: u64,
-    /// Fraction of experiences referenced at least once.
-    ///
-    /// D-100：**当前恒 0**（`reference_count` 无现役自增点，见模块头）——
-    /// 该字段经 `GET /api/v1/experience/metrics` 对外暴露，读到的 0 反映的是
-    /// "复用注入未实现"，不是"复用率为零"的业务结论。
-    pub reuse_rate: f32,
     /// Fraction with effectiveness >= 0.8.
     pub high_quality_rate: f32,
     /// Fraction of failed attempts.
@@ -218,7 +203,6 @@ mod tests {
             solution: solution.into(),
             success: true,
             effectiveness: 0.8,
-            reference_count: 0,
             created_at: "2026-01-01".into(),
         }
     }
@@ -265,31 +249,21 @@ mod tests {
         assert_eq!(store.len().await, 1);
     }
 
-    #[tokio::test]
-    async fn upgrade_core_returns_high_quality() {
-        let store = ExperienceStore::new();
-        let mut core = make_exp("c", "a", "b");
-        core.effectiveness = 0.9;
-        core.reference_count = 5;
-        store.append(core).await.unwrap();
-        store.append(make_exp("low", "c", "d")).await.unwrap();
-        let upgraded = store.upgrade_core().await;
-        assert_eq!(upgraded.len(), 1);
-        assert_eq!(upgraded[0].id, "c");
-    }
+    // D-107：`upgrade_core_returns_high_quality` 已随该接口一并删除
+    // （它依赖无写入方的 `reference_count`，恒空；保留测试等于给死接口续命）。
 
     #[tokio::test]
     async fn metrics_reflects_appended_entries() {
         let store = ExperienceStore::new();
-        let mut used = make_exp("r1", "p", "s");
-        used.effectiveness = 0.9;
-        used.reference_count = 1;
-        store.append(used).await.unwrap();
+        let mut good = make_exp("r1", "p", "s");
+        good.effectiveness = 0.9;
+        store.append(good).await.unwrap();
         store.append(make_exp("r2", "x", "y")).await.unwrap();
 
         let m = store.metrics().await;
         assert_eq!(m.total_experiences, 2);
-        assert!(m.reuse_rate > 0.0);
         assert!(m.high_quality_rate > 0.0);
+        // D-107：失败率取自真实 `success` 字段（两条都 success=true ⇒ 0）。
+        assert_eq!(m.failure_rate, 0.0);
     }
 }

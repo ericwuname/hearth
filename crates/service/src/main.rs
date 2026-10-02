@@ -755,17 +755,17 @@ async fn main() -> anyhow::Result<()> {
                 let _ = std::io::Write::write_all(&mut f, format!("{}\n", e).as_bytes());
             }
 
-            // v20.0 S3: experience store maintenance — prune weak/old entries and
-            // promote high-value ones to core. Runs on the same hourly cadence.
-            // prune: effectiveness < 0.3 AND older than 90 days are removed.
+            // v20.0 S3: experience store maintenance —— 每小时执行**剪枝**
+            // （effectiveness < 0.3 且超过 90 天者移除），防只增文件无限膨胀。
+            //
+            // D-107（2026-10-02, traecode）：原同处还有 `upgrade_core()`（"核心经验晋级"）
+            // 并把返回**条数**打进日志。但该查询的过滤条件依赖 `reference_count`，
+            // 而该字段**无任何写入方**（唯一自增点 `search()` 已随 D-47 删除）⇒ 恒返回空、
+            // 日志里的 `core_candidates` 恒 0 —— 属"给死接口打日志"。已随接口一并删除；
+            // 经验库现定位为**只写审计档**（复用需另行设计，见 `experience` 模块头与 D-100 裁决）。
             let pruned = observer_experience.prune(0.3, 90).await;
-            let cores = observer_experience.upgrade_core().await;
-            if pruned > 0 || !cores.is_empty() {
-                tracing::info!(
-                    pruned,
-                    core_candidates = cores.len(),
-                    "experience maintenance (v20 observer)"
-                );
+            if pruned > 0 {
+                tracing::info!(pruned, "experience maintenance (v20 observer)");
             }
         }
     });
