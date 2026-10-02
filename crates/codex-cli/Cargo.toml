@@ -21,6 +21,8 @@ path = "src/lib.rs"
 api.workspace = true
 agent-core.workspace = true
 agent-types.workspace = true
+# D-119：CLI 侧也要接经验库（此前只有 service 侧有 ⇒ benchmark 跑 CLI 时语料产不出）
+experience.workspace = true
 agent-runtime.workspace = true
 observer.workspace = true
 llm-gateway.workspace = true

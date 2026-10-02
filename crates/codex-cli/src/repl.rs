@@ -326,6 +326,7 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
     crate::run_local::attach_session_safety(agent.as_mut().unwrap(), &session_id, &snap_cwd);
     if let Some(a) = agent.as_mut() {
         a.set_session_id(session_id.clone());
+        crate::run_local::attach_experience(a); // D-119：CLI 侧经验库
     }
     // B2: 每轮共用 session_id——observer/transcript 落盘到同一会话文件
     println!(

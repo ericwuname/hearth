@@ -47,6 +47,11 @@ pub struct ExperienceStore {
     entries: tokio::sync::RwLock<Vec<Experience>>,
     /// v16.0: JSONL file path for persistence (std Mutex — only held for path read).
     file_path: std::sync::Mutex<Option<PathBuf>>,
+    /// D-119（2026-10-02, traecode）：**延迟加载**标记——`set_path_deferred` 只登记路径，
+    /// 首次 async 触达（`append` / `recent_failures`）时才真正读盘并置位。理由：CLI 的
+    /// 三个 `AgentLoop` 构造点混有同步上下文，`set_path` 是 async，把 async 传染过去
+    /// 代价大于收益（在 async 上下文里临时起 runtime 会 panic）。
+    loaded: std::sync::atomic::AtomicBool,
 }
 
 impl Default for ExperienceStore {
@@ -60,6 +65,47 @@ impl ExperienceStore {
         Self {
             entries: tokio::sync::RwLock::new(Vec::new()),
             file_path: std::sync::Mutex::new(None),
+            loaded: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// D-119：只登记路径、**不读盘**（同步；供 CLI 在构造 AgentLoop 时调用）。
+    /// 真正的读盘推迟到首次 `append`/`recent_failures`（均为 async）。
+    pub fn set_path_deferred(&self, path: PathBuf) {
+        *self.file_path.lock().unwrap() = Some(path);
+        self.loaded
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// D-119：懒加载——只做一次（`loaded` 置位）。读盘走同一有界原语 + 同一截断留痕。
+    async fn ensure_loaded(&self) {
+        if self.loaded.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let path = {
+            let fp = self.file_path.lock().unwrap();
+            match *fp {
+                Some(ref p) if p.exists() => p.clone(),
+                _ => return,
+            }
+        };
+        match Self::read_file_bounded(&path, MAX_EXPERIENCE_FILE_BYTES).await {
+            Ok((content, _)) => {
+                let mut loaded: Vec<Experience> = Vec::new();
+                for line in content.lines() {
+                    if let Ok(exp) = serde_json::from_str::<Experience>(line) {
+                        loaded.push(exp);
+                    }
+                }
+                let n = loaded.len();
+                let mut entries = self.entries.write().await;
+                entries.extend(loaded);
+                tracing::info!(loaded = n, path = %path.display(), "experience store lazily loaded");
+            }
+            Err(e) => tracing::warn!(
+                path = %path.display(),
+                "experience 懒加载失败（旁路，不阻断）: {e}"
+            ),
         }
     }
 
@@ -100,22 +146,54 @@ impl ExperienceStore {
         }
         // Set the path for future appends.
         *self.file_path.lock().unwrap() = Some(path);
+        // D-119：本路径已 eager 读盘，置位以免懒加载再读一次。
+        self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     /// v16.0: Append one entry to the JSONL file (called inside append()).
+    ///
+    /// D-120（2026-10-02, traecode）：**不再静默吞错，且自动建父目录**。
+    /// 病灶（实测）：此前 `if let Ok(mut f) = OpenOptions…open(path)` —— 父目录不存在
+    /// 时 open 直接失败、被 `if let Ok` 静默丢弃；写入错误同样只 `let _ =`。
+    /// 后果：用户把 `HEARTH_EXPERIENCE_FILE` 指到一个尚未创建的目录（CLI 默认
+    /// `<cwd>/memory/experience.jsonl` 的 `memory/` 常不存在）时，**经验条目静默丢失**，
+    /// 语料永远长不起来（实测：CLI 跑完 exit 0，文件根本没生成）。现改为建目录 +
+    /// 逐处 warn 留痕（条目仍会留在内存里，不因此中断 run）。
     fn append_to_disk(&self, exp: &Experience) {
         let fp = self.file_path.lock().unwrap();
         let Some(ref path) = *fp else { return };
-        if let Ok(line) = serde_json::to_string(exp) {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-            {
-                let _ = writeln!(f, "{line}");
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    tracing::warn!(
+                        dir = %parent.display(),
+                        "experience: 创建目录失败（条目仅存内存，未落盘）: {e}"
+                    );
+                    return;
+                }
             }
+        }
+        match serde_json::to_string(exp) {
+            Ok(line) => {
+                use std::io::Write;
+                match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    Ok(mut f) => {
+                        if let Err(e) = writeln!(f, "{line}") {
+                            tracing::warn!(path = %path.display(), "experience: 写入失败: {e}");
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        path = %path.display(),
+                        "experience: 打开文件失败（条目仅存内存，未落盘）: {e}"
+                    ),
+                }
+            }
+            Err(e) => tracing::warn!("experience: 序列化失败（条目未落盘）: {e}"),
         }
     }
 
@@ -129,6 +207,7 @@ impl ExperienceStore {
     /// Store a new experience.
     /// v16.0: Also appends to the JSONL file if set_path was called.
     pub async fn append(&self, exp: Experience) -> Result<(), String> {
+        self.ensure_loaded().await; // D-119：延迟加载（避免懒加载晚于首次 append 造成漏读）
         self.append_to_disk(&exp);
         let n = {
             let mut entries = self.entries.write().await;
@@ -151,6 +230,7 @@ impl ExperienceStore {
         if limit == 0 {
             return Vec::new();
         }
+        self.ensure_loaded().await; // D-119：延迟加载
         let entries = self.entries.read().await;
         entries
             .iter()
@@ -273,6 +353,64 @@ mod tests {
 
     // D-107：`upgrade_core_returns_high_quality` 已随该接口一并删除
     // （它依赖无写入方的 `reference_count`，恒空；保留测试等于给死接口续命）。
+
+    /// D-120：父目录不存在时**必须自动创建并落盘**（此前 open 失败被 `if let Ok`
+    /// 静默丢弃 ⇒ 条目消失、语料长不起来）。红侧：不建目录时 `p.exists()` 为 false。
+    #[tokio::test]
+    async fn append_creates_missing_parent_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir
+            .path()
+            .join("nested")
+            .join("deeper")
+            .join("experience.jsonl");
+        assert!(!p.parent().unwrap().exists(), "前置：父目录必须不存在");
+
+        let store = ExperienceStore::new();
+        store.set_path_deferred(p.clone());
+        store.append(make_exp("x1", "p", "s")).await.unwrap();
+
+        assert!(
+            p.exists(),
+            "父目录不存在时必须自动创建并落盘: {}",
+            p.display()
+        );
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(text.contains("\"x1\""), "条目必须真的写进文件: {text}");
+    }
+
+    /// D-119：`set_path_deferred` 只登记路径；首次 async 触达才读盘，且**只读一次**。
+    /// 红侧（若不做懒加载）：`recent_failures` 看不到既有条目（len 恒 0）。
+    #[tokio::test]
+    async fn set_path_deferred_loads_lazily_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("experience.jsonl");
+        let seed = Experience {
+            id: "seed".into(),
+            category: "failure".into(),
+            problem: "p".into(),
+            solution: "失败原因=verify_failed".into(),
+            success: false,
+            effectiveness: 0.6,
+            created_at: "2026-01-01T00:00:00+00:00".into(),
+        };
+        std::fs::write(&p, format!("{}\n", serde_json::to_string(&seed).unwrap())).unwrap();
+
+        let store = ExperienceStore::new();
+        store.set_path_deferred(p.clone());
+        assert_eq!(store.len().await, 0, "延迟加载：仅登记路径时不读盘");
+
+        let hits = store.recent_failures(0.5, 5).await;
+        assert_eq!(hits.len(), 1, "首次访问必须懒加载既有条目");
+        assert_eq!(hits[0].id, "seed");
+
+        let _ = store.recent_failures(0.5, 5).await;
+        assert_eq!(
+            store.len().await,
+            1,
+            "懒加载只做一次（不重复读盘/不重复计数）"
+        );
+    }
 
     /// D-116：取数口必须**失败专属 + 质量过滤 + 有界窗口（取最新）**。
     #[tokio::test]

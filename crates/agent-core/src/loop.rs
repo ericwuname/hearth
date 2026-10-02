@@ -5632,12 +5632,14 @@ impl Agent for AgentLoop {
                 effectiveness: effect,
                 created_at: Utc::now().to_rfc3339(),
             };
-            let store_clone = store.clone();
-            tokio::spawn(async move {
-                if let Err(e) = store_clone.append(exp).await {
-                    tracing::warn!("experience append failed: {}", e);
-                }
-            });
+            // D-120（2026-10-02, traecode）：**必须 awaited**——此前是 `tokio::spawn`
+            // fire-and-forget，短命进程（CLI 一次 run 即退出）会在 append 落地**之前**
+            // 结束 ⇒ 条目**静默丢失**。实测：CLI 跑完（answer 正确、exit 0）但
+            // `experience.jsonl` 根本没生成。追加是本地小写（一次 open+write），
+            // awaited 的成本可忽略；失败仍只 warn、不阻断交付。
+            if let Err(e) = store.append(exp).await {
+                tracing::warn!("experience append failed: {}", e);
+            }
         }
 
         // ── S14（手术包二）：任务总结（TL;DR）——**所有收尾路径的唯一挂载点**

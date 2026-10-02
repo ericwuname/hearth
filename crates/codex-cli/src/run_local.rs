@@ -208,6 +208,36 @@ fn wrap_telemetry(p: Arc<dyn llm_gateway::LlmProvider>) -> Arc<dyn llm_gateway::
     Arc::new(llm_gateway::TelemetryProvider::wrap(p, "cli"))
 }
 
+/// D-119（2026-10-02, traecode）：给 CLI 侧 AgentLoop 接上**经验库**。
+///
+/// 病灶：`codex-cli` 全仓零 `ExperienceStore` 引用 —— 经验（自演化）的**写入与复用
+/// 只在 service 侧存在**，CLI 直跑（也是 `bench/` 的运行方式）完全缺失 ⇒ D-116 的
+/// A/B 基准语料产不出来。
+///
+/// 路径：`HEARTH_EXPERIENCE_FILE`（默认 `<cwd>/memory/experience.jsonl`，与 service 的
+/// `MEMORY_DIR/experience.jsonl` 默认值一致）。**延迟加载**（`set_path_deferred`）：
+/// 本函数的调用点混有同步上下文，而 `set_path` 是 async；把 async 传染到三处构造点
+/// 代价大于收益（在 async 上下文里临时起 runtime 会 panic）。首次 `append` /
+/// `recent_failures`（均为 async）时自动读盘。
+pub(crate) fn attach_experience(
+    agent: &mut agent_core::AgentLoop,
+) -> Arc<experience::ExperienceStore> {
+    let path = std::env::var("HEARTH_EXPERIENCE_FILE")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("memory")
+                .join("experience.jsonl")
+        });
+    let store = Arc::new(experience::ExperienceStore::new());
+    store.set_path_deferred(path);
+    agent.set_experience_store(store.clone());
+    store
+}
+
 /// X1-3/X1-4 (v0.1.6): 重建 AgentLoop（REPL 崩溃恢复 + resume 本地恢复共用）。
 /// 同一 session_id——历史经 restore_history 灌回后可继续对话。
 pub(crate) fn rebuild_agent(
@@ -238,6 +268,7 @@ pub(crate) fn rebuild_agent(
     );
     fresh.set_session_id(session_id.to_string());
     attach_session_safety(&mut fresh, session_id, &snap_cwd);
+    attach_experience(&mut fresh); // D-119
     Ok(fresh)
 }
 
@@ -407,7 +438,8 @@ pub async fn run_local(
         },
         goal,
     );
-    // RC24-B/C: 审批策略注入——显式委托 > 非交互 deny-all > 默认逐条审批。
+    attach_experience(&mut agent); // D-119：CLI 侧经验库（此前完全没有）
+                                   // RC24-B/C: 审批策略注入——显式委托 > 非交互 deny-all > 默认逐条审批。
     if approve_within {
         agent.set_approval_policy(ApprovalPolicy::DelegateSession);
         render::info("  🔓 会话级审批委托已开启（--approve-within session）——命令表级破坏性操作自动放行（逐条审计）；fork bomb/设备写/内核接口仍需审批");
