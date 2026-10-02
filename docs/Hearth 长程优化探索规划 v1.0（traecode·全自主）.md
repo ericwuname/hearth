@@ -18,7 +18,7 @@
 `service` / `llm-gateway` / `llm-replay` 十个 crate（此前未体检）。
 产出：**5 修 + 1 订正**（含 agent-core `Hearth.md` 完全无上限并整段注入系统提示、
 `constitution.md` 截断前先 OOM 两个**项目文件**落点）；另登记开放债 D-74/D-76/D-77/D-78。
-**累计卡数 89**（含 P1-78）。最新五轮 **P1-56 ~ P1-78 ＝ D-92 ~ D-113**（2026-10-02）：
+**累计卡数 90**（含 P1-79）。最新五轮 **P1-56 ~ P1-79 ＝ D-92 ~ D-114**（2026-10-02）：
 ①**"用户可见面 vs 代码"第三轮**（API 契约缺项 / 配置参考 / provider 注册与降级链）；
 ②**"未体检 crate"体检**（subconscious / tool-runtime / experience / observer）；
 ③**长程债务收口 + CLI/provider 面**（D-74 会话事件缓冲；CLI 选项被静默忽略；多数票
@@ -26,8 +26,10 @@
 ④**onboarding/上手面 + 经验复用裁决**（`.env` 接线；experience 复用接口按联网核实结论退役）；
 ⑤**service/文档可见面**（文明线公告写进无人读取的档 ⇒ 用户看不到；README 安装命令等
 多处与代码不符）；
-⑥**入库卫生第 3 轮**（误跟踪的 Python 字节码缓存 ⇒ 摘除 + 门禁防复发）。
-共 **23** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
+⑥**入库卫生第 3 轮**（误跟踪的 Python 字节码缓存 ⇒ 摘除 + 门禁防复发）；
+⑦**agent-core 未体检模块体检**（terminal/context/scheduler/talent/constitution）——
+发现并退役一整层"被结构性架空"的失败分类/恢复策略决策支持层。
+共 **24** 张卡均已修/订正，每卡独立 commit + 门禁四件套 + 推送（另加
 **运行期冒烟**一次：`.env`→provider→请求→401 诚实降级全链路正常）；
 开放债＝**D-109**（agent-loop 的 civ 写入缺 session→owner 归属链，需先设计）+
 **D-84**（`read_only_view`，倾向保留）+ D-78 余项 + **经验复用（设计课题）**：须满足
@@ -119,6 +121,7 @@
 | P1-76 | `3ba9492` | **D-111① 收口（service 错误码/静默失败/不实注释）**：① `open_artifact`/`open_external` 的 `Err` **一律**映射 `ERR_SESSION_NOT_FOUND` **配 400**——把"路径穿越被拒/产物读失败"报成"会话不存在"，且码与状态自相矛盾；而 SessionManager 的错误只能靠文本区分，本项目**明令禁止**文本判定（RC20）⇒ 改**先显式判存在性**（404 vs 400），与文件内 `session_stream` 既有做法同款；② `install_tool` 失败返回 `ERR_INTERNAL` **配 400** ⇒ 改 `ERR_INVALID_PARAM`；③ `templates.rs::load` 单文件读/解析失败被两层 `if let Ok` **静默丢弃**（用户只见"模板不见了"）⇒ 逐项 warn 留痕；④ `webhook.rs` 注释称"per-user keyed by user_id"而实现是裸 `Vec` ⇒ 如实订正 |
 | P1-77 | `82f1d3e` | **D-111② 收口（service 死项/不实文档）**：① 删 `service::user::UserContext`（自称"每请求注入"，实为**无构造方无读取方**的死类型；真实身份解析是 `get_user_id` + `PerUserStore::civ_for(uid)`）；② 删 `TemplateManager::get`（零调用，`/templates` 只用 `list()`）；③ 删 `AppState.observer`（请求态**零读取方**；真正的第三权接线是 `sessions.set_observer(...)`，拷贝只会让人误以为每请求都过 Observer）。**保留而非删除**并如实留痕：`api` 的四个零生产者错误码常量（对外错误码词表，删掉＝单方缩小契约面；标注"现役 5 个 / 预留 4 个，启用须同时接线"）。**D-111 至此全部收口** |
 | P1-78 | `d47641f` | **D-113 收口（入库卫生第 3 轮：解释器字节码缓存）**：`.gitignore` 只窄忽略 `window-framework/src/__pycache__/` ⇒ `bench/`、`docs/data/`、`ember/` 三处共 **4 个 `__pycache__/*.pyc` 被误跟踪**（CPython 自动生成的字节码，非源码）。处置：`git rm --cached` 4 文件（内容留盘）+ 窄规则改全局 `__pycache__/`+`*.pyc`+`*.pyo` + 门禁 `gitignore_runtime_products_gate.rs` 新增 `interpreter_caches_are_gitignored`（**先红后绿**：移除规则即如实报红）。**与 D-5/D-112 同一族**（运行期产物不得入库） |
+| P1-79 | `e67ae48` | **D-114 收口（agent-core 未体检模块体检：退役"被结构性架空"的失败分类/恢复策略层）**：`terminal.rs` 四组纯函数（`classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness`）**全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）早于 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块亦随线C手术（D-10）消失 ⇒ 生产者结构性消失且 R6-5 明载"勿复活旧通道" ⇒ **退役删除**（同 D-66/D-83/D-85 口径，非重新接线）。连带移除 loop.rs 中**恒空**的两处 report 投影 + handover 字段 + 快照白名单两键，据实订正 3 处指向已删生产者的过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集（并订正 `is_terminal_state` 的不实 doc）。**新增门禁** `retired_failure_channel_gate.rs`（逐行剥 `//` 后文本级拦截退役标识符；**先红后绿**——注入代码即报红）。净 −432/+122 |
 
 **基线变化**：失败 target **3 → 0**，失败用例 **13 → 0**，门禁从"常红 19 天"转为**全绿**（P1-07 后为**真·CI 绿**：本地口径与 CI 口径均已实证通过）。
 
@@ -340,6 +343,7 @@ cargo check -p sandbox --target x86_64-unknown-linux-gnu --all-targets   # Linux
 | **D-111** | **service 内部批次**：① `install_tool` 用 `ERR_INTERNAL`+400（码与状态自相矛盾）；② `open_artifact`/`open_external` 的"路径非法"与"会话不存在"混用 `ERR_SESSION_NOT_FOUND`+400；③ `templates.rs` 两层 `if let Ok` 静默丢弃；④ `api` 四个零消费者错误码常量；⑤ `service::user::UserContext` 零构造零读取（doc 却称"每请求注入"）；⑥ `TemplateManager::get` 零调用；⑦ `webhook.rs` 注释称 per-user 实为裸 `Vec`；⑧ `AppState.observer` 只写不读 | service 内部模块审计 | **已全部收口**（P1-76 ①②③⑦；P1-77 ⑤⑥⑧ + ④ 改为**如实留痕保留**〔对外错误码词表，删掉＝单方缩小契约面〕） | **close** |
 | **D-109** | **agent-loop 的 civ 写入（`CivWriterAdapter`）缺 `session → 归属用户` 链**：它仍写全局档 ⇒ 自动写入的 milestone/reflection 在 API 上不可见；修它需给 `Session` 加 owner（现在没有）并打通 `create_session`，属**需先设计的接线** | P1-72 连带发现（同一病灶另一半） | **登记**：已在适配器文档头如实标注；**倾向**：与 experience 复用同批设计（都是"写入可见面缺失"），先出设计再接线 | **登记** |
 | **D-113** | **误跟踪的解释器字节码缓存**：`.gitignore` 只窄忽略 `window-framework/src/__pycache__/` ⇒ `bench/`、`docs/data/memory-context-20260830/`、`ember/` 三处的 `__pycache__/*.pyc`（共 4 文件）被误跟踪——CPython 自动生成的字节码，非源码、可随时重建 | 入库卫生第 3 轮（承 D-5/D-112） | **已修**（P1-78）：`git rm --cached` 4 文件（内容留盘）+ 窄规则改全局 `__pycache__/`/`*.pyc`/`*.pyo` + 门禁 `gitignore_runtime_products_gate.rs` 增 `interpreter_caches_are_gitignored`（先红后绿） | **close** |
+| **D-114** | **agent-core「失败分类 / 恢复策略」决策支持层被结构性架空**：`terminal.rs` 的 `classify_failure`/`FailureKind`、`failure_strategy`/`RecoveryStrategy`、`strategy_suggestion`、`completion_readiness`/`CompletionReadiness` **全仓零消费者**（仅自测）；其唯一下游通道（scratch 键 `last_failure_class`/`last_recovery_strategy` 的"R5-1 中转注入块"）已被 R6-5 依"判定权归还范式"主动删除、Reflect 相位分类块随线C手术（D-10）消失 ⇒ loop.rs 仍**读**这两键却**无写入方**（恒 null，且投影进 run report/handover） | agent-core 逐文件体检（terminal/context/scheduler/talent/constitution） | **已退役删除**（P1-79，同 D-66/D-83/D-85 口径——生产者结构性消失且 R6-5 明载"勿复活旧通道"，故**不重新接线**）：删四组纯函数 + 上下游恒空字段 + 快照白名单两键 + 订正 3 处过期注释；保留现役 `normalize_terminal_state` 与 G1 九态封闭集；**新增门禁** `retired_failure_channel_gate.rs`（先红后绿）钉住退役 | **close** |
 | **D-110** | **README/命名文档与代码不符**（用户第一触点）：`sh install.sh`（实际在 `bench/install.sh`）、seccomp 106↔136、cgroup 数值、`--observer-verdict` 两 token 示例必报错、`hearth chat` 示例缺 goal、版本示例过期、徽章文案、`hearth-rs` 非可执行名 | README/文档审计 | **已修**（P1-74）：逐项据代码订正 + **新增 README 路径门禁**（先红后绿）。**未覆盖**：文档里数值/行为描述的持续一致性（需逐项人工核对，本轮已手工订正 seccomp/cgroup 两处） | **close** |
 | **D-77** | **低危无界读入（配置/manifest/replay，均未走共享原语）**：`service/main.rs:411`(config.toml)/`:459`(providers.json)、`service/templates.rs:31`、`tool-runtime/registry.rs:100`(manifest.toml)、`llm-gateway/cost.rs:276`(`HEARTH_PRICE_FILE`)、`llm-replay/lib.rs:84`(replay 夹具) | 本轮体检归纳 | **裁决「不改」（by design，2026-10-01）**——理由：这六处读的是**操作者自己的本机文件**（配置/清单/价表/replay 夹具），既不来自不可信来源、也**不具备无界增长特性**（对比 D-70 的只增日志、D-75 的 cwd 项目文件、D-55/D-58 的网络响应）。给它们加上限**不会带来任何安全收益**，却有**真实的回归风险**：合法的超大 `providers.json`/夹具一旦被截断 → JSON 解析失败 → provider 发现/夹具加载**静默降级**（比"读全"更糟）。故**不改**；"全仓文件读只剩 `bounded-io` 一份"的收敛目标限于**确有边界的读**，不为此把每处配置读都套上 cap | **close · 裁决「不改」** |
 | **D-78** | **零调用方小项批次**：`service::sse.rs:51 sse_stream`（routes 只用 `_with_replay`）、`llm-gateway::types::PropertySchema`（仅自引用）、`llm-gateway::fallback.rs:94` 固有 `stream()` 与 trait 实现**函数体重复**；`CostMeter` 的 `total_prompt_tokens`/`total_completion_tokens`/`entry_count`/`iter` 仅自测调用（删除需同删其断言） | 本轮体检归纳 | **部分已修**（P1-42）：删 `sse_stream` + `PropertySchema`（原位留注）。余项**保留待裁**：`fallback` 固有 `stream()` 删除需先确认无类型推断依赖；`CostMeter` 四个访问器删除会连同断言拿掉、降低 `record()` 覆盖 ⇒ 倾向保留 | **close（部分）· 余项登记** |
