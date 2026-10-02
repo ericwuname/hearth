@@ -13,7 +13,13 @@ pub struct WebhookConfig {
     pub events: Vec<String>,
 }
 
-/// In-memory webhook registry (per-user keyed by user_id, for future per-user isolation).
+/// In-memory webhook registry.
+///
+/// D-111（2026-10-02, traecode）**注释订正**：旧注释称 "per-user keyed by user_id,
+/// for future per-user isolation"——**不实**：本结构就是一张**裸 `Vec`**，没有
+/// user_id 维度（`register` 只 push，`fire` 对所有 hook 广播）。多用户隔离属
+/// **未实现的能力**；真要做得先给 hook 加 owner 维度并改 fire 的筛选条件
+/// （属能力扩展），故此处只如实订正，不虚挂。
 pub struct WebhookManager {
     hooks: RwLock<Vec<WebhookConfig>>,
 }

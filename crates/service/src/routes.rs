@@ -318,6 +318,16 @@ pub async fn open_artifact(
             StatusCode::BAD_REQUEST,
         ));
     }
+    // D-111：同 `open_external`——先判存在性（404），再谈产物错误（400）。
+    // 原实现把两者都写成 `ERR_SESSION_NOT_FOUND` + 400（码与状态自相矛盾，
+    // 且"路径穿越被拒"被报成"会话不存在"）。
+    if state.sessions.get_session(&id).await.is_none() {
+        return Err(api_err(
+            ERR_SESSION_NOT_FOUND,
+            format!("session not found: {id}"),
+            StatusCode::NOT_FOUND,
+        ));
+    }
     match state.sessions.open_artifact(&id, &rel).await {
         Ok(content) => Ok((
             StatusCode::OK,
@@ -328,7 +338,7 @@ pub async fn open_artifact(
             content,
         )),
         Err(e) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
+            ERR_INVALID_PARAM,
             format!("{e}"),
             StatusCode::BAD_REQUEST,
         )),
@@ -350,10 +360,25 @@ pub async fn open_external(
             StatusCode::BAD_REQUEST,
         ));
     }
+    // D-111（2026-10-02, traecode）：**先显式判会话是否存在**，再区分错误语义。
+    //
+    // 病灶：原实现的 `Err` 一律映射成 `ERR_SESSION_NOT_FOUND` + **400**——于是
+    // "路径穿越被拒 / 产物读失败"（客户端错）与"会话不存在"（应 404）混成同一个码，
+    // 且错误码与状态码自相矛盾（"未找到"配 400）。而 `SessionManager` 的错误**只能**
+    // 靠错误文本区分，本项目**明令禁止**文本判定（RC20 反模式禁令，见 dispatcher.rs）。
+    // ⇒ 用"先查存在性"消除歧义：不存在 → 404 SESSION_NOT_FOUND；其余 → 400 INVALID_PARAM。
+    // （同款存在性检查已是本文件 `session_stream` 的既有做法。）
+    if state.sessions.get_session(&id).await.is_none() {
+        return Err(api_err(
+            ERR_SESSION_NOT_FOUND,
+            format!("session not found: {id}"),
+            StatusCode::NOT_FOUND,
+        ));
+    }
     match state.sessions.open_external(&id, &rel).await {
         Ok(msg) => Ok((StatusCode::OK, msg)),
         Err(e) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
+            ERR_INVALID_PARAM,
             format!("{e}"),
             StatusCode::BAD_REQUEST,
         )),
@@ -1185,7 +1210,13 @@ pub async fn install_tool(
             StatusCode::OK,
             Json(serde_json::json!({"status":"already_installed","tool":name})),
         )),
-        Err(e) => Err(api_err(ERR_INTERNAL, e, StatusCode::BAD_REQUEST)),
+        Err(e) => Err(api_err(
+            // D-111：`ToolRegistry::install` 的失败是**清单本身不合法/重复冲突**（客户端错），
+            // 原映射 `ERR_INTERNAL` + 400 自相矛盾（"内部错误"配客户端状态码）。
+            ERR_INVALID_PARAM,
+            e,
+            StatusCode::BAD_REQUEST,
+        )),
     }
 }
 
