@@ -21,10 +21,10 @@ install -m755 target/release/codex ~/.cargo/bin/codex   # 别名（可选）
 
 ```bash
 # ① 本地 tarball（当前 v0.1 交付模式）
-LOCAL_TARBALL=/path/to/hearth-v0.1-x86_64-unknown-linux-gnu.tar.gz sh install.sh
+LOCAL_TARBALL=/path/to/hearth-v0.1-x86_64-unknown-linux-gnu.tar.gz sh bench/install.sh
 
 # ② 远程 tarball（发布到公网后）
-HEARTH_BASE_URL=https://<host>/hearth/releases/download sh install.sh
+HEARTH_BASE_URL=https://<host>/hearth/releases/download sh bench/install.sh
 ```
 
 - 默认装到 `/usr/local/bin`；`HEARTH_BIN_DIR=<dir>` 可改。
@@ -34,8 +34,8 @@ HEARTH_BASE_URL=https://<host>/hearth/releases/download sh install.sh
 ### 验证安装
 
 ```bash
-hearth --version   # → hearth 0.1.2 (83fbf9d)   —— 版本 + commit hash（R3）
-codex --version    # → hearth 0.1.2 (83fbf9d)
+hearth --version   # → hearth <版本> (<commit>)   —— 版本 + commit hash（R3）
+codex --version    # → hearth <版本> (<commit>)
 ```
 
 > **不要用 `strings /usr/local/bin/hearth | grep <函数名>` 验证版本**——release 二进制符号被
@@ -48,12 +48,15 @@ codex --version    # → hearth 0.1.2 (83fbf9d)
 
 | 优先级 | 来源 | 示例 |
 |---|---|---|
-| 1（最高） | 命令行参数 | `hearth chat --provider deepseek --api-key sk-...` |
-| 2 | 环境变量 | `export HEARTH_API_KEY=sk-...` |
+| 1（最高） | 命令行参数 | `hearth chat "目标" --provider deepseek --api-key sk-...` |
+| 2 | 环境变量（含自动加载的 `.env`，见 `.env.example`） | `export HEARTH_API_KEY=sk-...` |
 | 3 | 配置文件 | `~/.config/hearth/config.toml` |
 | 4 | 内置默认 | provider=deepseek, model=deepseek-v4-flash |
 
 配置文件即真相源（不进 git、可备份）；CLI 子命令 = 改文件的界面。
+
+> `.env`（D-106）：**CLI 与 service 都会自动加载工作目录下的 `.env`**（从 cwd 向上查找）。
+> 已存在的进程环境变量**优先**（不会被 `.env` 覆盖）。
 
 ```bash
 hearth init                              # 交互式首次引导（provider / api-key / url 三问）
@@ -76,8 +79,8 @@ hearth config get api-key                # 读取
 ### 3.1 隔离状态徽章（每次启动打印）
 
 ```
-🔒 sandbox: linux · landlock + seccomp (fail-closed)   # Linux 真隔离
-⚠️ sandbox: noop · 仅开发模式，无真实隔离               # 非 Linux（Windows/macOS）
+🔒 sandbox: linux · landlock+seccomp (fail-closed)   # Linux 真隔离
+⚠️ noop · 仅开发模式（无真实沙箱）                     # 非 Linux（Windows/macOS）
 ```
 
 ### 3.2 三层纵深（Linux）
@@ -85,8 +88,8 @@ hearth config get api-key                # 读取
 | 层 | 默认 | 说明 |
 |---|---|---|
 | **landlock** | ON | 文件系统权限裁剪：只读 `read_only_paths`、可写 `writable_paths` |
-| **seccomp** | **KILL 化** | 白名单（106 个）外 syscall → 直接 SIGSYS 杀子进程（"漏网即死"） |
-| **cgroup v2** | **fail-closed** | 内存/CPU/进程数硬上限（默认 512MB / 1.0s / 256）；不可用 → 报错不静默 |
+| **seccomp** | **KILL 化** | 白名单（**136** 个 syscall）外 → 直接 SIGSYS 杀子进程（"漏网即死"） |
+| **cgroup v2** | **fail-closed** | 内存/CPU/进程数硬上限（默认 **512MB / 10s / 32**；构建类工具用 `for_build_tools`＝**4GB / 600s / 512**）；不可用 → 报错不静默 |
 
 ### 3.3 环境变量开关（显式降级，非静默）
 
@@ -119,14 +122,17 @@ cgroup 需要 root 或完整 delegation 才真正生效；VM 下按 README 指�
 |---|---|---|
 | AI 侧（自动） | 事件流（plan_draft/tool_call/need_approval/...） | `<sid>.jsonl` |
 | 人类侧（主动） | `hearth note` | `human-<sid>.jsonl` |
-| 反审（主动） | `hearth note --observer-verdict n "理由"` | `rebuttals/<sid>.jsonl` |
+| 反审（主动） | `hearth note --observer-verdict n` | `rebuttals/<sid>.jsonl` |
 
 ```bash
 hearth note "它把配置当成了可写路径，很危险"                        # 纯观察
 hearth note --session s1 --self "理解偏差" "我的表述有歧义"          # 自我标注
 hearth note --session s1 --mood frustrated "审批流程卡了我三次"      # 情绪标注
-hearth note --session s1 --observer-verdict n "Observer 判错了"      # 反审（只落盘不改规则）
+hearth note --session s1 --observer-verdict n                      # 反审（只落盘不改规则）
 ```
+
+> `--observer-verdict` **只收一个值**，且仅当该值**恰为 `n`** 时才产生"异常信号"
+> （D-105：旧文档写的 `--observer-verdict n "理由"` 两 token 形态会被 clap 判为多余参数报错）。
 
 ---
 
@@ -161,4 +167,5 @@ hearth chat "用 Rust 写一个 add 函数并加测试" --budget 6
 # → 产物真实落盘
 ```
 
-CLI 直跑无需起 service、无需 .env——`HEARTH_API_KEY` 一个 env 或 `hearth config set api-key` 即跑。
+CLI 直跑**不需要**起 service：`HEARTH_API_KEY` 一个 env 或 `hearth config set api-key` 即跑。
+（`.env` 也**不必需**，但 CLI 会自动加载它——见 §2；推荐 `cp .env.example .env` 后填值。）

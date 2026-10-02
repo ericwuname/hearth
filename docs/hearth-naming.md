@@ -10,7 +10,8 @@
 
 - **项目 / 产品名**：**Hearth**
 - **中文释义（仅注不译）**：赫兹（频率共振）/ 炉边（家的安稳）
-- **仓库 / CLI 名**：`hearth-rs`（技术栈后缀，内部用）
+- **仓库 / CLI 名**：仓库/包前缀 `hearth`；**实际命令行二进制是 `hearth`**（`crates/codex-cli` 的 `[[bin]] name = "hearth"`，`codex` 为兼容别名）。
+  （D-110 订正：旧文写作 `hearth-rs`——那只是技术栈后缀的内部称呼，**不是可执行名**，照敲会 command not found。）
 - **旧名 `codex-rust`**：标 deprecated 别名，**不删、不强制改目录名**（避免断 git 历史与链接）。
 
 ---
@@ -37,7 +38,7 @@
 | Hearth 语义 | 项目既有结构 |
 |---|---|
 | 频率共振 | Observer 第三权（听而非令）、三端口对齐 |
-| 家的安稳 | G0 硬安全边界（landlock + 待做 seccomp，默认 fail-closed） |
+| 家的安稳 | G0 硬安全边界（landlock + **seccomp 已 KILL 化落地**〔白名单 136 syscall〕+ cgroup v2 fail-closed；D-110 订正：旧文"待做 seccomp"已过时） |
 | 放心走开 | 可信委托（Telos 唯一目标函数）、事实产生权公理、透明自治 |
 
 ---
