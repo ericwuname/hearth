@@ -9,6 +9,10 @@
 > ——即运维部署一份 hearth 需要知道的那批。CLI 直跑模式的其余旋钮见 `hearth --help`
 > 与 `~/.config/hearth/config.toml`（`hearth config get` 可打印）。
 > 默认值一栏以代码为准；`—` 表示默认未设置。
+>
+> **`.env` 加载（D-106 起）**：**service 与 CLI 都会自动加载工作目录下的 `.env`**
+> （`dotenvy`，从 cwd 向上查找；仓库模板见 `.env.example`，`.env` 已被 `.gitignore` 忽略）。
+> 优先级：**已存在的进程环境变量 > `.env`**（dotenvy 不覆盖），命令行参数优先级最高。
 
 ## 服务端口
 

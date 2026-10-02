@@ -348,6 +348,20 @@ fn validate_mode(mode: Option<&str>, has_url: bool) -> Option<String> {
 
 /// 主入口（hearth 与 codex 别名共享）。
 pub async fn hearth_main() -> Result<()> {
+    // ── D-106（2026-10-02, traecode）：加载 `.env` ──
+    //
+    // 病灶：`hearth setup` 会写 `./.env`（`CODEX_URL`/`CODEX_API_KEY`），仓库里也有
+    // 既定的上手模板 `.env.example`（"复制为 .env 并填入真实值"）——**但 CLI 从不读
+    // .env**（只有 service 侧 `dotenvy::dotenv()`），于是整条 onboarding 路径对 CLI
+    // 是死的：用户按模板配好 key，`hearth chat` 依旧报"未配置"。
+    //
+    // 处置＝接线（而非停写 .env）：`.env` 已在 `.gitignore` 首行（无泄露面），service
+    // 早已加载（两侧解释同一份部署应一致），且 `dotenvy` **不覆盖**已存在的进程 env
+    // ⇒ 与既有的"参数 > env > config > 默认"优先级不冲突（进程 env 仍然最优先）。
+    //
+    // 位置必须在**任何 env 读取之前**（下方 provider/url/api_key 解析全部依赖 env）。
+    let _ = dotenvy::dotenv();
+
     // ── R3-3 降噪三档 CLI 接线（对话可用性根治任务书 v1.0；W-F）──
     // `hearth --quiet ...` / `hearth --verbose ...`（全局 flag，位置无关）。
     // quiet = 0 横幅 0 工具行 0 流式增量（472 条横幅淹没正文的静音档）；

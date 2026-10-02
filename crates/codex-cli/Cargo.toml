@@ -45,6 +45,9 @@ tracing.workspace = true
 toml = "0.8"
 uuid.workspace = true
 chrono.workspace = true
+# D-106：CLI 也要读 `.env`（hearth setup / .env.example 的上手路径此前对 CLI 是死的；
+# 版本与 service 侧保持一致）。
+dotenvy = "0.15"
 
 [dev-dependencies]
 tempfile = "3"
