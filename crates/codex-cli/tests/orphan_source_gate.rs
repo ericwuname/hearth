@@ -143,15 +143,17 @@ fn no_orphan_source_files_in_crates() {
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
-            (
-                stem.clone(),
-                vec![
-                    dir.join("mod.rs"),
-                    dir.join(format!("{dir_name}.rs")),
-                    dir.join("lib.rs"),
-                    dir.join("main.rs"),
-                ],
-            )
+            // D-136（2026-10-04）：「声称≠实现」修复。文件头判据明载
+            // `foo/bar.rs` 由 `foo.rs` **或** `foo/mod.rs` 声明，但此处此前写成
+            // `dir.join(format!("{dir_name}.rs"))`（= `src/foo/foo.rs`——一个**永不
+            // 存在**的路径），于是 Rust 2018 的合法形态（`src/foo.rs` 里 `mod bar;`
+            // ⇒ 编译器把它解析到 `src/foo/bar.rs`）被**误报为孤儿**（false positive）。
+            // 正确声明方是**同级兄弟** `src/foo.rs` = `dir.parent()/foo.rs`。
+            let mut declarers = vec![dir.join("mod.rs"), dir.join("lib.rs"), dir.join("main.rs")];
+            if let Some(parent) = dir.parent() {
+                declarers.push(parent.join(format!("{dir_name}.rs")));
+            }
+            (stem, declarers)
         };
 
         let declared = declarers
