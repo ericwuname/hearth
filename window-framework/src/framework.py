@@ -4,8 +4,11 @@
 独立项目，不依赖 codex-rust 主仓库源码。实现 v0.1 必备 9 条命令：
   project create/open/status
   window list/create/start/stop/delete/restore
-  framework check（窗口 wiring 4 断言，补丁7）
-其余命令（snapshot/rollback/conflict/budget/export/import/template）在 --help 占位。
+  framework check（窗口 wiring 5 断言，补丁7）
+（D-133 订正：原注写「其余命令 snapshot/rollback/conflict/budget/export/import/template
+  在 --help 占位」——实测**除 `budget` 外**这些命令早已实现并进 `--help`：snapshot /
+  rollback / snapshot-list / analyze / compress / export / import / conflict / template /
+  run / resume 全在 `main()` 里注册。原句是过期描述，据实现订正。）
 """
 import argparse
 import json
@@ -66,7 +69,7 @@ gate = ""
 # ── 框架断言（补丁7：窗口群 wiring）──────────────────────────
 
 class FrameworkCheck:
-    """codex framework check — 4 条断言，每条可失败（对齐 project-xray 哲学）。"""
+    """codex framework check — 5 条断言，每条可失败（对齐 project-xray 哲学）。"""
 
     def __init__(self, project_root: Path):
         self.root = project_root
