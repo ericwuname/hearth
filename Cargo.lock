@@ -2249,6 +2249,7 @@ dependencies = [
  "agent-types",
  "anyhow",
  "async-trait",
+ "bounded-io",
  "chrono",
  "futures",
  "serde",

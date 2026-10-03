@@ -527,22 +527,38 @@ async fn main() -> anyhow::Result<()> {
         // RC13: config.toml（~/.config/hearth/config.toml）egress_allowlist 并入
         if let Ok(home) = std::env::var("HOME") {
             let cfg_path = std::path::PathBuf::from(home).join(".config/hearth/config.toml");
-            if let Ok(body) = std::fs::read_to_string(&cfg_path) {
-                #[derive(serde::Deserialize, Default)]
-                struct MinimalCfg {
-                    #[serde(default)]
-                    egress_allowlist: Option<Vec<String>>,
-                }
-                if let Ok(mc) = toml::from_str::<MinimalCfg>(&body) {
-                    if let Some(items) = mc.egress_allowlist {
-                        for item in items {
-                            let t = item.trim().trim_start_matches('.').to_lowercase();
-                            if !t.is_empty() && !merged.contains(&t) {
-                                merged.push(t);
+            // D-131（2026-10-03）：有界读入 + 失败留痕。旧实现 `if let Ok(...)` 把
+            // **读取失败 / 文件被撑大**两种情形都静默吞掉——现象是"我在 config 里设的
+            // egress 白名单在 service 会话内不生效"，却没有任何提示。
+            match bounded_io::read_file_text_capped_std(
+                &cfg_path,
+                bounded_io::MAX_CAPTURED_BYTES as u64,
+            ) {
+                Ok((body, false)) => {
+                    #[derive(serde::Deserialize, Default)]
+                    struct MinimalCfg {
+                        #[serde(default)]
+                        egress_allowlist: Option<Vec<String>>,
+                    }
+                    if let Ok(mc) = toml::from_str::<MinimalCfg>(&body) {
+                        if let Some(items) = mc.egress_allowlist {
+                            for item in items {
+                                let t = item.trim().trim_start_matches('.').to_lowercase();
+                                if !t.is_empty() && !merged.contains(&t) {
+                                    merged.push(t);
+                                }
                             }
                         }
                     }
                 }
+                Ok((_, true)) => tracing::warn!(
+                    path = %cfg_path.display(),
+                    "config.toml 超过上限，egress_allowlist 未合并到 service"
+                ),
+                Err(e) => tracing::warn!(
+                    path = %cfg_path.display(),
+                    "config.toml 读取失败（egress_allowlist 未合并到 service）: {e}"
+                ),
             }
         }
         if !merged.is_empty() {

@@ -832,8 +832,46 @@ pub async fn hearth_main() -> Result<()> {
             // 用户照 `.env.example` 配好的 provider key（`AGNES_API_KEY` /
             // `DEEPSEEK_API_KEY` / `HEARTH_PROVIDER`…）被静默删除（实测 3 行 → 1 行），
             // 之后 CLI 只报"未配置 API key"，用户无从知道是自己的 `.env` 被 setup 清了。
-            let existing = std::fs::read_to_string(env_path).unwrap_or_default();
+            // D-131（2026-10-03）：这里同时是 **无界读入** 与 **静默清空 .env** 两个病灶。
+            // 旧写法 `read_to_string(env_path).unwrap_or_default()`：读失败（权限/非 UTF-8）
+            // 会退化成空串，随后 `merge_env_assignments("")` 的产出里只剩本次写入项，
+            // `fs::write` 一落盘就把用户既有 .env **覆盖成 1~2 行**——这正是 D-128 修掉的
+            // 那类数据丢失，只是换成了"读失败"触发面。现改为：读**有界**，且任何失败/超限
+            // 都**拒绝改写**（宁可让用户手工处理，也不动他的文件）。
             let existed = env_path.exists();
+            let existing = if existed {
+                match bounded_io::read_file_text_capped_std(
+                    env_path,
+                    bounded_io::MAX_CAPTURED_BYTES as u64,
+                ) {
+                    Ok((text, false)) => text,
+                    Ok((_, true)) => {
+                        render::error_structured(
+                            "拒绝改写 .env（文件过大，读取会被截断）",
+                            &format!(
+                                "{} 超过 {} 字节上限；继续改写会丢失尾部内容",
+                                env_path.display(),
+                                bounded_io::MAX_CAPTURED_BYTES
+                            ),
+                            "请先备份并精简 .env，或手工编辑后再运行 hearth setup",
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        render::error_structured(
+                            "拒绝改写 .env（读取失败）",
+                            &format!(
+                                "{} 读取失败: {e}；继续改写会清空你既有的配置",
+                                env_path.display()
+                            ),
+                            "请检查文件权限/编码；确认无需保留后再手工处理",
+                        );
+                        return Ok(());
+                    }
+                }
+            } else {
+                String::new()
+            };
             let mut updates: Vec<(&str, &str)> = vec![("CODEX_URL", url.as_str())];
             if !key.is_empty() {
                 updates.push(("CODEX_API_KEY", key.as_str()));
@@ -1263,8 +1301,27 @@ pub async fn hearth_main() -> Result<()> {
                 .join("coverage")
                 .join("tarpaulin-report.json");
             if path.exists() {
-                let data: serde_json::Value =
-                    serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+                // D-131（2026-10-03）：有界读入——tarpaulin JSON 含**逐行**覆盖明细，
+                // 大仓可达数十 MB；旧实现 `read_to_string` 无上限，一条 `hearth coverage`
+                // 就能把整份报告读进内存。超限时明确告知，而不是静默给出一个
+                // "没有百分比字段"的假结论。
+                let (text, truncated) = bounded_io::read_file_text_capped_std(
+                    &path,
+                    bounded_io::MAX_CAPTURED_BYTES as u64,
+                )?;
+                if truncated {
+                    render::error_structured(
+                        "覆盖报告过大，未解析",
+                        &format!(
+                            "{} 超过 {} 字节上限（已截断读取）",
+                            path.display(),
+                            bounded_io::MAX_CAPTURED_BYTES
+                        ),
+                        "如需查看覆盖率，请用 cargo tarpaulin 的输出或缩小扫描范围",
+                    );
+                    return Ok(());
+                }
+                let data: serde_json::Value = serde_json::from_str(&text)?;
                 if let Some(pct) = data["coverage"].as_f64() {
                     println!("Coverage: {:.1}%", pct);
                 } else {

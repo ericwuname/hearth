@@ -462,7 +462,20 @@ pub async fn run_local_repl(cfg: &crate::config::ResolvedConfig, budget: u64) ->
                 for e in rd.flatten() {
                     let p = e.path();
                     if p.extension().is_some_and(|x| x == "md") {
-                        if let Ok(txt) = std::fs::read_to_string(&p) {
+                        // D-131（2026-10-03）：有界读入——报告由会话累积，单个文件被
+                        // 撑大时旧 `read_to_string` 无上限。截断时**留痕**（用量行可能
+                        // 不全，但不静默）。
+                        if let Ok((txt, truncated)) = bounded_io::read_file_text_capped_std(
+                            &p,
+                            bounded_io::MAX_CAPTURED_BYTES as u64,
+                        ) {
+                            if truncated {
+                                crate::render::info(&format!(
+                                    "⚠ 报告 {} 超过 {} 字节上限，/cost 按截断读取（统计可能不全）",
+                                    p.display(),
+                                    bounded_io::MAX_CAPTURED_BYTES
+                                ));
+                            }
                             runs += 1;
                             for l in txt.lines() {
                                 if let Some((u, d, c)) = parse_usage_line(l) {

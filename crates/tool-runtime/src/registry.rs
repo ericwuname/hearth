@@ -121,14 +121,41 @@ impl ToolRegistry {
                 if p.is_dir() {
                     let manifest_path = p.join("manifest.toml");
                     if manifest_path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                            if let Ok(manifest) = toml::from_str::<ToolManifest>(&content) {
-                                let name = manifest.name.clone();
-                                if self.install(manifest).unwrap_or(false) {
-                                    tracing::info!(name, "tool auto-discovered from file system");
-                                    count += 1;
+                        // D-131（2026-10-03）：有界读入 + 失败留痕——manifest 由工具
+                        // 目录提供，旧两层 `if let Ok` 把**读失败 / 解析失败**都静默丢弃
+                        // （现象是"我放的工具没被发现"，却毫无提示）。超限/失败 → warn
+                        // 后跳过该工具（best-effort 语义不变）。
+                        match bounded_io::read_file_text_capped_std(
+                            &manifest_path,
+                            bounded_io::MAX_CAPTURED_BYTES as u64,
+                        ) {
+                            Ok((content, false)) => {
+                                match toml::from_str::<ToolManifest>(&content) {
+                                    Ok(manifest) => {
+                                        let name = manifest.name.clone();
+                                        if self.install(manifest).unwrap_or(false) {
+                                            tracing::info!(
+                                                name,
+                                                "tool auto-discovered from file system"
+                                            );
+                                            count += 1;
+                                        }
+                                    }
+                                    Err(e) => tracing::warn!(
+                                        path = %manifest_path.display(),
+                                        "工具 manifest 解析失败，已跳过: {e}"
+                                    ),
                                 }
                             }
+                            Ok((_, true)) => tracing::warn!(
+                                path = %manifest_path.display(),
+                                "工具 manifest 超过 {} 字节上限，已跳过",
+                                bounded_io::MAX_CAPTURED_BYTES
+                            ),
+                            Err(e) => tracing::warn!(
+                                path = %manifest_path.display(),
+                                "工具 manifest 读取失败，已跳过: {e}"
+                            ),
                         }
                     }
                 }
