@@ -8,7 +8,13 @@
 //! 实测触发条件极低：在仓库根跑一次 `hearth` 即可让 `git status` 冒出这些目录。
 //! 此前 `.gitignore` 只忽略了 `.hearth-diag/`，其余全裸奔。
 //!
-//! 判据：`.gitignore` 必须逐行包含下面这些目录规则（精确匹配行首，允许尾随 `/`）。
+//! 判据：`.gitignore` 必须逐行包含下面这些目录规则（比对时归一化掉行首 `/` 与行尾 `/`
+//! ——推荐**根锚定**写法 `/x/`，以免误伤同名子目录如 `crates/observer/`）。
+//!
+//! D-145（2026-10-04, traecode）：清单曾**漏列** `memory/`（`MEMORY_DIR` 默认 `./memory`，
+//! 含会话/文明线/工作线/经验库 JSONL，内容含目标与失败明文）与 `observer/`
+//! （`CODEX_OBSERVER_DIR` 默认 `./observer`）——实测在仓库根跑一次 CLI 即生成
+//! `memory/experience.jsonl` 并被 `git status` 列为 untracked。
 //!
 //! 文件头自报盲区：① 只校验"这几个已知默认目录"，不校验 `HEARTH_*_DIR` 自定义路径
 //! （那是用户自选位置，管不着）；② 只做文本级规则存在性检查，不真的跑 `git check-ignore`
@@ -25,6 +31,18 @@ const RUNTIME_PRODUCT_DIRS: &[(&str, &str)] = &[
     (".hearth_snapshots/", "snapshot_store.rs 的回滚快照"),
     (".hearth_sessions/", "session_store.rs 的会话 JSONL"),
     ("results/", "transcript.rs 的 run transcript JSONL"),
+    // D-145（2026-10-04, traecode）：这两个默认落盘目录此前**漏列**——
+    // 在仓库根跑一次 CLI/service 就会生成，内容含目标/失败明文。
+    (
+        "memory/",
+        "MEMORY_DIR 默认 `./memory`：会话/文明线/工作线/经验库 JSONL（service/main.rs:576、\
+         codex-cli/run_local.rs:217「`<cwd>/memory/experience.jsonl`」）",
+    ),
+    (
+        "observer/",
+        "CODEX_OBSERVER_DIR 默认 `./observer`：每小时 `daily-<日期>.jsonl` + 会话结束 `reports/<sid>/`\
+         （service/main.rs:769）",
+    ),
 ];
 
 /// D-113（2026-10-02, traecode）：**解释器字节码缓存**同样是运行期产物。
@@ -54,9 +72,13 @@ fn runtime_product_dirs_are_gitignored() {
     let missing: Vec<&str> = RUNTIME_PRODUCT_DIRS
         .iter()
         .filter(|(dir, _)| {
+            // D-145：规则允许**根锚定**写法（行首 `/`）——`/observer/` 不会误伤
+            // `crates/observer/`（未锚定的 `observer/` 会匹配任意层级同名目录）。
+            // 比对时两侧都归一化掉行首 `/` 与行尾 `/`。
+            let want = dir.trim_start_matches('/').trim_end_matches('/');
             !rules
                 .iter()
-                .any(|r| r == dir.trim_end_matches('/') || r == dir)
+                .any(|r| r.trim_start_matches('/').trim_end_matches('/') == want)
         })
         .map(|(dir, _)| *dir)
         .collect();

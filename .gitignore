@@ -46,6 +46,16 @@ release/*.tar.gz
 .hearth_sessions/
 results/
 
+# D-145（2026-10-04, traecode）：两个默认落盘目录此前**漏忽略**（D-112 同族）：
+#   · `/memory/`   ← `MEMORY_DIR` 默认 `./memory`：会话/文明线/工作线/经验库 JSONL
+#                     （内容含目标与失败明文）
+#   · `/observer/` ← `CODEX_OBSERVER_DIR` 默认 `./observer`：每小时 `daily-<日期>.jsonl`
+#                     + 会话结束 `reports/<sid>/`
+# 用**根锚定**（行首 `/`）以免误伤 `crates/memory/`、`crates/observer/` 两个同名 crate 目录。
+# 实证：在仓库根跑一次 `hearth chat` 即生成 `memory/experience.jsonl`（untracked）。
+/memory/
+/observer/
+
 # D-6 备注：入库前密钥扫描门禁见 crates/codex-cli 的 `secret_scan_gate` 测试
 # （扫描 git 已跟踪文件；扫描范围**只包含入库内容**，故运行期产物已排除在外）。
 
