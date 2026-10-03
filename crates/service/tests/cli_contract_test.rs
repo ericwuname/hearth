@@ -6,12 +6,25 @@
 //! 本套件：起**真实 service**（ALLOW_NO_AUTH=1 回环模式）+ `codex-cli` 二进制
 //! 打非交互子命令，断言协议层不 4xx/5xx（业务失败可接受，协议层失败不可接受）。
 //! 覆盖 12 个非交互命令；chat/repl/setup/resume/replay 为交互/特殊，跳过。
+//!
+//! D-140（2026-10-04）：本套件曾「找不到二进制就打印 SKIP 后 `return`」——Rust 测试正常
+//! 返回即 PASS，而 `cli_bin()` 只探无后缀的 `codex`，在 Windows 上永远找不到 `codex.exe`
+//! ⇒ 2 个契约测试**长期静默假通过**。现改为 fail-closed：缺前置即 `panic!` 让门禁失败，
+//! 并补齐 `.exe`/`hearth` 探测。防复发门禁见 `crates/codex-cli/tests/fail_open_skip_gate.rs`。
 
 use std::net::TcpStream;
 use std::process::{Child, Command};
 use std::time::Duration;
 
-/// 定位 codex-cli 二进制：CODEX_CLI_BIN env → workspace target/debug/codex。
+/// 缺前置即 fail-closed：测试正常返回＝PASS，静默跳过＝谎报「契约无断裂」（D-140）。
+const MISSING_BIN_MSG: &str = "P1-6 门禁失守（fail-closed）：未找到 codex-cli 二进制 —— \
+     CLI↔service 契约门禁缺前置即失败，禁止静默通过。请先 `cargo build -p codex-cli`，\
+     或用 CODEX_CLI_BIN 指向已构建的 codex/hearth 可执行文件。";
+
+/// 定位 codex-cli 二进制：CODEX_CLI_BIN env → workspace target/debug/{codex,hearth}。
+///
+/// 注意：Windows 上是 `codex.exe`，而 `Path::exists()` **不做 PATHEXT 补全**，故必须显式
+/// 带上 `.exe` 后缀——这正是 D-140 之前本套件在 Windows 上永远 SKIP 的根因。
 fn cli_bin() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("CODEX_CLI_BIN") {
         let pb = std::path::PathBuf::from(p);
@@ -19,15 +32,24 @@ fn cli_bin() -> Option<std::path::PathBuf> {
             return Some(pb);
         }
     }
-    // workspace 根 = manifest_dir 上溯两级
+    // workspace 根 = manifest_dir 上溯两级；`codex` 为当前 bin，`hearth` 为其重命名后的名字。
     let mdir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    [
-        mdir.join("../../target/debug/codex"),
-        mdir.join("../../../target/debug/codex"),
-        mdir.join("target/debug/codex"),
-    ]
-    .into_iter()
-    .find(|cand| cand.exists())
+    let names: &[&str] = if cfg!(windows) {
+        &["codex.exe", "hearth.exe"]
+    } else {
+        &["codex", "hearth"]
+    };
+    let mut cands: Vec<std::path::PathBuf> = Vec::new();
+    for d in [
+        mdir.join("../../target/debug"),
+        mdir.join("../../../target/debug"),
+        mdir.join("target/debug"),
+    ] {
+        for n in names {
+            cands.push(d.join(n));
+        }
+    }
+    cands.into_iter().find(|cand| cand.exists())
 }
 
 fn wait_healthy(port: u16) -> Child {
@@ -86,10 +108,7 @@ fn assert_no_protocol_error(name: &str, out: &std::process::Output) {
 
 #[test]
 fn cli_contract_sessions_and_readonly() {
-    let Some(bin) = cli_bin() else {
-        eprintln!("P1-6 SKIP: codex-cli 二进制未找到（先 cargo build -p codex-cli）");
-        return;
-    };
+    let bin = cli_bin().unwrap_or_else(|| panic!("{MISSING_BIN_MSG}"));
     let mut svc = wait_healthy(3919);
     // P0-3 回归：sessions 曾 405 → 现在 200
     let out = cli(&bin, 3919, &["sessions"]);
@@ -113,10 +132,7 @@ fn cli_contract_sessions_and_readonly() {
 
 #[test]
 fn cli_contract_status_and_approve_boundary() {
-    let Some(bin) = cli_bin() else {
-        eprintln!("P1-6 SKIP: codex-cli 二进制未找到");
-        return;
-    };
+    let bin = cli_bin().unwrap_or_else(|| panic!("{MISSING_BIN_MSG}"));
     let mut svc = wait_healthy(3920);
     // status 不存在的会话 → 业务失败（非 0），协议层不 4xx
     let out = cli(&bin, 3920, &["status", "no-such-session-xyz"]);
