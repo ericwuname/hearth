@@ -31,6 +31,13 @@
 //! 3. 只看**已跟踪**内容 —— 未跟踪文件（如 `.env`、本报告正文）不在范围。
 //!
 //! 这三条是本门禁的**置信边界**：它在"已知形态"上是硬门禁，不是全量 DLP。
+//!
+//! # 环境契约（fail-closed，D-137）
+//!
+//! 本门禁**不**在"环境不具备"时静默放行：无法执行 `git`、或 `git ls-files`
+//! 非零退出，都会让本测试**失败**（而非打印 SKIP 后 `return`）。理由：门禁的
+//! 价值在于"扫过就说扫过"，把"没扫"伪装成"通过"等于没有门禁。若确需在无 git
+//! 环境跑测试，应显式隔离该测试，而不是让它假装成功。
 
 use std::process::Command;
 
@@ -147,19 +154,20 @@ fn secret_scan_gate() {
         .output()
     {
         Ok(o) => o,
-        Err(e) => {
-            // 不静默跳过：环境不具备时就明确说出来（而非假装通过）。
-            eprintln!("SKIP secret_scan_gate: 无法执行 git（{e}）——本机无法做入库前扫描");
-            return;
-        }
+        // fail-closed（D-137）：环境不具备**必须失败**，绝不放行。
+        // 曾经的 `eprintln!(...) + return` 会让"本机没有 git"直接变成"门禁 PASS"，
+        // 与本文件头"而非假装通过"的承诺自相矛盾，也让门禁在不同机器上口径不一。
+        Err(e) => panic!(
+            "secret_scan_gate 无法执行 git（{e}）——门禁不得静默放行。\
+             无 git 的环境无法做入库前扫描：请安装 git，或改在有 git 的环境运行。"
+        ),
     };
-    if !out.status.success() {
-        eprintln!(
-            "SKIP secret_scan_gate: `git ls-files` 失败（{}）——不在 git 工作区？",
-            out.status
-        );
-        return;
-    }
+    assert!(
+        out.status.success(),
+        "secret_scan_gate: `git ls-files` 失败（{}）——门禁不得静默放行（不在 git 工作区？）。\
+         与'空结果即失败'同理：命令失败等同于无法扫描，必须失败而非跳过。",
+        out.status
+    );
 
     let files: Vec<String> = String::from_utf8_lossy(&out.stdout)
         .split('\0')
