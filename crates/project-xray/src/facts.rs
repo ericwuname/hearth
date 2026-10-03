@@ -99,24 +99,36 @@ pub fn scan(root: &Path) -> Result<Facts> {
 }
 
 /// 递归收集目录下全部 .rs 文件（跳过 target/.git，避免统计编译产物）。
+/// 用 `DirEntry::file_type()`（**不跟随符号链接**）判目录，并带深度上限 64——防软链/junction
+/// 成环导致栈永不清空、`out`/`stack` 无界增长（OOM）。镜像既有安全范式
+/// `tools-builtin::glob::walk_readonly`（D-141）。
 fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
+    let mut stack = vec![(dir.to_path_buf(), 0usize)];
+    while let Some((d, depth)) = stack.pop() {
+        if depth > 64 {
+            continue; // 防深递归/循环
+        }
         let Ok(entries) = fs::read_dir(&d) else {
             continue;
         };
         for entry in entries.flatten() {
-            let path = entry.path();
+            // file_type()：不跟随符号链接（软链不会被当作目录入栈 → 防成环）
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if path.is_dir() {
+            if ft.is_dir() {
                 if name == "target" || name == ".git" {
                     continue;
                 }
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                out.push(path);
+                stack.push((entry.path(), depth + 1));
+            } else if ft.is_file() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
             }
         }
     }
@@ -199,5 +211,57 @@ mod tests {
 
         let facts = scan(root).unwrap();
         assert_eq!(facts.rs_files, 1, "target/ artifacts must be excluded");
+    }
+
+    /// 在 `parent` 下创建一个指回 `parent` 自身的目录链接 `loop`。
+    /// Windows 用 junction（`mklink /J`，无需管理员）；Unix 用 symlink。
+    /// 返回 `false` 表示本环境无法创建（能力缺失，测试跳过；见 D-141）。
+    fn make_self_loop(parent: &Path) -> bool {
+        let link = parent.join("loop");
+        #[cfg(windows)]
+        {
+            matches!(
+                std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(&link)
+                    .arg(parent)
+                    .output(),
+                Ok(o) if o.status.success()
+            )
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(parent, &link).is_ok()
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            let _ = link;
+            false
+        }
+    }
+
+    /// D-141：目录**自指链接成环**时遍历必须终止且不重复收集。
+    ///
+    /// 修复前 `collect_rs_files` 用 `path.is_dir()`（跟随软链/junction）+ 无深度守卫，
+    /// 会无限入栈（挂死/OOM）；修复后 `DirEntry::file_type()` 不跟随 → 终止，且深度守卫
+    /// 兜底。故本测试**不会挂死**：若链接被误跟随，收集数会因深度上限膨胀而断言失败。
+    #[test]
+    fn test_collect_rs_files_does_not_follow_dir_loop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        if !make_self_loop(root) {
+            eprintln!("skip: 本环境无法创建目录链接（junction/symlink），能力缺失");
+            return;
+        }
+
+        let files = collect_rs_files(root);
+        assert_eq!(
+            files.len(),
+            1,
+            "自指目录链接被跟随（应只收集到真实 .rs，实际 {files:#?}）"
+        );
+        assert!(files[0].ends_with("src/lib.rs") || files[0].ends_with("src\\lib.rs"));
     }
 }

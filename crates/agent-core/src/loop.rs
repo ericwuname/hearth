@@ -1145,6 +1145,8 @@ impl AgentLoop {
     }
 
     /// Node 03: workspace 递归快照（相对路径 + mtime）——写盘快照确定性检测用。
+    /// 遍历**不跟随符号链接**（`symlink_metadata`）并带深度上限 64——防软链/junction 成环
+    /// 导致无界递归（栈溢出）。镜像既有安全范式 `tools-builtin::glob::walk_readonly`（D-141）。
     fn snapshot_workspace(
         root: &std::path::Path,
     ) -> std::collections::BTreeMap<String, (u64, u128)> {
@@ -1152,17 +1154,25 @@ impl AgentLoop {
         fn walk(
             dir: &std::path::Path,
             base: &std::path::Path,
+            depth: usize,
             map: &mut std::collections::BTreeMap<String, (u64, u128)>,
         ) {
+            if depth > 64 {
+                return; // 防深递归/循环
+            }
             if let Ok(rd) = std::fs::read_dir(dir) {
                 for e in rd.flatten() {
                     let p = e.path();
-                    if p.is_dir() {
+                    // symlink_metadata：不跟随符号链接（防软链/junction 成环 → 无界递归）
+                    let Ok(md) = std::fs::symlink_metadata(&p) else {
+                        continue;
+                    };
+                    if md.is_dir() {
                         if !p
                             .file_name()
                             .is_some_and(|n| n == "target" || n == ".git" || n == ".hearth")
                         {
-                            walk(&p, base, map);
+                            walk(&p, base, depth + 1, map);
                         }
                     } else if let Ok(rel) = p.strip_prefix(base) {
                         let mtime = e
@@ -1178,7 +1188,7 @@ impl AgentLoop {
                 }
             }
         }
-        walk(root, root, &mut map);
+        walk(root, root, 0, &mut map);
         map
     }
 
