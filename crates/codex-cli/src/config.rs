@@ -10,29 +10,13 @@ use std::path::PathBuf;
 /// 配置文件路径（Linux/macOS：`~/.config/hearth/config.toml`；Windows：`%APPDATA%/hearth/config.toml`）。
 /// C-2：APPDATA 缺失时回退 `HOME/.config/hearth/config.toml`（与 Unix 习惯及
 /// diagnostics 写入位置一致——避免落到非标准的 `HOME/hearth/`）。
+///
+/// D-144（2026-10-04, traecode）：解析逻辑上收到 [`agent_types::hearth_config_path`]
+/// （**单一真相源**）——service 启动期补读同一文件，两边**必须解析到同一路径**
+/// （此前 service 写死 `$HOME/.config`，在 Windows 上与这里的 `%APPDATA%` 分叉）。
+/// 本函数保留为 CLI 内部命名，行为不变。
 pub fn config_path() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        let base = std::env::var("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                std::env::var("HOME")
-                    .map(|h| PathBuf::from(h).join(".config"))
-                    .unwrap_or_default()
-            });
-        base.join("hearth").join("config.toml")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let base = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                std::env::var("HOME")
-                    .map(|h| PathBuf::from(h).join(".config"))
-                    .unwrap_or_default()
-            });
-        base.join("hearth").join("config.toml")
-    }
+    agent_types::hearth_config_path()
 }
 
 /// 可改字段（任务书 D2：api-key / mode / url / provider；D5 加 feedback-prompt）。

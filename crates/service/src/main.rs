@@ -524,22 +524,25 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        // RC13: config.toml（~/.config/hearth/config.toml）egress_allowlist 并入
-        if let Ok(home) = std::env::var("HOME") {
-            let cfg_path = std::path::PathBuf::from(home).join(".config/hearth/config.toml");
-            if let Ok(body) = std::fs::read_to_string(&cfg_path) {
-                #[derive(serde::Deserialize, Default)]
-                struct MinimalCfg {
-                    #[serde(default)]
-                    egress_allowlist: Option<Vec<String>>,
-                }
-                if let Ok(mc) = toml::from_str::<MinimalCfg>(&body) {
-                    if let Some(items) = mc.egress_allowlist {
-                        for item in items {
-                            let t = item.trim().trim_start_matches('.').to_lowercase();
-                            if !t.is_empty() && !merged.contains(&t) {
-                                merged.push(t);
-                            }
+        // RC13: config.toml 的 egress_allowlist 并入
+        // D-144（2026-10-04, traecode）：路径解析改用 `agent_types::hearth_config_path()`
+        // （**单一真相源**）——此前写死 `$HOME/.config/hearth/config.toml`（全平台），
+        // 在 Windows 上与 CLI 的 `%APPDATA%\hearth\config.toml` 分叉 ⇒ 用户用
+        // `hearth config set` 写入的白名单在 service 会话内**静默不生效**（RC13 自称
+        // "与 CLI 同构/代码 ✓"实为声称≠实现）。
+        let cfg_path = agent_types::hearth_config_path();
+        if let Ok(body) = std::fs::read_to_string(&cfg_path) {
+            #[derive(serde::Deserialize, Default)]
+            struct MinimalCfg {
+                #[serde(default)]
+                egress_allowlist: Option<Vec<String>>,
+            }
+            if let Ok(mc) = toml::from_str::<MinimalCfg>(&body) {
+                if let Some(items) = mc.egress_allowlist {
+                    for item in items {
+                        let t = item.trim().trim_start_matches('.').to_lowercase();
+                        if !t.is_empty() && !merged.contains(&t) {
+                            merged.push(t);
                         }
                     }
                 }

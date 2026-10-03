@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use utoipa::ToSchema;
 
 // ── P3 TaskGraph 家族：**已全部清空**（D-76 → D-88） ──
@@ -548,6 +549,53 @@ pub fn max_output_tokens_from(raw: Option<&str>) -> u32 {
     }
 }
 
+/// D-144（2026-10-04, traecode）：Hearth 用户配置（`config.toml`）路径的**单一真相源**。
+///
+/// - Windows：`%APPDATA%\hearth\config.toml`；`APPDATA` 缺失回退 `$HOME\.config\hearth\config.toml`；
+/// - 其他平台：`$XDG_CONFIG_HOME/hearth/config.toml`；缺失回退 `$HOME/.config/hearth/config.toml`。
+///
+/// 为什么放这里：该文件由 **CLI**（`hearth config set/get`）写读，也要由 **service**
+/// （启动期补读 `egress_allowlist`）读——两边**必须解析到同一路径**。此前 service 只有
+/// `$HOME/.config/...`（全平台），Windows 上与 CLI 的 `%APPDATA%` 分叉 ⇒ config 里的设置
+/// 在 service 会话内**静默不生效**（RC13 声称"与 CLI 同构/代码 ✓"实为声称≠实现）。
+/// 收敛到一处定义即根除该漂移（D-33「一处定义」口径）。
+pub fn hearth_config_path() -> PathBuf {
+    hearth_config_path_from(
+        cfg!(target_os = "windows"),
+        std::env::var("APPDATA").ok().as_deref(),
+        std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+/// 纯函数版（无 env 读取——测试无竞态，同 [`max_output_tokens_from`] 口径）：
+/// 便于单测平台矩阵（Windows/Unix × APPDATA/XDG/HOME 有无）。
+pub fn hearth_config_path_from(
+    windows: bool,
+    appdata: Option<&str>,
+    xdg_config_home: Option<&str>,
+    home: Option<&str>,
+) -> PathBuf {
+    let base = if windows {
+        appdata
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                home.filter(|s| !s.is_empty())
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })
+    } else {
+        xdg_config_home
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                home.filter(|s| !s.is_empty())
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })
+    };
+    base.unwrap_or_default().join("hearth").join("config.toml")
+}
+
 pub fn truncate_marked(s: &str, max_chars: usize) -> String {
     let total = s.chars().count();
     if total <= max_chars {
@@ -600,6 +648,86 @@ mod truncate_marked_tests {
         assert_eq!(max_output_tokens_from(Some("999999")), 131072, "超限收敛");
         // 负数是非法 parse（u32）→ 默认
         assert_eq!(max_output_tokens_from(Some("-5")), 65536, "负数回退默认");
+    }
+}
+
+#[cfg(test)]
+mod hearth_config_path_tests {
+    use super::*;
+
+    fn p(s: &str) -> PathBuf {
+        PathBuf::from(s)
+    }
+
+    /// D-144 回归锁（**先红后绿**）：config.toml 路径必须**平台正确**，且 **Windows 上
+    /// 以 APPDATA 为准**（缺陷——service 曾只用 `$HOME/.config`，与 CLI 的 `%APPDATA%` 分叉）。
+    #[test]
+    fn test_windows_prefers_appdata_over_home() {
+        // 关键：APPDATA 与 HOME 同时存在且不同 ⇒ 必须选 APPDATA（CLI 口径）。
+        // 修复前 service 逻辑会返回 HOME/.config ⇒ 与 CLI 分叉。
+        let got = hearth_config_path_from(
+            true,
+            Some("C:/Users/x/AppData/Roaming"),
+            None,
+            Some("C:/Users/x"),
+        );
+        assert_eq!(
+            got,
+            p("C:/Users/x/AppData/Roaming")
+                .join("hearth")
+                .join("config.toml"),
+            "Windows 必须优先 %APPDATA%（而非 $HOME/.config）"
+        );
+
+        // APPDATA 缺失 → 回退 HOME/.config。
+        let got = hearth_config_path_from(true, None, None, Some("C:/Users/x"));
+        assert_eq!(
+            got,
+            p("C:/Users/x")
+                .join(".config")
+                .join("hearth")
+                .join("config.toml")
+        );
+
+        // 空串视同未设置（不落到相对路径）。
+        let got = hearth_config_path_from(true, Some(""), None, Some("C:/Users/x"));
+        assert_eq!(
+            got,
+            p("C:/Users/x")
+                .join(".config")
+                .join("hearth")
+                .join("config.toml")
+        );
+
+        // 都没有 → 相对兜底（不 panic）。
+        assert_eq!(
+            hearth_config_path_from(true, None, None, None),
+            p("hearth").join("config.toml")
+        );
+    }
+
+    /// 非 Windows：`$XDG_CONFIG_HOME` 优先，缺失回退 `$HOME/.config`。
+    #[test]
+    fn test_unix_prefers_xdg_then_home() {
+        // 有 XDG 时必须优先（与 CLI 口径一致）。
+        assert_eq!(
+            hearth_config_path_from(false, None, Some("/xdg"), Some("/home/u")),
+            p("/xdg").join("hearth").join("config.toml")
+        );
+
+        let got = hearth_config_path_from(false, None, None, Some("/home/u"));
+        assert_eq!(
+            got,
+            p("/home/u")
+                .join(".config")
+                .join("hearth")
+                .join("config.toml")
+        );
+
+        assert_eq!(
+            hearth_config_path_from(false, None, None, None),
+            p("hearth").join("config.toml")
+        );
     }
 }
 
