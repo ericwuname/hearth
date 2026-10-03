@@ -4,7 +4,7 @@ use agent_types::{CivEntry, WorkNode};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -309,6 +309,15 @@ impl MemoryStore for JsonlMemoryStore {
 
 // ── 6C v6.0: Civilization Store ──
 
+/// D-143（2026-10-04, traecode）：`CivilizationStore` / `WorkLineStore` 持有的
+/// **运行时数据文件**（`<uid>/{civ,workline}.jsonl`）的**读入**字节上限。
+///
+/// 取 64 MiB：与同 crate 的 [`MAX_SESSION_FILE_BYTES`]（会话文件）同量级——
+/// 三者是同一族"应用自有的只增 JSONL 运行时数据文件"。远超正常规模
+/// （civ 只留 1000 条；workline 是个人任务板），只把"失控增长"从 OOM 退化为
+/// "截断 + 明确留痕"。
+const MAX_STORE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Append-only JSONL store for civilization line entries.
 pub struct CivilizationStore {
     path: PathBuf,
@@ -319,15 +328,7 @@ impl CivilizationStore {
     pub fn new(dir: &Path, filename: &str) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(filename);
-        let mut entries = Vec::new();
-        if path.exists() {
-            let f = std::fs::File::open(&path)?;
-            for line in BufReader::new(f).lines().map_while(Result::ok) {
-                if let Ok(entry) = serde_json::from_str::<CivEntry>(&line) {
-                    entries.push(entry);
-                }
-            }
-        }
+        let mut entries = Self::read_entries(&path, MAX_STORE_FILE_BYTES)?;
         if entries.len() > 1000 {
             entries = entries.split_off(entries.len() - 1000);
         }
@@ -335,6 +336,38 @@ impl CivilizationStore {
             path,
             entries: Mutex::new(entries),
         })
+    }
+
+    /// D-143：**有界读入**文明线 JSONL，返回解析成功的条目。
+    ///
+    /// 此前用 `BufReader::new(f).lines()` 把**整份文件**逐行读进 `Vec`——文件随
+    /// `append` **只增**且写侧无上限，读侧因而无界（无界读入新落点；与 D-51 session /
+    /// D-70 experience / D-86 archive 同族）。现走共享原语
+    /// [`bounded_io::read_file_text_capped_std`]：只保留前 `cap` 字节，截断**留痕**。
+    ///
+    /// `cap` 显式传入以便单测用小上限验证截断路径（无需造 64 MiB 文件，仿 D-51）。
+    /// 截断时只读到**前一段**——较新条目可能落在上限之外而丢失（写侧无上限，此为安全阀；
+    /// 正常规模远不会触及）。
+    fn read_entries(path: &Path, cap: u64) -> Result<Vec<CivEntry>> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let (text, truncated) = bounded_io::read_file_text_capped_std(path, cap)?;
+        if truncated {
+            tracing::warn!(
+                path = %path.display(),
+                cap,
+                "civilization store 文件超过读取上限，仅基于前一段解析——\
+                 较新条目可能未加载（写侧 append 无上限，此为安全阀）"
+            );
+        }
+        let mut entries = Vec::new();
+        for line in text.lines() {
+            if let Ok(entry) = serde_json::from_str::<CivEntry>(line) {
+                entries.push(entry);
+            }
+        }
+        Ok(entries)
     }
 
     pub fn append(&self, entry: CivEntry) -> Result<()> {
@@ -388,19 +421,37 @@ impl WorkLineStore {
     pub fn new(dir: &Path, filename: &str) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(filename);
-        let mut nodes = Vec::new();
-        if path.exists() {
-            let f = std::fs::File::open(&path)?;
-            for line in BufReader::new(f).lines().map_while(Result::ok) {
-                if let Ok(node) = serde_json::from_str::<WorkNode>(&line) {
-                    nodes.push(node);
-                }
-            }
-        }
+        let nodes = Self::read_nodes(&path, MAX_STORE_FILE_BYTES)?;
         Ok(Self {
             path,
             nodes: Mutex::new(nodes),
         })
+    }
+
+    /// D-143：**有界读入**工作线 JSONL（同 [`CivilizationStore::read_entries`] 口径）。
+    ///
+    /// 此前用 `BufReader::new(f).lines()` 读满整份文件且**无任何上限**（连"只留最后
+    /// N 条"的弱化都没有）。现走 [`bounded_io::read_file_text_capped_std`]，截断留痕。
+    fn read_nodes(path: &Path, cap: u64) -> Result<Vec<WorkNode>> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let (text, truncated) = bounded_io::read_file_text_capped_std(path, cap)?;
+        if truncated {
+            tracing::warn!(
+                path = %path.display(),
+                cap,
+                "workline store 文件超过读取上限，仅基于前一段解析——\
+                 较新节点可能未加载（此为安全阀）"
+            );
+        }
+        let mut nodes = Vec::new();
+        for line in text.lines() {
+            if let Ok(node) = serde_json::from_str::<WorkNode>(line) {
+                nodes.push(node);
+            }
+        }
+        Ok(nodes)
     }
 
     fn flush(&self) -> Result<()> {
@@ -637,5 +688,98 @@ mod tests {
         let (text, truncated) = store.read_session_text("small", 1024).await.unwrap();
         assert_eq!(text, "hello");
         assert!(!truncated);
+    }
+
+    /// 先红后绿（D-143）：`CivilizationStore` / `WorkLineStore` 的运行时数据文件
+    /// 读入必须**有界**。修复前两处 `new` 用 `BufReader::new(f).lines()` 把整份
+    /// 文件逐行读进 `Vec`——文件多大就吃多少内存（写侧只增、无上限）。
+    #[test]
+    fn test_d143_civ_workline_read_is_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let count = 200usize;
+
+        // ── civ：每行一条合法条目。cap 取文件的 1/4 → 只能解析到前一段。 ──
+        let mk_civ = |i: usize| CivEntry {
+            id: format!("c{i}"),
+            author: agent_types::CivAuthor {
+                provider_model: "m".into(),
+                session_id: "s".into(),
+                bridge_id: None,
+            },
+            content: format!("content-{i}-{}", "x".repeat(64)),
+            category: agent_types::CivCategory::Insight,
+            context: None,
+            created_at: "t".into(),
+            tags: vec![],
+        };
+        let civ_path = tmp.path().join("civ.jsonl");
+        let mut body = String::new();
+        for i in 0..count {
+            body.push_str(&serde_json::to_string(&mk_civ(i)).unwrap());
+            body.push('\n');
+        }
+        std::fs::write(&civ_path, &body).unwrap();
+        let total = body.len() as u64;
+        let cap = total / 4;
+        let entries = CivilizationStore::read_entries(&civ_path, cap).unwrap();
+        assert!(
+            !entries.is_empty(),
+            "前一段内仍有合法条目（有界读不得误伤）"
+        );
+        assert!(
+            (entries.len() as u64) < count as u64,
+            "必须**有界读入**：cap={cap} 字节 < 文件 {total} 字节 ⇒ 解析到的条目数必须\
+             少于全部 {count} 条（修复前会读满整份、得到 {count} 条）"
+        );
+
+        // 未超限：完整解析（不误伤）。
+        let small = tmp.path().join("small_civ.jsonl");
+        std::fs::write(
+            &small,
+            format!("{}\n", serde_json::to_string(&mk_civ(0)).unwrap()),
+        )
+        .unwrap();
+        let entries = CivilizationStore::read_entries(&small, 1024 * 1024).unwrap();
+        assert_eq!(entries.len(), 1, "未超限必须完整解析");
+
+        // ── workline：同一路径（read_nodes），修复前连"只留 N 条"的弱化都没有。 ──
+        let mk_node = |i: usize| WorkNode {
+            id: format!("w{i}"),
+            parent_id: None,
+            description: format!("node-{i}-{}", "y".repeat(64)),
+            status: agent_types::WorkStatus::Pending,
+            progress: 0.0,
+            category: agent_types::WorkCategory::ShortTerm,
+            assignee: None,
+            deps: vec![],
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            completed_at: None,
+            notes: vec![],
+        };
+        let wl_path = tmp.path().join("workline.jsonl");
+        let mut body = String::new();
+        for i in 0..count {
+            body.push_str(&serde_json::to_string(&mk_node(i)).unwrap());
+            body.push('\n');
+        }
+        std::fs::write(&wl_path, &body).unwrap();
+        let total = body.len() as u64;
+        let cap = total / 4;
+        let nodes = WorkLineStore::read_nodes(&wl_path, cap).unwrap();
+        assert!(!nodes.is_empty(), "前一段内仍有合法节点（不误伤）");
+        assert!(
+            (nodes.len() as u64) < count as u64,
+            "workline 必须**有界读入**（修复前读满整份、得到 {count} 条）"
+        );
+
+        let small = tmp.path().join("small_wl.jsonl");
+        std::fs::write(
+            &small,
+            format!("{}\n", serde_json::to_string(&mk_node(0)).unwrap()),
+        )
+        .unwrap();
+        let nodes = WorkLineStore::read_nodes(&small, 1024 * 1024).unwrap();
+        assert_eq!(nodes.len(), 1, "未超限必须完整解析");
     }
 }
