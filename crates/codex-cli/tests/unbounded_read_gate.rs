@@ -1,25 +1,29 @@
-//! 门禁：**无界文件读入**不得回归（D-131，2026-10-03, traecode）。
+//! 门禁：`codex-cli` 的**无界文件读入**不得回归（D-131，2026-10-03, traecode）。
 //!
-//! 背景：本仓有一条**反复复发**的缺陷族——"读入无上限"。D-33 把"读入无上限 /
-//! 进程不收尸"收敛成 `bounded-io` 一套原语；D-125 又把 CLI 的四处会话读口有界化。
-//! 但收口总有漏网：2026-10-03 体检发现 `config` / `.env` / `coverage` / `/cost` /
-//! 快照 meta，以及 service 启动期的**模板清单**与**工具 manifest** 仍是裸
-//! `std::fs::read_to_string`——任一被指向一个超大文件，就把 CLI（或服务启动）拖进 OOM。
-//! 卡在"每次只修被点名的那几处"就会一直漏；本门禁改为**把不变式钉死**：
-//! 只要扫描范围内出现裸读，即判红，除非该行带显式豁免标记。
+//! 背景与**范围界定**（重要）：本仓有一条反复复发的缺陷族——"读入无上限"（D-33 收敛出
+//! `bounded-io` 一套原语；D-51/D-70/D-75/D-86/D-125 逐个落点收口）。本轮体检又抓到三处
+//! **确有边界**的裸读并已收口：`coverage` 报告（tarpaulin JSON，含逐行明细，随仓库规模长）、
+//! `/cost` 报告（会话累积产物）、以及 `setup` 的 `.env`（**兼修静默清空**：旧
+//! `read_to_string(..).unwrap_or_default()` 在读失败时退化成空串 ⇒ 覆盖写回把用户
+//! provider key 清掉，= D-128 修掉的数据丢失换触发面）。
+//!
+//! **刻意圈定边界**：D-77（顶层裁决）已判定"**操作者本机配置/清单/replay 夹具**"这类
+//! 无界增长特性的读**不改**（加 cap 无安全收益，反有"合法大文件被截断 → 解析失败"的
+//! 静默降级风险）。故本门禁**只覆盖 `crates/codex-cli/src`**，且允许经 `bounded-io-exempt:`
+//! 标记的显式豁免——D-77 类读（`config.rs` 的 config.toml、快照 meta）与"字节级还原"
+//! （`snapshot_store.rs` 的快照内容）即以此方式如实标注。**不要**顺手把 service /
+//! tool-runtime / llm-* / project-xray 的同类读也纳入：它们在 D-77 的裁决范围内。
 //!
 //! 判据：
 //! - 命中形态：非测试代码里的 `read_to_string(` 或 `fs::read(`（`fs::read_dir(` 与
 //!   `read_to_end(` 不命中——前者非读文件，后者被 `bounded-io` 自身用于实现有界读）。
-//! - 豁免：该行带标记 `bounded-io-exempt:`（必须写明理由，如"字节级还原不可截断"）。
+//! - 豁免：该行（或**其前 3 行内**）带标记 `bounded-io-exempt:`（必须写明理由——D-77 裁决
+//!   或"字节级还原"）。回看 3 行是为了容下多行语句/注释换行，不必把理由硬塞成一行。
 //! - `#[cfg(test)]` 模块内的整份读入**一律豁免**（测试用临时小文件，读满无害）；
 //!   用大括号深度跟踪判定，能识别 `#[cfg(test)]` 与 `mod` 之间夹 `use`/其它属性的写法。
 //!
 //! 文件头自报盲区：
-//! ① 只扫 `crates/{codex-cli,service,tool-runtime}/src/**/*.rs`（**产品运行时的
-//!    用户可见面**）。其余 crate（`project-xray` / `llm-gateway` / `llm-replay` /
-//!    `tools-builtin::patch` / `agent-core::loop`）的同类读口尚未纳管——属**已知待办**
-//!    （其中若干处已由前置 `metadata().len()` 校验兜底）。扩展范围时请同批处理。
+//! ① 只扫 `crates/codex-cli/src/**`（见上：范围由 D-77 圈定）。
 //! ② 只做**文本级**逐行扫描（剥掉 `//` 注释后匹配），不做语义分析；因此
 //!    `#[cfg(all(test, …))]` 等等价写法、以及 `read_to_end` / `tokio::io::read` 等
 //!    其它无界读形态不在覆盖范围。
@@ -60,17 +64,17 @@ fn is_unbounded_read(code: &str) -> bool {
     code.contains("read_to_string(") || code.contains("fs::read(")
 }
 
+const EXEMPT_MARK: &str = "bounded-io-exempt:";
+
 #[test]
-fn no_unbounded_file_reads_in_product_crates() {
+fn no_unbounded_file_reads_in_codex_cli() {
     let root = workspace_root();
+    let src = root.join("crates").join("codex-cli").join("src");
+    assert!(src.is_dir(), "缺少源码目录：{}", src.display());
     let mut files = Vec::new();
-    for c in ["codex-cli", "service", "tool-runtime"] {
-        let src = root.join("crates").join(c).join("src");
-        assert!(src.is_dir(), "缺少源码目录：{}", src.display());
-        collect_rs(&src, &mut files);
-    }
+    collect_rs(&src, &mut files);
     assert!(
-        files.len() >= 20,
+        files.len() >= 8,
         "扫描面过小（{} 个源文件）——门禁自身可能失效",
         files.len()
     );
@@ -84,6 +88,8 @@ fn no_unbounded_file_reads_in_product_crates() {
         let mut depth: i32 = 0;
         let mut test_base: Option<i32> = None;
         let mut pending_cfg_test = false;
+        // 最近 3 行原始文本——豁免标记可以写在调用行的上一行（多行语句/注释换行都容得下）。
+        let mut recent: Vec<&str> = Vec::new();
         for (i, raw) in text.lines().enumerate() {
             let code = code_part(raw);
             let trimmed = code.trim();
@@ -93,7 +99,8 @@ fn no_unbounded_file_reads_in_product_crates() {
                 pending_cfg_test = true;
             }
             let inside_test = test_base.is_some_and(|b| depth > b);
-            if !inside_test && is_unbounded_read(code) && !raw.contains("bounded-io-exempt:") {
+            let exempt = recent.iter().any(|l| l.contains(EXEMPT_MARK));
+            if !inside_test && is_unbounded_read(code) && !exempt {
                 offenders.push(format!(
                     "{}:{} {}",
                     f.strip_prefix(&root).unwrap_or(f).display(),
@@ -110,14 +117,18 @@ fn no_unbounded_file_reads_in_product_crates() {
             if test_base.is_some_and(|b| depth <= b) {
                 test_base = None;
             }
+            recent.push(raw);
+            if recent.len() > 3 {
+                recent.remove(0);
+            }
         }
     }
 
     assert!(
         offenders.is_empty(),
-        "发现**无界文件读入**（裸 `read_to_string` / `fs::read` 会把整份文件读进内存，\
-         一条超大文件即可 OOM）。请改用 `bounded_io::read_file_text_capped_std`（超限要\
-         留痕，见 D-125/D-131 口径）；若确需整份读入（如字节级还原），在该行加\
+        "发现**无界文件读入**（裸 `read_to_string` / `fs::read` 会把整份文件读进内存）。\
+         请改用 `bounded_io::read_file_text_capped_std`（超限要留痕，见 D-125/D-131 口径）；\
+         若属 D-77 裁决的「操作者本机配置/清单」或需字节级还原（截断即损坏），在该行或上一行加\
          `// bounded-io-exempt: <理由>`。命中：{offenders:#?}"
     );
 }

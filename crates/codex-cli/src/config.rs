@@ -75,19 +75,9 @@ impl Config {
         if !path.exists() {
             return Ok(Self::default());
         }
-        // D-131（2026-10-03）：有界读入——config.toml 是**用户可编辑**文件，旧实现
-        // `read_to_string` 无上限，一个被撑大的（或误指向的）文件会让 CLI 在"读配置"
-        // 这一步就 OOM。超限时 fail-closed：**不**拿半份配置继续跑（那会把"配置写错"
-        // 静默变成"配置被悄悄改小"）。
-        let (text, truncated) =
-            bounded_io::read_file_text_capped_std(&path, bounded_io::MAX_CAPTURED_BYTES as u64)
-                .with_context(|| format!("read config {}", path.display()))?;
-        anyhow::ensure!(
-            !truncated,
-            "config {} 超过 {} 字节上限，拒绝解析（请检查是否被外部撑大/误指向）",
-            path.display(),
-            bounded_io::MAX_CAPTURED_BYTES
-        );
+        // bounded-io-exempt: D-77 裁决——操作者本机 config.toml，无无界增长特性；加 cap 无安全收益、反有"合法大配置被截断→解析失败"的回归风险
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("read config {}", path.display()))?;
         let cfg: Config =
             toml::from_str(&text).with_context(|| format!("parse config {}", path.display()))?;
         Ok(cfg)

@@ -34,22 +34,8 @@ impl TemplateManager {
                 let entry = entry?;
                 let p = entry.path();
                 if p.extension().is_some_and(|e| e == "toml") {
-                    // D-131（2026-10-03）：有界读入——模板目录由运维放置，单个 .toml
-                    // 被撑大时旧 `read_to_string` 无上限（启动期 OOM ⇒ 服务起不来）。
-                    // 超限即跳过并留痕（与"读取失败跳过"同语义，不静默）。
-                    let s = match bounded_io::read_file_text_capped_std(
-                        &p,
-                        bounded_io::MAX_CAPTURED_BYTES as u64,
-                    ) {
-                        Ok((s, false)) => s,
-                        Ok((_, true)) => {
-                            tracing::warn!(
-                                path = %p.display(),
-                                "模板文件超过 {} 字节上限，已跳过（避免整份读入内存）",
-                                bounded_io::MAX_CAPTURED_BYTES
-                            );
-                            continue;
-                        }
+                    let s = match std::fs::read_to_string(&p) {
+                        Ok(s) => s,
                         Err(e) => {
                             tracing::warn!(path = %p.display(), "模板文件读取失败，已跳过: {e}");
                             continue;

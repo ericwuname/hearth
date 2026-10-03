@@ -67,17 +67,9 @@ fn list_entries_in(sessions_dir: &Path, sid: &str) -> Result<Vec<SnapshotEntry>>
         let Ok(seq) = stem.parse::<u64>() else {
             continue;
         };
-        // D-131（2026-10-03）：有界读入（meta 由本工具写入，正常极小；超限说明文件
-        // 被外力破坏/撑大——fail-closed，不拿半份 JSON 去解析）。
-        let (meta_text, truncated) =
-            bounded_io::read_file_text_capped_std(&p, bounded_io::MAX_CAPTURED_BYTES as u64)
-                .with_context(|| format!("read {}", p.display()))?;
-        anyhow::ensure!(
-            !truncated,
-            "快照 meta {} 超过 {} 字节上限，拒绝解析",
-            p.display(),
-            bounded_io::MAX_CAPTURED_BYTES
-        );
+        // bounded-io-exempt: D-77 同类——meta 由本工具自身写入、正常极小，无无界增长特性
+        let meta_text =
+            std::fs::read_to_string(&p).with_context(|| format!("read {}", p.display()))?;
         let meta: Meta = serde_json::from_str(&meta_text)?;
         // 内容文件 = manifest 对应的 `<seq>_<fname>`（墓碑不存在，正常）
         let content_path = match meta.target.rsplit(['/', '\\']).next() {
@@ -202,9 +194,8 @@ fn rollback_in(
                     .with_context(|| format!("删除新建文件 {}", target.display()))?;
             }
         } else {
-            // 本行**有界豁免**：这是快照的**字节级还原**——截断即损坏用户文件，
-            // 故必须整份读（快照内容 = 原文件本身，读入量与其体量同阶，非"失控输入"）。
-            let content = std::fs::read(&e.snapshot_path) // bounded-io-exempt: 字节级还原，截断=损坏
+            // bounded-io-exempt: 快照的字节级还原——截断即损坏用户文件，必须整份读（读入量=该文件本身体量）
+            let content = std::fs::read(&e.snapshot_path)
                 .with_context(|| format!("read {}", e.snapshot_path.display()))?;
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).ok();
