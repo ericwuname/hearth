@@ -1421,9 +1421,13 @@ async fn render_agent_event(
                 use std::io::IsTerminal as _;
                 if !std::io::stdin().is_terminal() {
                     render::info("  ⚠ 非交互模式（stdin 非 tty）——无人应答，按放弃处理（budget_reassess/clarification headless guard）");
-                    let _ = dispatcher
+                    // D-135：放弃路径同样不得静默丢条（D-120 同族）——失败留痕。
+                    if let Err(e) = dispatcher
                         .resolve_interaction(sid, approval_id, false, serde_json::Value::Null)
-                        .await;
+                        .await
+                    {
+                        render::error(&format!("澄清放弃提交失败: {e}"));
+                    }
                     return Ok(());
                 }
                 let mut answer = String::new();
@@ -1455,10 +1459,15 @@ async fn render_agent_event(
                     .and_then(|a| a.as_str())
                     .unwrap_or("已选")
                     .to_string();
-                let resolved = dispatcher
+                // D-135（2026-10-04）：此前计算 `is_ok()` 后 `let _ = resolved;`
+                // 丢弃 Result，却**无条件**打印「✓ 澄清已提交」——提交失败时
+                // （interaction_id mismatch / no pending interaction）内核并未收下
+                // 澄清，用户却以为已生效。对齐紧邻审批分支 `.context(..)?` 的
+                // fail-closed 语义：失败即留痕并中断，不再谎报成功。
+                dispatcher
                     .resolve_interaction(sid, approval_id, answered, resolved_answer)
                     .await
-                    .is_ok();
+                    .context("澄清提交失败")?;
                 render::info(&format!(
                     "  ✓ 澄清已提交（{}）",
                     if answered {
@@ -1467,7 +1476,6 @@ async fn render_agent_event(
                         "放弃".to_string()
                     }
                 ));
-                let _ = resolved;
                 return Ok(());
             }
             // 审批（approval）——y/N 内联裁决
@@ -1482,9 +1490,13 @@ async fn render_agent_event(
                 render::info(
                     "  ↳ 下一步: 用 hearth repl（可交互批准）或 --approve-within session（显式委托）后重跑",
                 );
-                let _ = dispatcher
+                // D-135：拒绝路径同样不得静默丢条——失败留痕（对齐澄清分支）。
+                if let Err(e) = dispatcher
                     .resolve_interaction(sid, approval_id, false, serde_json::Value::Null)
-                    .await;
+                    .await
+                {
+                    render::error(&format!("审批拒绝提交失败: {e}"));
+                }
                 return Ok(());
             }
             crate::render::out!("{}", format!("⛔ {action} — 批准? [y/N] ").bright_red());
