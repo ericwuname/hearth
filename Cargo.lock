@@ -1384,6 +1384,7 @@ name = "project-xray"
 version = "0.2.27"
 dependencies = [
  "anyhow",
+ "bounded-io",
  "clap",
  "serde",
  "serde_json",

@@ -12,7 +12,11 @@
 //! 静默降级风险）。故本门禁**只覆盖 `crates/codex-cli/src`**，且允许经 `bounded-io-exempt:`
 //! 标记的显式豁免——D-77 类读（`config.rs` 的 config.toml、快照 meta）与"字节级还原"
 //! （`snapshot_store.rs` 的快照内容）即以此方式如实标注。**不要**顺手把 service /
-//! tool-runtime / llm-* / project-xray 的同类读也纳入：它们在 D-77 的裁决范围内。
+//! tool-runtime / llm-* 的同类读也纳入：它们在 D-77 的裁决范围内。
+//! （订正 D-142，2026-10-04：原注把 `project-xray` 一并列入"D-77 范围"，那是**把 D-77 的
+//! 圈定范围写宽了**——D-77 本体只裁定"操作者本机配置"那 6 个落点；xray 读的是**被扫描
+//! 工作区源码**（D-38/D-75 同类，须加界），已由它自带的 `project-xray/tests/
+//! unbounded_read_gate.rs` 覆盖。）
 //!
 //! 判据：
 //! - 命中形态：非测试代码里的 `read_to_string(` 或 `fs::read(`（`fs::read_dir(` 与

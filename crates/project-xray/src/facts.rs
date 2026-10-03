@@ -40,8 +40,19 @@ pub struct Facts {
 /// 扫描 `root`（workspace 根）产出 Facts。
 pub fn scan(root: &Path) -> Result<Facts> {
     let manifest_path = root.join("Cargo.toml");
-    let manifest_text = fs::read_to_string(&manifest_path)
-        .with_context(|| format!("read {}", manifest_path.display()))?;
+    // 有界读（D-142）：manifest 是**被扫描工作区**的文件（D-38/D-75 同类），非 D-77 豁免。
+    // 超限即 fail-closed——截断的 TOML 会解析失败或解析出残缺 members，宁可拒绝也不静默降级。
+    let (manifest_text, manifest_truncated) = bounded_io::read_file_text_capped_std(
+        &manifest_path,
+        bounded_io::MAX_CAPTURED_BYTES as u64,
+    )
+    .with_context(|| format!("read {}", manifest_path.display()))?;
+    anyhow::ensure!(
+        !manifest_truncated,
+        "{} exceeds the {} byte read cap — refusing to parse a truncated manifest",
+        manifest_path.display(),
+        bounded_io::MAX_CAPTURED_BYTES
+    );
     let manifest: toml::Value = toml::from_str(&manifest_text)
         .with_context(|| format!("parse {}", manifest_path.display()))?;
 
@@ -69,9 +80,23 @@ pub fn scan(root: &Path) -> Result<Facts> {
             tests: 0,
         };
         for file in collect_rs_files(&dir) {
-            let Ok(content) = fs::read_to_string(&file) else {
-                continue;
+            // 有界读（D-142）：被扫描工作区的 .rs，非 D-77 豁免。超限**跳过并留痕**
+            // （对齐 D-38 code-index 先例）——绝不截断后照常统计 LOC/测试数（会得出错误的数字）。
+            let (content, truncated) = match bounded_io::read_file_text_capped_std(
+                &file,
+                bounded_io::MAX_CAPTURED_BYTES as u64,
+            ) {
+                Ok(v) => v,
+                Err(_) => continue,
             };
+            if truncated {
+                eprintln!(
+                    "xray: skipping {} — exceeds {} byte read cap (truncating would corrupt LOC/test counts)",
+                    file.display(),
+                    bounded_io::MAX_CAPTURED_BYTES
+                );
+                continue;
+            }
             cf.rs_files += 1;
             cf.loc += content.lines().count() as u64;
             cf.tests += count_test_declarations(&content);

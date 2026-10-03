@@ -89,6 +89,8 @@ pub struct CapabilityResult {
 /// `severity` 必须落在 [`SEVERITY_RED`] / [`SEVERITY_YELLOW`] 的封闭集里**——取值写错
 /// （含仅大小写不同）会让 `has_red_break` 静默失效，等于门禁被一行 typo 关掉。
 pub fn load_spec(path: &Path) -> Result<WiringSpec> {
+    // bounded-io-exempt: 读的是操作者/CI 自己的规格文件（docs/xray/wiring-v13.toml），
+    // 非被扫描工作区源码，无不可信来源/无界增长特性（D-77 裁决范围，2026-10-01）。
     let text = fs::read_to_string(path).with_context(|| format!("read spec {}", path.display()))?;
     let spec: WiringSpec =
         toml::from_str(&text).with_context(|| format!("parse spec {}", path.display()))?;
@@ -139,17 +141,31 @@ pub fn check(root: &Path, spec: &WiringSpec) -> Vec<CapabilityResult> {
 
 fn check_link(root: &Path, link: &ChainLink) -> LinkResult {
     let path = root.join(&link.file);
-    let content = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            return LinkResult {
-                file: link.file.clone(),
-                meaning: link.meaning.clone(),
-                ok: false,
-                detail: format!("file unreadable: {e}"),
-            };
-        }
-    };
+    // 有界读（D-142）：读的是**被扫描工作区源文件**（D-38/D-75 同类），非 D-77 豁免。
+    // 超限即判该环断裂并留痕——不截断后匹配子串（截断处会制造假阴性/假绿）。
+    let content =
+        match bounded_io::read_file_text_capped_std(&path, bounded_io::MAX_CAPTURED_BYTES as u64) {
+            Ok((c, false)) => c,
+            Ok((_, true)) => {
+                return LinkResult {
+                    file: link.file.clone(),
+                    meaning: link.meaning.clone(),
+                    ok: false,
+                    detail: format!(
+                        "file too large to inspect (> {} bytes)",
+                        bounded_io::MAX_CAPTURED_BYTES
+                    ),
+                };
+            }
+            Err(e) => {
+                return LinkResult {
+                    file: link.file.clone(),
+                    meaning: link.meaning.clone(),
+                    ok: false,
+                    detail: format!("file unreadable: {e}"),
+                };
+            }
+        };
 
     // P0-4 (audit-fix): 先剥离注释/字符串再做子串匹配——否则把调用整行
     // 注释掉（子串留在注释里）仍能通过 wiring，G1「代码分支必执行」退化为
