@@ -681,27 +681,19 @@ async fn main() -> anyhow::Result<()> {
     // 全局 `civilization.jsonl` store 已停止构造——它既无人读（D-108），也不再有写入方
     // （D-109 已把 CivWriterAdapter 改为按 owner 写 per-user 档）。
 
-    // 6D: work line store
-    let workline_store = Arc::new(
-        memory::WorkLineStore::new(&std::path::PathBuf::from(&memory_dir), "workline.jsonl")
-            .unwrap_or_else(|e| startup_fatal("failed to init workline store", e)),
-    );
-
-    // v10.4: WorkLine 60s background scheduler
-    let wl_bg = workline_store.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            let pending = wl_bg.list(Some("pending"));
-            if !pending.is_empty() {
-                tracing::info!(workline_pending = pending.len(), "workline scheduler tick");
-                // Advance any stale pending nodes
-                for node in pending {
-                    let _ = wl_bg.update(&node.id, node.progress + 1.0, None);
-                }
-            }
-        }
-    });
+    // D-138（2026-10-04, traecode）：此处原有「6D: work line store」——一个**全局**
+    // store（`MEMORY_DIR/workline.jsonl`）——及其「v10.4: WorkLine 60s background
+    // scheduler」。两者一并**退役**，理由与 D-108/D-109 退役全局文明线同源：
+    //   - 该全局 store **无任何读取方**：HTTP `/api/v1/workline*` 全部读 per-user 档
+    //     （`per_user.workline_for(uid)`，见 `routes.rs`）；`AppState` 早在 D-108 已
+    //     删除 `workline_store` 字段。它唯一的使用者就是下面这个调度器自己 ⇒ "只写不读"。
+    //   - 调度器对**所有** pending 节点每 60s `progress + 1.0`、status 传 `None`
+    //     （⇒ 状态永不流转、进度无界增长：1.0/分 → 1440/天），且每次 `update` 重写整份
+    //     jsonl；其注释 "Advance any stale pending nodes" 承诺"仅 stale"，代码却无任何
+    //     时效判定 ⇒ "声称≠实现"。
+    //   - 语义上"无人做事却每 60s 涨进度"本身就是**谎报进度**，不是真功能。
+    // work line 的可见面仍由 per-user store 提供（`per_user.rs` 的
+    // `WorkLineStore::new(&dir, "workline.jsonl")`，落在 `<uid>/` 下），不受影响。
 
     // v7.0: telemetry collector
     let telemetry = Arc::new(routes::TelemetryCollector::default());
