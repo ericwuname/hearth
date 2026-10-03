@@ -805,7 +805,17 @@ pub async fn run_local_continue(
     };
 
     // R6: AI 侧落盘（Observer 消费——零执行权，只记）
-    let _ = crate::note::persist_ai_events(session_id, &enveloped);
+    // D-134（2026-10-04）：此前 `let _ = persist_ai_events(..)` **丢弃 Result**——
+    // 落盘失败（`~/hearth/observer` 建不出 / 写不进 / 磁盘满）时 Observer 素材
+    // **静默丢失**：任务照常 exit 0，用户与观测面都毫无痕迹（同 D-120 的"静默丢条"
+    // 族，也是本仓"不静默降级"红线的正例）。改为失败**留痕**、**不阻断主流程**
+    // （与紧邻的 transcript 落盘同款处置——`persist_ai_events` 内部已 `context(...)`
+    // 带上失败原因，此处只需呈现）。
+    if let Err(e) = crate::note::persist_ai_events(session_id, &enveloped) {
+        render::error(&format!(
+            "AI 事件落盘失败（Observer 素材丢失，不阻断本次任务）: {e}"
+        ));
+    }
     // v0.1.2 (hearth-harness-review-supplement 补充5): 最小 transcript——一行 JSONL，
     // 让验证层 fail 有据可查。失败不阻断（warn）。
     let status = report.get("status").and_then(|s| s.as_str()).unwrap_or(

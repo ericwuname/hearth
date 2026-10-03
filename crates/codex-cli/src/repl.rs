@@ -196,15 +196,43 @@ pub async fn run(
                                     ).await {
                                         Ok(Some(cmd)) => {
                                             let parts: Vec<&str> = cmd.split_whitespace().collect();
-                                            if !parts.is_empty() && parts[0] == "approve" {
-                                                let _ = client_arc.submit_approval(&sid_clone, aid, true, None).await;
+                                            let decision = if !parts.is_empty() && parts[0] == "approve" {
+                                                Some(true)
                                             } else if !parts.is_empty() && parts[0] == "deny" {
-                                                let _ = client_arc.submit_approval(&sid_clone, aid, false, None).await;
+                                                Some(false)
+                                            } else {
+                                                None
+                                            };
+                                            if let Some(yes) = decision {
+                                                // D-134（2026-10-04）：此前 `let _ = submit_approval(..)`
+                                                // **丢弃 Result**——提交失败（service 掉线 / 404 / 非 2xx 空体）时
+                                                // 用户**看不到任何提示**，以为自己已批准，而会话其实仍在等服务端
+                                                // 决策（随后卡住/超时）。现失败必留痕（**不中断 REPL**：审批提交是
+                                                // 一次网络动作，不该因此把整个交互会话杀掉）。
+                                                if let Err(e) = client_arc
+                                                    .submit_approval(&sid_clone, aid, yes, None)
+                                                    .await
+                                                {
+                                                    render::error(&format!(
+                                                        "审批提交失败（{}）: {e}",
+                                                        if yes { "approve" } else { "deny" }
+                                                    ));
+                                                    render::error(
+                                                        "会话可能仍在等待该审批——请检查 service 是否在线后重试",
+                                                    );
+                                                }
                                             }
                                         }
                                         _ => {
                                             // timeout → auto-deny
-                                            let _ = client_arc.submit_approval(&sid_clone, aid, false, None).await;
+                                            // D-134：同处 `let _ =` 亦吞掉失败——自动拒绝若没送达服务端，
+                                            // 会话会一直停在待审批（"超时"提示与真实状态不符），故也留痕。
+                                            if let Err(e) = client_arc
+                                                .submit_approval(&sid_clone, aid, false, None)
+                                                .await
+                                            {
+                                                render::error(&format!("超时自动拒绝提交失败: {e}"));
+                                            }
                                             render::info("approval timeout — auto-denied");
                                         }
                                     }
