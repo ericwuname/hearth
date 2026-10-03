@@ -12,6 +12,16 @@
 //! **先设计再接线**（生产者与消费者同批到位），并同步更新本门禁——以此强制一次
 //! 显式决策，而不是让"读方还在、生产方已无"的半接线状态悄悄回来。
 //!
+//! D-139（2026-10-04, traecode）：**同一门禁追加三条"清理漏网残链"**——它们是
+//! D-98/D-114 退役手术的遗漏（退役口径同族，均属"定义了但无人用"）：
+//!   • `last_success`——`AgentLoop` 只写不读字段；D-98 删了 `GuardContext.last_success`
+//!     却漏删 `AgentLoop` 侧同名字段（两个现役 guard 只读 `last_action`/`cost_ratio`）。
+//!   • `approval_denied_flag`——`AgentLoop` 只写不读字段；其唯一消费端（telemetry
+//!     投影）已随 D-114 退役 ⇒ 孤儿。
+//!   • `reflect_fact_conflict`（含分类器 `classify_reflect_fact_conflict`）——scratch
+//!     键**有读无写**：白名单/报告/store 三处读点仍在，全仓零 `set_scratch` 生产者，
+//!     分类器从未落地（悬空注释头）。同 D-114 的"读方还在、生产方已无"半接线。
+//!
 //! 扫描规则：**逐行剥掉 `//` 行注释后再匹配**——这样"退役说明注释"里可以照常点名
 //! 这些标识符（可读性），而真正的**代码**一旦复用它们即报红。
 //!
@@ -32,6 +42,11 @@ const RETIRED_IDENTIFIERS: &[&str] = &[
     "RecoveryStrategy",
     "last_failure_class",
     "last_recovery_strategy",
+    // D-139：D-98/D-114 退役手术的漏网残链（只写不读字段 / 有读无写的 scratch 键）。
+    "last_success",
+    "approval_denied_flag",
+    "reflect_fact_conflict",
+    "classify_reflect_fact_conflict",
 ];
 
 fn collect_rs(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
@@ -69,8 +84,9 @@ fn retired_failure_channel_identifiers_are_absent() {
 
     assert!(
         hits.is_empty(),
-        "已退役的失败分类/恢复策略决策支持层**不得复活**（D-114）——检测到：\n{}\n\
-         该层零消费者、其 scratch 下游通道已被 R6-5 主动删除（禁止复活旧 scratch 通道）。\
+        "已退役的失败分类/决策支持层与清理漏网残链**不得复活**（D-114 / D-139）——检测到：\n{}\n\
+         该层零消费者、其 scratch 下游通道已被 R6-5 主动删除（禁止复活旧 scratch 通道）；\
+         D-139 追加的字段/键亦为零消费者残链。\
          若确要恢复，请先设计（生产者+消费者同批接线）并同步更新本门禁。",
         hits.join("\n")
     );

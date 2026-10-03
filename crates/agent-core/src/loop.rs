@@ -885,7 +885,9 @@ pub struct AgentLoop {
     subconscious: subconscious::SubconsciousGate,
     /// v11.5: Live tracking for subconscious signal accuracy.
     last_action: Option<String>,
-    last_success: bool,
+    // D-139（2026-10-04, traecode）：`last_success: bool` 只写不读（唯一赋值处曾为
+    // 主循环 `self.last_success = ...`）——D-98 删了 `GuardContext.last_success` 却漏删
+    // 本侧同名字段；两个现役 guard 只读 `last_action`/`cost_ratio`，全仓零读取 ⇒ 退役。
     /// v11.0: Pre-searched experience text injected into build_messages.
     injected_experience: Option<String>,
     /// D-116（2026-10-02, traecode）：经验复用开关——**构造期从
@@ -998,12 +1000,13 @@ pub struct AgentLoop {
     egress_asked: std::collections::HashSet<String>,
     // R6-2: last_graph_sig / graph_stall_count 字段已随 T4 强制 GiveUp 删除。
     /// P1-FAILURE-ADAPTATION-01 Node 06: 观察级 failure 分类状态——
-    /// same_tool_repeat（同一工具连续失败次数）/ last_error_tool（上次错误工具名）/
-    /// approval_denied_flag（审批拒绝待消费标记）。仅 telemetry 投影（scratch），
-    /// 不进入决策控制流（本单边界：retry 策略差异化消费端 = 观察级接线）。
+    /// same_tool_repeat（同一工具连续失败次数）/ last_error_tool（上次错误工具名）。
+    /// 仅 telemetry 投影，不进入决策控制流（本单边界：retry 策略差异化消费端 =
+    /// 观察级接线）。
     same_tool_repeat: u32,
     last_error_tool: Option<String>,
-    approval_denied_flag: bool,
+    // D-139（2026-10-04, traecode）：`approval_denied_flag: bool` 只写不读——唯一消费端
+    // （telemetry 投影）已随 D-114 退役，全仓零读取 ⇒ 孤儿字段，退役。
     /// FA01 Node 09: 预算耗尽拦截已触发（一次性——核验通过路由 Done 收尾，
     /// 防止 budget 检查死循环；不延长执行预算，INV-FA01-E）。
     fa01_budget_intercepted: bool,
@@ -1092,7 +1095,9 @@ impl AgentLoop {
         self.approval_policy
     }
 
-    // Node 04 (P1-EXECUTION-DECISION-01): REFLECT_FACT_CONFLICT 分类器——
+    // D-139: 原悬空注释头「Node 04 (P1-EXECUTION-DECISION-01): REFLECT_FACT_CONFLICT
+    // 分类器——」在此，其后从无实现体（分类器 `classify_reflect_fact_conflict` 全仓零
+    // 命中）；该分类器与其 scratch 键均为"有读无写"残链，一并退役。
 
     /// Node 03 (O-4): 设置待注入的 acceptance criteria（init 后/run 前调用，
     /// 供 run() 内 ContextManager::new 重建后恢复——pending 桥）。
@@ -1328,10 +1333,11 @@ impl AgentLoop {
         // D-114（2026-10-02, traecode）：原含 `last_failure_class`/
         // `last_recovery_strategy` 两键——它们的生产者（R5-1 中转注入块）已随
         // R6-5 主动删除，全仓再无写入方 ⇒ 恒空、无续跑语义，一并移除。
-        const SCRATCH_KEYS: [&str; 4] = [
+        // D-139（2026-10-04, traecode）：`reflect_fact_conflict` 同为"有读无写"键，
+        // 一并移除（全仓零 `set_scratch` 生产者）。
+        const SCRATCH_KEYS: [&str; 3] = [
             "acceptance_result",
             "budget_stop_unverified",
-            "reflect_fact_conflict",
             "rerouted_unverified",
         ];
         let mut scratch = serde_json::Map::new();
@@ -1575,7 +1581,6 @@ impl AgentLoop {
             experience_store: None,
             subconscious: subconscious::SubconsciousGate::new(),
             last_action: None,
-            last_success: true,
             injected_experience: None,
             // D-116：构造期读一次开关（见字段注释）。
             experience_reuse: std::env::var(EXPERIENCE_REUSE_ENV).as_deref() == Ok("1"),
@@ -1652,7 +1657,6 @@ impl AgentLoop {
             // R6-2: last_graph_sig/graph_stall_count 初始化已随 T4 删除。
             same_tool_repeat: 0,
             last_error_tool: None,
-            approval_denied_flag: false,
             fa01_budget_intercepted: false,
             empty_turn_active: false,
             empty_turn_streak: 0,
@@ -3522,8 +3526,8 @@ impl AgentLoop {
                     let approved = self.scheduler.check_interaction(&self.session_id).await;
                     if !approved {
                         // Denied — abort tool execution
-                        // FA01 Node 06: 审批拒绝 = 结构化事实（F4 分类输入）
-                        self.approval_denied_flag = true;
+                        // D-139: `approval_denied_flag` 置位已随字段退役（其 F4 分类
+                        // 输入通道早随 D-114 删除，本分支仅保留拒绝语义）。
                         self.pending_results = self
                             .pending_tool_calls
                             .iter()
@@ -4392,7 +4396,6 @@ impl AgentLoop {
                         "goal": goal_text,
                         "steps": steps,
                         "verify": { "acceptance_failures": failures },
-                        "reflect_fact_conflict": self.ctx_mgr.get_scratch("reflect_fact_conflict").and_then(|v| v.as_bool()),
                     }),
                     usage,
                 };
@@ -4476,12 +4479,7 @@ impl AgentLoop {
                 "approval_delegated_cmds": self.delegated_approvals,
                 // W8/A4 (RC31): goal_drift 检测结果（true/false/null=未检测）
                 "goal_drift": goal_drift,
-                // Node 03: REFLECT_FACT_CONFLICT 观察标记（修 4——summary
-                // 字段非 Event；observe-only，不参与 terminal 判定）
-                "reflect_fact_conflict": self
-                    .ctx_mgr
-                    .get_scratch("reflect_fact_conflict")
-                    .and_then(|v| v.as_bool()),
+                // D-139: `reflect_fact_conflict` 观察标记已退役（有读无写残链）。
                 // ── R1-4 known-failing 报告层拦截（G-B 一票否决门的
                 // 机制落地）──0.9-0.3 病理"已知 0/16 失败项却标
                 // ✅100%"的报告侧终结：completed 终态**必须**携带
@@ -5152,7 +5150,6 @@ impl Agent for AgentLoop {
         // FA01 Node 06: failure 分类状态按轮重置。
         self.same_tool_repeat = 0;
         self.last_error_tool = None;
-        self.approval_denied_flag = false;
         self.fa01_budget_intercepted = false;
         // S12（手术包二）：交付前自检轮次按 run 重置 + 清上轮自检结果。
         self.self_check_rounds = 0;
@@ -5566,7 +5563,6 @@ impl Agent for AgentLoop {
             }
             // v11.5: Track for subconscious signals
             self.last_action = Some(step_label.to_string());
-            self.last_success = !matches!(outcome.next, StepNext::Error(_));
             info!(step = steps, step = step_label, duration_ms = t0.elapsed().as_millis(), sid = %self.session_id, "agent step ok");
             if counted_step {
                 self.ctx_mgr.inc_step();
@@ -8452,10 +8448,8 @@ mod tests {
             "产物正确+criteria 通过 → completed: {:?}",
             report.summary
         );
-        assert_eq!(
-            report.summary.get("reflect_fact_conflict"),
-            Some(&serde_json::Value::Null)
-        );
+        // D-139: 原断言 `reflect_fact_conflict == Null` 已随该键退役删除
+        // （有读无写残链——断言一个恒空的空生产者键无意义）。
         eprintln!("Node 03 PASS: acceptance passed producer wired");
     }
 
