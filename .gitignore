@@ -41,10 +41,17 @@ release/*.tar.gz
 # 与 D-5 同类：这些都是**运行期产物而非源码**，且内容含用户目标文本与运行叙述
 # ⇒ 被误提交既是 git 污染，也是"明文内容入库"的入口。此前只忽略 `.hearth-diag/`，
 # 在仓库根跑一次 `hearth` 就会让 `git status` 冒出上述目录（实测）。
-.hearth/
-.hearth_snapshots/
-.hearth_sessions/
-results/
+#
+# D-146（2026-10-04, traecode）：以下四条改为**根锚定**（行首 `/`），并补 `.hearth-service.pid`。
+# 原先未锚定的 `results/` 会匹配**任意层级**同名目录 ⇒ 静默忽略 `bench/results/`
+# （含 14 个已跟踪基准结果）下的**新增**文件（`git status` 不显示、`git add` 需 `-f`），
+# 是"静默失败"陷阱（`docs/data/**/results/` 同理）。`.hearth-service.pid` 由
+# 仓库根脚本 `run-hearth.sh` 生成（未忽略时运行脚本即污染 git status）。
+/.hearth/
+/.hearth_snapshots/
+/.hearth_sessions/
+/.hearth-service.pid
+/results/
 
 # D-145（2026-10-04, traecode）：两个默认落盘目录此前**漏忽略**（D-112 同族）：
 #   · `/memory/`   ← `MEMORY_DIR` 默认 `./memory`：会话/文明线/工作线/经验库 JSONL
