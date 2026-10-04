@@ -245,7 +245,14 @@ impl CodexClient {
         if resp.status().is_success() {
             Ok(())
         } else {
-            anyhow::bail!("cancel returned {}", resp.status())
+            // D-151（2026-10-04）：与 `post_ok`（D-124）对齐——失败时**透出服务端的
+            // 有界错误体**（`{"error":{"code","message"}}`），而不是只报裸状态码。
+            // 旧写法 `bail!("cancel returned {status}")` 会把服务端的 `code`/`message`
+            // 丢掉，使 `hearth cancel` 的报错比兄弟命令更不可行动（与指南 §7
+            // "每条报错都含下一步"矛盾）；活体复现见本卡。
+            let status = resp.status();
+            let body = error_body_capped(resp).await;
+            anyhow::bail!("server error {status}: {body}")
         }
     }
 
