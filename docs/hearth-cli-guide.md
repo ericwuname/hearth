@@ -32,7 +32,7 @@ export HEARTH_PROVIDER=deepseek
 
 配置优先级（高→低）：**命令行参数 > 环境变量（`HEARTH_*`）> `~/.config/hearth/config.toml` > 内置默认**。
 
-支持字段：`provider`（deepseek/openai/ollama/vllm）、`url`、`api-key`、`mode`（auto 直跑/remote 远程）、`feedback-prompt`（true/false）。
+支持字段：`provider`（deepseek/openai/ollama/vllm 等，完整清单见 `docs/configuration.md`）、`url`、`api_key`、`model`、`mode`（auto 直跑/remote 远程）、`feedback-prompt`（true/false）、`egress-allowlist`（逗号分隔出网 host 白名单）、`read-roots`（逗号分隔读根）。
 
 ## 3. 日常用法
 

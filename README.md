@@ -65,7 +65,7 @@ hearth config set provider deepseek
 hearth config get api-key                # 读取
 ```
 
-可改字段：`api_key` / `provider` / `url` / `model` / `mode` / `feedback-prompt`。
+可改字段：`api_key` / `provider` / `url` / `model` / `mode` / `feedback-prompt` / `egress-allowlist` / `read-roots`。
 
 **零配置首跑**：不设 key 直接 `hearth chat "hi"` → 清晰报错（非崩溃、非静默）：
 给出 3 步下一步（`hearth config set api-key` / `export HEARTH_API_KEY` / `hearth init`）。
