@@ -88,6 +88,7 @@
 |---|---|---|
 | `MEMORY_DIR` | `./memory` | JSONL 持久化目录（会话归档 / 经验库 / 文明线同目录） |
 | `TOOLS_DIR` | `./tools` | 工具注册表启动扫描目录：每个子目录放一份 `manifest.toml` 即被登记，可在 `GET /api/v1/tool-registry` 看到 |
+| `CODEX_DISABLE_TOOLS` | 未设（全启用） | 逗号分隔，禁用启动注册的**内置**工具。**用注册键**：`bash` / `read` / `edit` / `apply_patch` / `glob` / `grep`——注意编辑工具的键是 `edit`，而其显示名（`hearth tools` 与 LLM 所见）是 `write_file`；**写显示名 `write_file` 不生效**（历史别名，D-149 已在此登记）。`GET /api/v1/tools` 与实际注册**共用同一份禁用判定** |
 | `CODEX_TEMPLATES_DIR` | `./templates` | Agent 提示模板目录（`GET /api/v1/templates` 读它） |
 | `CODEX_OBSERVER_DIR` | `./observer` | Observer 落盘目录：每小时追加 `daily-<日期>.jsonl`，会话结束写 `reports/<sid>/` |
 

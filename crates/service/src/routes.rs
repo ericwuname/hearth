@@ -1059,22 +1059,24 @@ pub async fn list_tools() -> impl IntoResponse {
     Json(serde_json::json!({ "tools": tool_names() }))
 }
 
-/// `GET /api/v1/tools` 的载荷：本服务内置工具名。
+/// D-149（2026-10-04, traecode）：`CODEX_DISABLE_TOOLS`（逗号分隔、忽略大小写）→ 禁用**键**集合。
 ///
-/// 唯一事实源 = [`builtin_tools()`]（与启动注册同一张表）——
-/// 工具增删只需改那一处，路由与注册**自动同步**，不可能再漂移。
-pub fn tool_names() -> Vec<String> {
-    builtin_tools()
-        .into_iter()
-        .map(|(_, t)| t.name().to_string())
+/// 此前这段解析只存在于 `main.rs` 的注册循环里，而本文件旧注释把 env 名误写成
+/// `HEARTH_DISABLED_TOOLS`——照注释配置即**静默失效**（工具照旧启用）。现收敛到本函数，
+/// **注册与 `GET /api/v1/tools` 共用同一份判定**。
+pub fn disabled_tools_from_env() -> std::collections::HashSet<String> {
+    std::env::var("CODEX_DISABLE_TOOLS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
         .collect()
 }
 
 /// P1-11（D-44）：**内置工具表 = 唯一事实源**。
 ///
-/// 启动注册（`main.rs`）与 `GET /api/v1/tools` 都从这里取，杜绝
-/// "API 声称 ≠ 实际注册"。首元素是 `HEARTH_DISABLED_TOOLS` 的**键**——
-/// 其中 `edit`→`write_file` 是历史别名，**勿改**（改了会变配置语义）。
+/// 首元素是 `CODEX_DISABLE_TOOLS` 的**键**（其中 `edit`→`write_file` 是历史别名，
+/// **勿改**——改了会变配置语义：操作者按显示名 `write_file` 写会静默失效）。
 pub fn builtin_tools() -> Vec<(&'static str, Arc<dyn tool_runtime::Tool>)> {
     vec![
         ("bash", Arc::new(tools_builtin::BashTool::new())),
@@ -1084,6 +1086,32 @@ pub fn builtin_tools() -> Vec<(&'static str, Arc<dyn tool_runtime::Tool>)> {
         ("glob", Arc::new(tools_builtin::GlobTool::new())),
         ("grep", Arc::new(tools_builtin::GrepTool::new())),
     ]
+}
+
+/// D-149：**实际启用**的内置工具——`builtin_tools()` 过滤掉 `disabled` 里的键。
+///
+/// 注册（`main.rs`）与 `GET /api/v1/tools` 都必须经此：否则会出现
+/// "禁用已生效、API 却仍报它可用"（D-44 同族复发——D-44 只修了**硬编码名单**漂移，
+/// 未修**禁用过滤**这一路；实测 `CODEX_DISABLE_TOOLS=bash` 下 `/api/v1/tools` 仍列出 bash）。
+pub fn enabled_builtin_tools(
+    disabled: &std::collections::HashSet<String>,
+) -> Vec<(&'static str, Arc<dyn tool_runtime::Tool>)> {
+    builtin_tools()
+        .into_iter()
+        .filter(|(key, _)| !disabled.iter().any(|d| d == key))
+        .collect()
+}
+
+/// `GET /api/v1/tools` 的载荷：**实际启用**的内置工具名。
+///
+/// 名字取 `Tool::name()`（与 LLM/dispatcher 所见一致；`edit` 键对应显示名 `write_file`）。
+/// 唯一事实源 = `enabled_builtin_tools()`（与启动注册同一份判定）→ 工具增删/禁用
+/// 只需改那一处，路由与注册自动同步。
+pub fn tool_names() -> Vec<String> {
+    enabled_builtin_tools(&disabled_tools_from_env())
+        .into_iter()
+        .map(|(_, t)| t.name().to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1127,6 +1155,51 @@ mod d44_tests {
                 "真实注册的 `{n}` 未出现在 /api/v1/tools"
             );
         }
+    }
+
+    /// D-149 回归锁：`GET /api/v1/tools` 的载荷必须反映**禁用过滤**。
+    ///
+    /// 修复前 `tool_names()` 直接映射静态 `builtin_tools()`、**无视** `CODEX_DISABLE_TOOLS`
+    /// ⇒ 被禁用的工具仍被"声称可用"（**活体实证**：`CODEX_DISABLE_TOOLS=bash` 起服务后
+    /// `hearth tools` 仍列出 `bash`）。本测试用**显式入参**（不碰进程 env）以免并行竞态。
+    #[test]
+    fn test_d149_enabled_tools_respect_disable_filter() {
+        use std::collections::HashSet;
+
+        let names = |d: &HashSet<String>| -> Vec<String> {
+            enabled_builtin_tools(d)
+                .into_iter()
+                .map(|(_, t)| t.name().to_string())
+                .collect()
+        };
+
+        let none: HashSet<String> = HashSet::new();
+        let all = names(&none);
+        assert!(all.iter().any(|n| n == "bash"), "前置：未禁用时含 bash");
+
+        let bash_off: HashSet<String> = ["bash".to_string()].into_iter().collect();
+        let f1 = names(&bash_off);
+        assert!(
+            !f1.iter().any(|n| n == "bash"),
+            "禁用 `bash` 后仍报 bash 可用：{f1:?}"
+        );
+        assert!(f1.iter().any(|n| n == "read"), "禁用过滤误伤了其它工具");
+
+        // 历史别名：禁用**键**是 `edit`，而**显示名**是 `write_file`。
+        let edit_off: HashSet<String> = ["edit".to_string()].into_iter().collect();
+        let f2 = names(&edit_off);
+        assert!(
+            !f2.iter().any(|n| n == "write_file"),
+            "按注册键 `edit` 禁用后仍报 write_file 可用：{f2:?}"
+        );
+
+        // 记录别名语义（防被当 bug 改掉）：按**显示名** `write_file` 写**不生效**。
+        let by_display: HashSet<String> = ["write_file".to_string()].into_iter().collect();
+        assert_eq!(
+            names(&by_display).len(),
+            all.len(),
+            "`write_file` 不是注册键、不应生效——若此处失败说明 `edit`→`write_file` 别名语义被改了"
+        );
     }
 }
 

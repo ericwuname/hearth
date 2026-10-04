@@ -492,20 +492,12 @@ async fn main() -> anyhow::Result<()> {
     // ── Build tool dispatcher ──
     // E3 v5.0: config-based registration — all tools enabled by default,
     // disable with CODEX_DISABLE_TOOLS=bash,glob (comma-separated).
-    let disabled_tools: std::collections::HashSet<String> = std::env::var("CODEX_DISABLE_TOOLS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
+    // D-149：过滤判定收敛到 `routes::enabled_builtin_tools`——**注册与 `GET /api/v1/tools`
+    // 共用同一份**，杜绝"禁用已生效、API 却仍报它可用"（D-44 同族复发）。`key` 保持原有
+    // 别名语义不变（如 `edit`→`write_file`）。
     let mut dispatcher = ToolDispatcher::new();
-    // P1-11（D-44）：注册与 `GET /api/v1/tools` 同用 `builtin_tools()` 一张表
-    // （此前是两份各自维护的名单，导致 API 报出 read_file/edit_file/lsp_* 等
-    //  从未注册的名字）。`key` 保持原有别名语义不变（如 `edit`→`write_file`）。
-    for (key, tool) in routes::builtin_tools() {
-        if !disabled_tools.iter().any(|d| d == key) {
-            dispatcher.register(tool);
-        }
+    for (_key, tool) in routes::enabled_builtin_tools(&routes::disabled_tools_from_env()) {
+        dispatcher.register(tool);
     }
     let dispatcher = Arc::new(dispatcher);
 
