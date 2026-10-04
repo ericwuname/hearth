@@ -3036,6 +3036,10 @@ impl AgentLoop {
         // + 120s cap 即 failed）是本卡病灶：真机魂斗罗 span 125s 网络抖动即终止。
         let retry_start = std::time::Instant::now();
         let mut retry_attempt: u32 = 0;
+        // D-154（2026-10-04, traecode）：流式分支**成功**时内容已逐 delta 投影过——记下，
+        // 供尾部不再把整段重投影（否则驱动器 `for event in &outcome.emit` 会再 emit 一次
+        // → 客户端看到两遍答案）。声明在 loop **外**：尾部在 loop 之后，须仍在作用域。
+        let mut streamed_content = false;
         let resp: Result<llm_gateway::ChatResponse> = loop {
             // S11：步内快路径——置位与 select 注册之间的竞态窗口由此兜住
             //（notify_waiters 只唤醒已注册的等待者）。
@@ -3067,7 +3071,10 @@ impl AgentLoop {
                 r = async {
                     if stream_capable {
                         match self.stream_model_call(attempt_req.clone()).await {
-                            Ok(r) => Ok(r),
+                            Ok(r) => {
+                                streamed_content = true;
+                                Ok(r)
+                            }
                             Err(e) => {
                                 tracing::warn!(
                                     error = %e,
@@ -3300,7 +3307,12 @@ impl AgentLoop {
 
         if let Some(content) = &resp.content {
             if !content.is_empty() {
-                events.push(Event::Token(content.clone()));
+                // D-154：流式路径已逐 delta 投影过 content —— 此处**不再**把整段塞进
+                // `outcome.emit`；驱动器 `for event in &outcome.emit { self.emit(..) }`
+                // 会把它再 emit 一次 ⇒ 客户端看到两遍答案（活体：远程 `22✓ Done`）。
+                if !streamed_content {
+                    events.push(Event::Token(content.clone()));
+                }
                 if let Some(turn) = self.ctx_mgr.state_mut().history.last_mut() {
                     let mut msg = Message::new(
                         "assistant".into(),
@@ -7947,6 +7959,38 @@ mod tests {
         assert!(
             hist.contains("你好"),
             "token 必须聚合为完整 content: {hist}"
+        );
+    }
+
+    /// D-154（2026-10-04, traecode）回归锁（**driver 级**）：流式响应经 `run()` **驱动器**跑完后，
+    /// 内容只能被投影**一次**（逐 delta），不得再被尾部整段重发。
+    ///
+    /// 修复前：`stream_model_call` 逐 delta `self.emit(Event::Token)`，而 `do_plan_inner` 尾部
+    /// 又把**整段 content** 塞进 `outcome.emit`，驱动器 `run()` 逐条 `self.emit`（见 run 循环里
+    /// `for event in &outcome.emit`）⇒ 同一响应被投影两次——活体即远程 `22✓ Done`，
+    /// 且 `curl -N` 原始帧可见两枚 `token` 事件、`delta` 相同。
+    ///
+    /// 注意：同模块既有 `test_s10_streaming_tokens_aggregated_and_projected` **只调
+    /// `do_plan_inner`**、不经过驱动器，故抓不到本缺陷；本测试必须走 `run_take`（= `run()`）。
+    #[tokio::test]
+    async fn test_d154_streaming_content_not_double_projected_by_driver() {
+        let llm: Arc<dyn LlmProvider> = Arc::new(StreamingLlm { fail_stream: false });
+        let mut agent = make_test_agent(llm, Arc::new(ToolDispatcher::new()), Goal::new("d154"));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        agent.set_event_sender(tx);
+
+        let _ = agent.run_take(Goal::new("d154")).await;
+
+        let mut tokens: Vec<String> = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if let Event::Token(t) = evt {
+                tokens.push(t);
+            }
+        }
+        assert_eq!(
+            tokens,
+            vec!["你".to_string(), "好".to_string()],
+            "流式内容只应逐 delta 投影一次；若出现 `你好`（整段）即尾部与驱动器重复投影（D-154）"
         );
     }
 
