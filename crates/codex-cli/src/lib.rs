@@ -1563,6 +1563,19 @@ pub(crate) fn pct_encode(s: &str) -> String {
     out
 }
 
+/// D-153（2026-10-04, traecode）：SSE `data` 是服务端**扁平信封**——顶层含 `type`，
+/// 且变体字段**平铺**在同一层（`token`→`delta`、`phase`→`phase`、`error`→`message`、
+/// `reflection`→`verdict`、`done`→`report{…}`；见 `service/src/sse.rs::build_sse`）。
+///
+/// 取字符串字段时**优先按信封取值**，仅在 `data` 本身就是字符串时回退——**不得**对对象
+/// 直接 `as_str()`：修复前 token/phase/error/reflection 都这么取，于是整数为对象 → `None`
+/// → **静默不渲染**（实测远程模式不显示模型答案、不显示相位与错误）。
+pub(crate) fn sse_str<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    data.get(key)
+        .and_then(|v| v.as_str())
+        .or_else(|| data.as_str())
+}
+
 /// Y2: Shared SSE render loop (Chat + Resume). Renders thinking / tools / done / errors.
 async fn render_events(
     sid: &str,
@@ -1576,12 +1589,14 @@ async fn render_events(
             // B4-1: 按 ai-os-event-contract-v1 小写 type 匹配（旧大写匹配从未接上真实流）
             Ok(sse) => match sse.event_type.as_str() {
                 "phase" => {
-                    if let Some(p) = sse.data.as_str() {
+                    // D-153：按扁平信封取字段（修复前对对象 `as_str()` → 恒 None → 静默不渲染）
+                    if let Some(p) = sse_str(&sse.data, "phase") {
                         render::phase(p);
                     }
                 }
                 "token" => {
-                    if let Some(d) = sse.data.as_str() {
+                    // D-153：token 载荷在 `delta`（修复前 `as_str()` → 恒 None ⇒ 远程不显示答案）
+                    if let Some(d) = sse_str(&sse.data, "delta") {
                         render::token(d);
                     }
                 }
@@ -1609,21 +1624,20 @@ async fn render_events(
                     }
                 }
                 "done" => {
-                    let steps = sse.data.get("steps").and_then(|s| s.as_u64()).unwrap_or(0);
-                    let ok = sse
-                        .data
-                        .get("ok")
-                        .and_then(|o| o.as_bool())
-                        .unwrap_or(false);
+                    // D-153：报告嵌在平铺信封的 `report` 里（修复前在顶层取 steps/ok → 恒 0/false
+                    // ⇒ 远程模式把成功任务渲染成 `✗ Done (0 steps)`）。
+                    let rep = sse.data.get("report").unwrap_or(&sse.data);
+                    let steps = rep.get("steps").and_then(|s| s.as_u64()).unwrap_or(0);
+                    let ok = rep.get("ok").and_then(|o| o.as_bool()).unwrap_or(false);
                     render::done(steps, ok);
                 }
                 "error" => {
-                    if let Some(e) = sse.data.as_str() {
+                    if let Some(e) = sse_str(&sse.data, "message") {
                         render::error(e);
                     }
                 }
                 "reflection" => {
-                    if let Some(v) = sse.data.as_str() {
+                    if let Some(v) = sse_str(&sse.data, "verdict") {
                         render::info(&format!("↻ 反思: {v}"));
                     }
                 }
@@ -1808,6 +1822,51 @@ fn read_line(prompt: &str, default: &str) -> String {
         }
     }
     default.to_string()
+}
+
+#[cfg(test)]
+mod d153_tests {
+    use super::sse_str;
+    use serde_json::json;
+
+    /// D-153 回归锁：SSE `data` 是服务端**扁平信封**（顶层 `type` + 变体字段**平铺**）。
+    /// 取字段必须按信封形状——修复前对对象直接 `as_str()` 恒 `None`，导致远程模式
+    /// **静默不渲染** token/phase/error/reflection（不显示模型答案），且 `done` 在顶层
+    /// 取 steps/ok 恒 0/false（把成功任务渲染成 `✗ Done (0 steps)`）。
+    #[test]
+    fn test_d153_sse_str_reads_flattened_envelope() {
+        // 与服务端实际帧一致（见 crates/service/src/sse.rs::build_sse 的扁平信封）
+        let token = json!({"schema_version":1,"seq":2,"type":"token","delta":"2"});
+        assert_eq!(sse_str(&token, "delta"), Some("2"), "token 载荷在 `delta`");
+        assert_eq!(
+            token.as_str(),
+            None,
+            "前置：data 是对象——旧写法 `data.as_str()` 恒 None（= 远程不显示答案的根因）"
+        );
+
+        let phase = json!({"seq":1,"type":"phase","phase":"plan"});
+        assert_eq!(sse_str(&phase, "phase"), Some("plan"));
+
+        let err = json!({"seq":3,"type":"error","message":"boom"});
+        assert_eq!(sse_str(&err, "message"), Some("boom"));
+
+        let refl = json!({"seq":4,"type":"reflection","verdict":"continue"});
+        assert_eq!(sse_str(&refl, "verdict"), Some("continue"));
+
+        // 兜底：老式"data 直接是字符串"仍可用（不破坏既有形态）
+        assert_eq!(sse_str(&json!("plain"), "delta"), Some("plain"));
+
+        // done：报告嵌在 `report`（旧写法在顶层取 steps/ok 恒 0/false）
+        let done = json!({"seq":5,"type":"done","report":{"ok":true,"steps":1}});
+        let rep = done.get("report").unwrap();
+        assert_eq!(rep.get("ok").and_then(|o| o.as_bool()), Some(true));
+        assert_eq!(rep.get("steps").and_then(|s| s.as_u64()), Some(1));
+        assert_eq!(
+            done.get("steps"),
+            None,
+            "前置：steps 不在顶层——旧写法恒取 0（= `✗ Done (0 steps)` 的根因）"
+        );
+    }
 }
 
 #[cfg(test)]

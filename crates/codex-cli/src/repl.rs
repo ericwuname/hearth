@@ -154,23 +154,29 @@ pub async fn run(
                 event = stream.next() => {
                     match event {
                         Some(Ok(sse)) => {
+                            // D-153（2026-10-04, traecode）：事件名一律**小写**（ai-os-event-contract-v1）
+                            // ——B4-1 早把 `lib.rs::render_events` 改成小写，但本处**漏改**，仍按
+                            // `Phase`/`Token`/… 大写匹配 ⇒ 远程 REPL 一个事件都匹配不上、整段静默不渲染。
+                            // 同时按**扁平信封**取字段（见 `crate::sse_str`）。
                             match sse.event_type.as_str() {
-                                "Phase" => {
-                                    if let Some(p) = sse.data.as_str() {
+                                "phase" => {
+                                    if let Some(p) = crate::sse_str(&sse.data, "phase") {
                                         render::phase(p);
                                     }
                                 }
-                                "Token" => {
-                                    if let Some(d) = sse.data.as_str() {
+                                "token" => {
+                                    if let Some(d) = crate::sse_str(&sse.data, "delta") {
                                         render::token(d);
                                     }
                                 }
-                                "ToolCall" | "Tool" => {
-                                    let name = sse.data.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-                                    let args = sse.data.get("args").unwrap_or(&serde_json::Value::Null);
+                                "tool_call" => {
+                                    let name =
+                                        sse.data.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                    let args =
+                                        sse.data.get("args").unwrap_or(&serde_json::Value::Null);
                                     render::tool_call(name, args);
                                 }
-                                "ToolResult" => {
+                                "tool_result" => {
                                     // W4/RC20: 结构化 is_error——失败走 ✗
                                     let output = sse.data.get("output").and_then(|o| o.as_str()).unwrap_or("");
                                     let is_error = sse
@@ -184,7 +190,7 @@ pub async fn run(
                                         render::tool_result(output);
                                     }
                                 }
-                                "NeedApproval" => {
+                                "need_approval" => {
                                     let aid = sse.data.get("approval_id").and_then(|a| a.as_str()).unwrap_or("?");
                                     let action = sse.data.get("action").and_then(|a| a.as_str()).unwrap_or("?");
                                     render::need_approval(&sid_clone, aid, action);
@@ -237,31 +243,36 @@ pub async fn run(
                                         }
                                     }
                                 }
-                                "Reflection" | "Reflect" => {
-                                    if let Some(v) = sse.data.as_str() {
+                                "reflection" => {
+                                    if let Some(v) = crate::sse_str(&sse.data, "verdict") {
                                         render::reflection(v);
                                     }
                                 }
-                                "Done" => {
-                                    let steps = sse.data.get("steps").and_then(|s| s.as_u64()).unwrap_or(0);
-                                    let ok = sse.data.get("ok").and_then(|o| o.as_bool()).unwrap_or(false);
+                                "done" => {
+                                    // D-153：报告嵌在平铺信封的 `report` 里（修复前在顶层取
+                                    // steps/ok/artifacts… → 恒 0/false/空 ⇒ 远程 REPL 收尾全丢）。
+                                    let rep = sse.data.get("report").unwrap_or(&sse.data);
+                                    let steps =
+                                        rep.get("steps").and_then(|s| s.as_u64()).unwrap_or(0);
+                                    let ok =
+                                        rep.get("ok").and_then(|o| o.as_bool()).unwrap_or(false);
                                     render::done(steps, ok);
                                     // ── R3-1 收尾三行（REPL 路径返工：与 one-shot
                                     // 同源事实——改了什么/还剩什么/依据）──
                                     if ok {
-                                        let artifacts: Vec<String> = sse.data.get("artifacts")
+                                        let artifacts: Vec<String> = rep.get("artifacts")
                                             .and_then(|v| v.as_array())
                                             .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
                                             .unwrap_or_default();
-                                        let pending: Vec<String> = sse.data.get("ledger_pending")
+                                        let pending: Vec<String> = rep.get("ledger_pending")
                                             .and_then(|v| v.as_array())
                                             .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
                                             .unwrap_or_default();
-                                        let decision = sse.data.get("completion_decision")
+                                        let decision = rep.get("completion_decision")
                                             .and_then(|v| v.as_str()).unwrap_or("");
-                                        let verification = sse.data.get("verification")
+                                        let verification = rep.get("verification")
                                             .and_then(|v| v.as_str()).unwrap_or("UNVERIFIED");
-                                        let known_failing: Vec<String> = sse.data.get("known_failing_open")
+                                        let known_failing: Vec<String> = rep.get("known_failing_open")
                                             .and_then(|v| v.as_array())
                                             .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
                                             .unwrap_or_default();
@@ -296,8 +307,8 @@ pub async fn run(
                                     }
                                     done_seen = true;
                                 }
-                                "Error" => {
-                                    if let Some(e) = sse.data.as_str() {
+                                "error" => {
+                                    if let Some(e) = crate::sse_str(&sse.data, "message") {
                                         render::error(e);
                                     }
                                 }
