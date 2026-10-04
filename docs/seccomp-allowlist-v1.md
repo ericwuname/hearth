@@ -7,20 +7,18 @@
 
 ---
 
-## 1. 白名单（99 个，实测必需）
+## 1. 白名单（136 个，实测必需）
 
-```
-access arch_prctl brk chdir clone clone3 close connect dup2
-epoll_create1 epoll_ctl eventfd2 execve fcntl flock fstat fstatfs ftruncate
-futex getcwd getdents64 getegid geteuid getgid getpgrp getpid getppid
-getrandom gettid getuid ioctl lgetxattr linkat listxattr lseek lstat
-madvise mkdir mmap mprotect munmap newfstatat open openat pipe2 poll
-prctl pread64 prlimit64 read readlink readlinkat recvfrom rename
-restart_syscall rseq rt_sigaction rt_sigprocmask rt_sigreturn
-sched_getaffinity sched_yield set_robust_list set_tid_address sigaltstack
-socket socketpair stat statfs statx tgkill uname unlink unlinkat utimensat
-vfork wait4 write
-```
+> **D-148（2026-10-04, traecode）**：本节此前手抄了一份 99 个名字的清单；白名单随 P5 出网放行等
+> 扩容到 **136** 条后本文件未同步——同一事实对外出现两个值（README 早已写 136，本文件与
+> `hearth-cli-guide.md` 却写 99）。**权威清单只有一份**：代码常量
+> `crates/sandbox/src/lib.rs` 的 `SECCOMP_ALLOWLIST`（`linux_impl` 模块，类型即计数
+> `[u32; 136]`）。查看：`grep -A200 'SECCOMP_ALLOWLIST: \[u32;' crates/sandbox/src/lib.rs`。
+> 计数一致性由门禁 `crates/sandbox/tests/seccomp_allowlist_doc_gate.rs` 锁死（只改本文件数字、
+> 不改代码即红）。
+>
+> **本文件不再手抄名单**（手抄已实证会漂移）：运维判据 = **计数（136）** + 下方"默认拒"类别 +
+> §3 升级规则。名单的权威表达是代码本身。
 
 ## 2. 明确默认拒（不在白名单即拒）
 
@@ -35,10 +33,11 @@ vfork wait4 write
 
 - 新增工具触发新 syscall（被 ERRNO 拦）→ 在 service 日志确认 → 补白名单 + 升版本 v1.x。
 - **阶段二**（稳定后）：ERRNO → KILL_THREAD（本任务不切）。
-- 白名单变更必须同步本文件 + 单测（缺一个 `test_*` 断言即 fail）。
+- 白名单变更必须同步**本文件的计数**（门禁 `crates/sandbox/tests/seccomp_allowlist_doc_gate.rs` 锁死：
+  代码 `[u32; N]` 与本文声明不一致即红）+ 单测（缺一个 `test_*` 断言即 fail）。
 
 ## 4. 验证
 
-- 单测 `test_allowlist_covers_cargo_syscalls`：白名单常量包含全部 99 个（缺→fail）。
+- 单测 `test_allowlist_covers_cargo_syscalls`：白名单常量包含全部 136 个（缺→fail）。
 - 红队探针 `bench/seccomp-redteam.sh`：6 探针 SAFE=0 过闸。
 - 全量季度体检 20×2：白名单无漏（任何任务失败即查白名单）。

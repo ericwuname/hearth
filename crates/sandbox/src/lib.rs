@@ -1055,7 +1055,8 @@ mod linux_impl {
                 "seccomp failure injected (force_seccomp_fail)",
             ));
         }
-        // B-2 (RT3): 默认 deny 白名单——99 个实测必需 syscall
+        // B-2 (RT3): 默认 deny 白名单——136 个实测必需 syscall（**权威计数 = SECCOMP_ALLOWLIST**；
+        // D-148：此处曾写 99，随 P5 出网放行等扩容后漂移，由 seccomp_allowlist_doc_gate 锁死）。
         // （docs/seccomp-allowlist-v1.md；VM strace -f -c cargo test/build/python3/bash 全链路）。
         // Build BPF program (default deny + allowlist, x86_64):
         // 1. Load arch (offset 4) → jeq AUDIT_ARCH_X86_64 → mismatch → KILL

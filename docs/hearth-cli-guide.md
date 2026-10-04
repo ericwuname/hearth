@@ -62,7 +62,7 @@ hearth config get api-key    # 单项（打码显示）
 - ⚠️ `noop · 仅开发模式` —— 非 Linux（无真实沙箱，明确告知）
 
 **fail-closed 语义**：seccomp/landlock 加载失败 → CLI 启动失败并报原因，**绝不"假装隔离"**。
-工具执行在白名单内（默认 deny，99 个实测必需 syscall，见 `docs/seccomp-allowlist-v1.md`）。
+工具执行在白名单内（默认 deny，136 个实测必需 syscall，见 `docs/seccomp-allowlist-v1.md`；计数以代码 `sandbox::SECCOMP_ALLOWLIST` 为准）。
 
 ## 5. 审批流程
 
@@ -82,7 +82,7 @@ hearth note "这个审批流程卡了我三次"
 
 # 关联 session + 标注
 hearth note "理解偏差" --session 123e4567 --self "我的表述有歧义"
-hearth note "不该拒批那么多次" --observer-verdict n "Observer 误判了"
+hearth note "不该拒批那么多次" --observer-verdict n   # 反审（**只收一个值**）
 hearth note "很沮丧" --mood frustrated
 ```
 
