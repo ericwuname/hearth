@@ -1018,11 +1018,23 @@ impl SessionManager {
             .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
 
         let mut s = session.lock().await;
-        if let Some(tx) = s.cancel_tx.take() {
+        // D-152（2026-10-04, traecode）：先记下**是否有运行中任务可收信号**——它决定终态由谁落定。
+        let signaled = if let Some(tx) = s.cancel_tx.take() {
             let _ = tx.send(());
-        }
+            true
+        } else {
+            false
+        };
         // Mark not running; the task sets phase to "cancelled" upon signal receipt.
         s.running = false;
+        if !signaled {
+            // 从未启动（`cancel_tx == None`，无任务可收信号）⇒ **由本处落定终态**。
+            // 修复前此处不置 `phase`，于是 `phase` 永远停在 `"created"`：活体上
+            // `hearth cancel <id>` 打印 `cancelled <id>`（rc=0），而 `hearth status <id>`
+            // 仍显示 `"phase": "created"`——CLI 报成功、状态却没变（假成功）。
+            // 有任务在跑时**不在此处置**：仍由任务收信号后自行落 `phase`，避免与之竞态。
+            s.phase = "cancelled".into();
+        }
         s.finished_at = Some(std::time::Instant::now());
         // E2: cleanup per-session workspace dir (unless CODEX_KEEP_WORKSPACES=1)
         if std::env::var("CODEX_KEEP_WORKSPACES")
@@ -1312,6 +1324,57 @@ mod tests {
         assert!(
             mgr.get_session("running").await.is_some(),
             "running=true 的会话永不回收"
+        );
+    }
+
+    /// D-152 回归锁（**先红后绿**）：`cancel_session` 对**从未启动**的会话（`cancel_tx == None`，
+    /// 无运行中任务可收信号）必须**由本处落定终态** `phase = "cancelled"`。
+    ///
+    /// 修复前它只置 `running=false` / `finished_at`，`phase` 永远停在 `"created"` ⇒ 活体可复现
+    /// 矛盾：`hearth cancel <id>` 打印 `cancelled <id>`（rc=0），而紧接着 `hearth status <id>`
+    /// 仍显示 `"phase": "created"`——CLI 报成功、状态却没变（假成功）。
+    #[tokio::test]
+    async fn test_d152_cancel_never_started_sets_cancelled_phase() {
+        let mgr = SessionManager::new(
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolDispatcher::new()),
+            ToolContext::default(),
+        );
+        let ws = std::env::temp_dir().join("hearth-d152-ws");
+        let _ = std::fs::create_dir_all(&ws);
+        let session = Arc::new(Mutex::new(Session {
+            id: "never-started".into(),
+            provider_name: "p".into(),
+            model: "m".into(),
+            goal: "g".into(),
+            phase: "created".into(),
+            steps: 0,
+            budget_remaining: None,
+            event_tx: None,
+            events: Vec::new(),
+            events_base_seq: 0,
+            running: false,
+            agent: None,
+            budget: Budget::default(),
+            cancel_tx: None, // 从未启动 ⇒ 无任务可收信号
+            finished_at: None,
+            created_at: std::time::Instant::now(),
+            workspace_dir: ws,
+        }));
+        mgr.sessions
+            .write()
+            .await
+            .insert("never-started".into(), session.clone());
+
+        mgr.cancel_session("never-started")
+            .await
+            .expect("cancel 必须成功");
+
+        let phase = session.lock().await.phase.clone();
+        assert_eq!(
+            phase, "cancelled",
+            "从未启动的会话被 cancel 后 phase 必须是 cancelled（修复前恒为 created）——\
+             否则 CLI 报 `cancelled` 而 status 显示 `created`，属假成功"
         );
     }
 
