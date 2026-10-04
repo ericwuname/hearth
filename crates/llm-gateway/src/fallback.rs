@@ -1,8 +1,20 @@
 //! FallbackChain: degrade through a chain of providers on failure.
 //!
-//! When the primary provider fails (returns an error), FallbackChain
-//! automatically tries the next provider in the chain. It stops when
-//! a provider succeeds or the chain is exhausted.
+//! ## 何时切换通道（**S9 定版语义，以本节为准**）
+//!
+//! **只在通道级不可恢复错误（fatal/param：401/403/400/畸形流/策略拒绝）时才切下一
+//! 通道**；**transient（网络抖动/超时/429/5xx）不切**——原样上抛，交回上层 S7 长退避
+//! （同通道等待重试）。理由：瞬时抖动即换模型层会污染"同尺对照"（换 provider＝换模型层，
+//! 基准不可比）。
+//!
+//! > 本模块头旧文曾写「主通道一出错即自动试链中下一通道」——那是 **S9 之前的语义，已作废**。
+//! > 维护者勿照旧文把"transient 不切"当作 bug 去"修"。D-147 据代码订正，行为锁见
+//! > `tests::test_s9_transient_does_not_switch_chain` / `tests::test_s9_fatal_switches_next_with_callback`。
+//!
+//! ## `stream()` **不参与**降级
+//!
+//! `stream()` 只走**首通道（primary）**，失败不上抛切换（`capabilities().stream` 亦据此
+//! 为 `false`）。走整链降级的只有非流式 `chat()` 与 `embed()`（行为锁 `tests::test_stream_uses_primary`）。
 //!
 //! ## Bounded retry
 //! Each provider is tried at most once per call. There is no unbounded
@@ -445,5 +457,36 @@ mod tests {
         } else {
             panic!("expected token");
         }
+    }
+
+    /// D-147 回归锁（**先红后绿**）：模块头文档**不得回退**到 S9 之前的过时语义
+    /// （"任一出错即自动试下一通道"）。依据：`chat()` 的 transient 分支直接
+    /// `return Err`（见 `test_s9_transient_does_not_switch_chain`），模块头若再宣称
+    /// "任一出错即切"即与实现矛盾（声称≠实现）；`stream()` 更**从不**降级。
+    #[test]
+    fn test_d147_module_doc_matches_s9_semantics() {
+        // 注：禁词在测试内**拼接**而非写成整句字面量——否则 `include_str!` 会把本测试
+        // 自身那句字面量也算进去、断言恒红（自指陷阱）。
+        let banned = [
+            "automatically",
+            "tries",
+            "the",
+            "next",
+            "provider",
+            "in",
+            "the",
+            "chain",
+        ]
+        .join(" ");
+        let src = include_str!("fallback.rs");
+        assert!(
+            !src.contains(&banned),
+            "模块头又变回过时语义：S9 之后**仅** fatal/param 才切通道，transient 不切\
+             ——请与 `chat()` 实现及 `test_s9_transient_does_not_switch_chain` 对齐。"
+        );
+        assert!(
+            src.contains("transient") && src.contains("不切"),
+            "模块头必须写明「transient 不切通道」这一 S9 语义（否则维护者会照旧文误判为 bug 去'修'）。"
+        );
     }
 }
