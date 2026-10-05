@@ -1144,6 +1144,15 @@ impl SessionManager {
             .map(|(name, model)| serde_json::json!({"provider": name, "model": model}))
             .collect()
     }
+
+    /// D-161（2026-10-05, traecode）：参与者名是否可被 registry 解析。
+    ///
+    /// 与 `bridge` 内部实际使用的 `registry.get()` **同一解析语义**（含别名 / `name:model`
+    /// 形态），供服务端在**入参边界**校验 bridge 参与者名字——避免把"客户端拼错 provider 名"
+    /// 一路放进 bridge、再由 `map_err` 冒充成 500 服务端故障（见 `routes::create_bridge`）。
+    pub fn has_provider(&self, name: &str) -> bool {
+        self.registry.get(name).is_ok()
+    }
 }
 
 /// Map agent-core internal events to API AgentEvent types.

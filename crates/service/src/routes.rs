@@ -1028,6 +1028,14 @@ pub async fn update_work_node(
 // ── v6.1 L1: Bridge integration ──
 
 /// POST /api/v1/bridge — create and run a multi-model bridge discussion.
+/// D-161（P1-127）：bridge 参与者的**硬上界**。
+///
+/// `bridge::BridgeSession` 对每个参与者**每轮**发一次 LLM 调用（`max_rounds` 在
+/// `SessionManager::create_bridge` 内固定为 3）⇒ 无上界时，一份 2 MiB 体（`DefaultBodyLimit`）
+/// 塞满同名**已注册** provider 即可驱动约 210 万次顺序调用（成本/资源 DoS，认证客户端亦可为）。
+/// 取 8：多模型讨论的合理规模，最坏 8×3=24 次调用/请求。
+const MAX_BRIDGE_PARTICIPANTS: usize = 8;
+
 pub async fn create_bridge(
     State(state): State<Arc<AppState>>,
     ApiJson(body): ApiJson<serde_json::Value>,
@@ -1045,6 +1053,29 @@ pub async fn create_bridge(
         return Err(api_err(
             ERR_INVALID_PARAM,
             "need >= 2 participants",
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+    // D-161：上界校验——把 `participants` 当不可信入参（无界扇出的闸门）。
+    if participants.len() > MAX_BRIDGE_PARTICIPANTS {
+        return Err(api_err(
+            ERR_INVALID_PARAM,
+            format!(
+                "too many participants ({}, max {MAX_BRIDGE_PARTICIPANTS})",
+                participants.len()
+            ),
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+    // D-161：名字必须先能被 registry 解析——否则是**客户端**拼错 provider 名，返回 400；
+    // 修复前一路进 bridge，`registry.get()` 失败被下面的 `map_err` 冒充成 500 INTERNAL。
+    if let Some(bad) = participants
+        .iter()
+        .find(|p| !state.sessions.has_provider(p))
+    {
+        return Err(api_err(
+            ERR_INVALID_PARAM,
+            format!("unknown provider: {bad}"),
             StatusCode::BAD_REQUEST,
         ));
     }
