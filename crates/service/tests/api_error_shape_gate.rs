@@ -11,7 +11,8 @@
 //! Content-Type。按 JSON 解析错误体的客户端（Swagger UI / 第三方 SDK）在 4xx 上必失败。
 //!
 //! 本套件两部分：
-//!   ① 运行时门禁：起**真实 service**，断言提取器级 4xx 的响应体是可解析的 JSON
+//!   ① 运行时门禁：起**真实 service**，断言**提取器级**（415/400/413）与**路由级**
+//!      （未知路由 404 / 方法不允许 405，D-158）错误的响应体是可解析的 JSON
 //!      `{"error":{"code","message"}}`，且 `Content-Type` 为 `application/json`。
 //!   ② 源码级回归锁：钉住 `routes.rs` 不再出现裸 `Json<T>` 提取器（防新 handler 回退），
 //!      并断言 `ApiJson` 包装确实被采用。
@@ -99,7 +100,12 @@ fn extractor_rejections_return_unified_json_error() {
         .build()
         .expect("build tokio runtime");
     let base = "http://127.0.0.1:3933";
-    let client = reqwest::Client::new();
+    // 关闭空闲连接复用：④ 的 3 MiB 体被 413 拒绝后服务端未排空该体、会关连接，
+    // 复用该池化连接会让 ⑤ 报 `ConnectionAborted`（客户端侧噪声，非被测行为）。
+    let client = reqwest::Client::builder()
+        .pool_max_idle_per_host(0)
+        .build()
+        .expect("build http client");
 
     // ① 错 Content-Type → 415：此前体为纯文本
     //    `Expected request with ` + backtick + `Content-Type: application/json` + backtick
@@ -200,7 +206,48 @@ fn extractor_rejections_return_unified_json_error() {
     let body4 = rt.block_on(r4.text()).expect("read body ④");
     assert_unified_error_shape("④oversize body on /sessions", &ct4, &body4);
 
-    eprintln!("D-156 PASS: 提取器级 4xx 全部返回统一 JSON 错误形状（含 413 超限）");
+    // ⑤ 未知路由 → 统一 JSON 404（此前 axum 默认：空体、无 Content-Type）
+    let r5 = rt.block_on(async {
+        client
+            .get(format!("{base}/api/v1/definitely-not-a-route"))
+            .send()
+            .await
+            .expect("send ⑤")
+    });
+    assert_eq!(r5.status().as_u16(), 404, "⑤ 未知路由应 404");
+    let ct5 = r5
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body5 = rt.block_on(r5.text()).expect("read body ⑤");
+    assert_unified_error_shape("⑤unknown route", &ct5, &body5);
+
+    // ⑥ 路径存在但方法不允许 → 统一 JSON 405（此前 axum 默认：空体）
+    let r6 = rt.block_on(async {
+        client
+            .delete(format!("{base}/api/v1/sessions"))
+            .send()
+            .await
+            .expect("send ⑥")
+    });
+    assert_eq!(r6.status().as_u16(), 405, "⑥ 方法不允许应 405");
+    // RFC 7231：405 必须带 Allow；自定义 fallback 不得把它弄丢（axum 在 route 层回填）。
+    assert!(
+        r6.headers().get("allow").is_some(),
+        "⑥ 405 应保留 Allow 头（自定义 fallback 不得丢失）"
+    );
+    let ct6 = r6
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body6 = rt.block_on(r6.text()).expect("read body ⑥");
+    assert_unified_error_shape("⑥method not allowed", &ct6, &body6);
+
+    eprintln!("D-156/158 PASS: 提取器级 + 路由级（404/405）错误均为统一 JSON 形状");
 }
 
 /// 源码级回归锁：`routes.rs` 的 handler 不得再用裸 `Json<T>` 提取器。

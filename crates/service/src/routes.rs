@@ -57,6 +57,35 @@ where
     }
 }
 
+/// D-158（2026-10-05, traecode）：未知路由 → 统一 JSON 404。
+///
+/// axum 默认 fallback 返回**空体**且无 `Content-Type: application/json`，绕过契约
+/// 「**所有** API 错误返回 `{"error":{"code","message"}}`」（路由层未被 B2/`ApiJson` 覆盖）。
+/// 由 `main.rs` 挂到 `Router::fallback`。回归锁：`tests/api_error_shape_gate.rs` ⑤。
+pub async fn not_found(req: Request) -> impl IntoResponse {
+    api_err(
+        api::ERR_NOT_FOUND,
+        format!("no route for {} {}", req.method(), req.uri().path()),
+        StatusCode::NOT_FOUND,
+    )
+}
+
+/// D-158（2026-10-05, traecode）：路径存在但方法不允许 → 统一 JSON 405。
+///
+/// 由 `main.rs` 挂到 `Router::method_not_allowed_fallback`；`Allow` 头由 axum 在 route 层
+/// 自动回填（见 `api_error_shape_gate.rs` ⑥）。回归锁同上。
+pub async fn method_not_allowed(req: Request) -> impl IntoResponse {
+    api_err(
+        api::ERR_METHOD_NOT_ALLOWED,
+        format!(
+            "method {} not allowed for {}",
+            req.method(),
+            req.uri().path()
+        ),
+        StatusCode::METHOD_NOT_ALLOWED,
+    )
+}
+
 /// Shared application state.
 pub struct AppState {
     pub sessions: Arc<SessionManager>,

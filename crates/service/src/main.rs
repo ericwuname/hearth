@@ -903,6 +903,11 @@ async fn main() -> anyhow::Result<()> {
                 "/swagger-ui"
             ))),
         )
+        // D-158：路由级 fallback 也走统一错误形状（axum 默认：404/405 均空体、无 JSON）。
+        // 注：`method_not_allowed_fallback` 只作用于**此前已注册**的路由，故须置于所有
+        // `.route(...)` 之后、`.layer(...)` 之前。
+        .fallback(routes::not_found)
+        .method_not_allowed_fallback(routes::method_not_allowed)
         // AUTH-0: auth runs inside CORS so preflight OPTIONS still works.
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
