@@ -1018,6 +1018,14 @@ impl SessionManager {
             .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
 
         let mut s = session.lock().await;
+        // D-159（2026-10-05, traecode）：已完成（终态）的会话，cancel 必须是**幂等 no-op**。
+        // 修复前会无条件执行下面的 `finished_at = now` 与 workspace 清理 ⇒ ① 丢失真实完成时间、
+        // 重置 TTL 淘汰时钟；② 立即删掉 workspace（连同产物，早于 TTL 清理）——破坏"终态不可变"。
+        // 判据用 `finished_at.is_some()`：**运行中**与**从未启动**的会话其 `finished_at` 均为 `None`
+        // （前者由任务收信号后落终态、后者由本处落 `cancelled`，见 D-152），故不受本守卫影响。
+        if s.finished_at.is_some() {
+            return Ok(());
+        }
         // D-152（2026-10-04, traecode）：先记下**是否有运行中任务可收信号**——它决定终态由谁落定。
         let signaled = if let Some(tx) = s.cancel_tx.take() {
             let _ = tx.send(());
@@ -1376,6 +1384,72 @@ mod tests {
             "从未启动的会话被 cancel 后 phase 必须是 cancelled（修复前恒为 created）——\
              否则 CLI 报 `cancelled` 而 status 显示 `created`，属假成功"
         );
+    }
+
+    /// D-159 回归锁（**先红后绿**）：对**已完成**（`finished_at.is_some()`）的会话，
+    /// `cancel_session` 必须是**幂等 no-op**——不得改写 `finished_at`（否则丢失真实完成时间、
+    /// 重置 TTL 淘汰时钟），也不得删除其 workspace（连同产物，早于 TTL 清理）。
+    ///
+    /// 现实形态：正常跑完的会话 `cancel_tx` 仍残留一个**已失效**的 sender（完成路径不清它），
+    /// 于是 `cancel_session` 里 `signaled == true`（`send` 静默失败）——`phase` 不会被改写，
+    /// 但 `finished_at = now` 与 `remove_dir_all(workspace_dir)` **照样执行** ⇒ 破坏终态。
+    #[tokio::test]
+    async fn test_d159_cancel_finished_session_is_noop() {
+        let mgr = SessionManager::new(
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolDispatcher::new()),
+            ToolContext::default(),
+        );
+        let ws = std::env::temp_dir().join(format!("hearth-d159-ws-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("artifact.txt"), b"keep me").unwrap();
+
+        let finished_at = std::time::Instant::now();
+        // 残留的失效 sender（接收端已随任务结束被 drop）——镜像真实完成态。
+        let (stale_tx, stale_rx) = oneshot::channel::<()>();
+        drop(stale_rx);
+        let session = Arc::new(Mutex::new(Session {
+            id: "already-done".into(),
+            provider_name: "p".into(),
+            model: "m".into(),
+            goal: "g".into(),
+            phase: "done".into(),
+            steps: 3,
+            budget_remaining: None,
+            event_tx: None,
+            events: Vec::new(),
+            events_base_seq: 0,
+            running: false,
+            agent: None,
+            budget: Budget::default(),
+            cancel_tx: Some(stale_tx),
+            finished_at: Some(finished_at),
+            created_at: finished_at,
+            workspace_dir: ws.clone(),
+        }));
+        mgr.sessions
+            .write()
+            .await
+            .insert("already-done".into(), session.clone());
+
+        mgr.cancel_session("already-done")
+            .await
+            .expect("已完成会话的 cancel 必须成功（幂等 no-op）");
+
+        let s = session.lock().await;
+        assert_eq!(s.phase, "done", "cancel 不得改写已完成会话的终态 phase");
+        assert_eq!(
+            s.finished_at,
+            Some(finished_at),
+            "cancel 不得改写已完成会话的 finished_at（否则丢失真实完成时间并重置 TTL 淘汰时钟）"
+        );
+        drop(s);
+        assert!(
+            ws.join("artifact.txt").exists(),
+            "cancel 不得删除已完成会话的 workspace（连同产物，早于 TTL 清理）"
+        );
+        let _ = std::fs::remove_dir_all(&ws);
     }
 
     /// B1 (trunk-freeze) regression: an in-memory active session returns its
