@@ -1842,6 +1842,7 @@ dependencies = [
  "llm-replay",
  "memory",
  "observer",
+ "reqwest",
  "resource-monitor",
  "serde",
  "serde_json",

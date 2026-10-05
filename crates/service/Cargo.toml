@@ -29,6 +29,7 @@ observer.workspace = true
 agent-runtime.workspace = true
 axum.workspace = true
 tokio.workspace = true
+async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures.workspace = true
@@ -49,3 +50,5 @@ async-trait.workspace = true
 agent-types.workspace = true
 http-body-util = "0.1"
 tempfile = "3"
+# D-156（P1-122）：api_error_shape_gate 打真实 service 的 HTTP 客户端
+reqwest.workspace = true

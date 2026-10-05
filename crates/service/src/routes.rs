@@ -24,6 +24,39 @@ fn api_err(
     (status, Json(ErrorResponse::new(code, msg)))
 }
 
+/// D-156（P1-122）：统一错误形状的**提取器侧**收口。
+///
+/// 契约口径：`docs/handoff-trunk-freeze.md`「**所有** API 错误返回
+/// `{"error":{"code":"...","message":"..."}}` 格式」；`docs/governance.md` B2
+/// 「**全部 handler** 返回 `Json<ErrorResponse>`」。但 axum 内建 `Json` 提取器在
+/// **拒绝**时（缺/错 `Content-Type` → 415；畸形 JSON → 400）直接吐**纯文本**体 +
+/// `text/plain` Content-Type，绕过 B2 统一形状 ⇒ 按 JSON 解析错误体的客户端在 4xx
+/// 上必失败（"声称≠实现"/"半接线"）。
+///
+/// 本包装把 `JsonRejection` 归一为统一 `ErrorResponse`（保留原状态码与脱敏后的
+/// `body_text`）；所有 handler 一律用 `ApiJson<T>` 取代 `Json<T>`。
+/// 回归锁：`crates/service/tests/api_error_shape_gate.rs`。
+pub struct ApiJson<T>(pub T);
+
+#[async_trait::async_trait]
+impl<T, S> axum::extract::FromRequest<S> for ApiJson<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<ErrorResponse>);
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match <Json<T> as axum::extract::FromRequest<S>>::from_request(req, state).await {
+            Ok(Json(v)) => Ok(ApiJson(v)),
+            Err(rej) => {
+                let status = rej.status();
+                Err(api_err(ERR_INVALID_PARAM, rej.body_text(), status))
+            }
+        }
+    }
+}
+
 /// Shared application state.
 pub struct AppState {
     pub sessions: Arc<SessionManager>,
@@ -143,7 +176,7 @@ pub async fn require_api_key(
 pub async fn create_session(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<SessionCreate>,
+    ApiJson(req): ApiJson<SessionCreate>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // v10.3: Real telemetry — increment session counter
     state
@@ -240,7 +273,7 @@ pub async fn send_message(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Path(id): Path<String>,
-    Json(req): Json<MessageReq>,
+    ApiJson(req): ApiJson<MessageReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Last-Event-ID: 客户端已收到的最后 seq → 重放缓冲中 seq 之后的事件
     let last_seq = headers
@@ -395,7 +428,7 @@ pub async fn open_external(
 pub async fn submit_approval(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Json(req): Json<ApprovalReq>,
+    ApiJson(req): ApiJson<ApprovalReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     match state.sessions.submit_approval(&id, req).await {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
@@ -412,7 +445,7 @@ pub async fn submit_approval(
 pub async fn submit_interaction(
     State(state): State<Arc<AppState>>,
     Path((id, iid)): Path<(String, String)>,
-    Json(req): Json<api::InteractionResponse>,
+    ApiJson(req): ApiJson<api::InteractionResponse>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     if req.id != iid {
         return Err(api_err(
@@ -794,7 +827,7 @@ pub async fn get_civ_feed(
 pub async fn post_civ_entry(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let content = body["content"].as_str().unwrap_or("").to_string();
     if content.is_empty() {
@@ -866,7 +899,7 @@ pub async fn get_workline(
 pub async fn create_work_node(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let desc = body["description"].as_str().unwrap_or("").to_string();
     if desc.is_empty() {
@@ -921,7 +954,7 @@ pub async fn update_work_node(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let progress = body["progress"].as_f64().unwrap_or(0.0) as f32;
     let status = body["status"].as_str().map(|s| match s {
@@ -958,7 +991,7 @@ pub async fn update_work_node(
 /// POST /api/v1/bridge — create and run a multi-model bridge discussion.
 pub async fn create_bridge(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let topic = body["topic"].as_str().unwrap_or("unnamed").to_string();
     let participants: Vec<String> = body["participants"]
@@ -1037,7 +1070,7 @@ pub async fn list_templates(State(state): State<Arc<AppState>>) -> impl IntoResp
 /// v8.0: POST /api/v1/webhooks — register a webhook.
 pub async fn register_webhook(
     State(state): State<Arc<AppState>>,
-    Json(cfg): Json<crate::webhook::WebhookConfig>,
+    ApiJson(cfg): ApiJson<crate::webhook::WebhookConfig>,
 ) -> impl IntoResponse {
     state.webhooks.register(cfg);
     Json(serde_json::json!({"ok": true}))
@@ -1276,7 +1309,7 @@ pub struct InstallToolReq {
 
 pub async fn install_tool(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<InstallToolReq>,
+    ApiJson(req): ApiJson<InstallToolReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let name = req.manifest.name.clone();
     match state.tool_registry.install(req.manifest) {
