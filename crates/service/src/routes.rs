@@ -186,6 +186,16 @@ pub async fn require_api_key(
     Ok(next.run(req).await)
 }
 
+/// D-163（P1-129）：API 可覆盖的会话步数预算**上界**。
+///
+/// 服务端会话由后台任务跑、**没有墙钟上限** ⇒ `budget.max_steps` 是其**唯一**的时间/成本界。
+/// `Budget::default()`（env 路径）本有护栏（`HEARTH_MAX_STEPS`，`0`/非法回落 50，注释明写
+/// "护栏不得被配没"），但客户端**自带**的 `budget.max_steps` 此前被**原样**采纳 ⇒ 可发
+/// `1e8` 绕过护栏（单会话近无界运行 = 成本/资源 DoS）；发 `0` 则 `is_budget_exhausted()`
+/// （`steps_used >= 0`）**开局即耗尽**（同 D-160 的"0 语义"陷阱）。取 1000：默认 50 的 20 倍，
+/// 够用且封顶。
+const MAX_SESSION_STEPS: u64 = 1000;
+
 /// POST /api/v1/sessions
 ///
 /// D-108（2026-10-02, traecode）：**"会话创建"公告必须写进 API 真正读取的那个 store**。
@@ -207,6 +217,19 @@ pub async fn create_session(
     headers: axum::http::HeaderMap,
     ApiJson(req): ApiJson<SessionCreate>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-163：入参边界校验放在**任何副作用之前**（遥测/webhook/公告都不该为非法请求动）。
+    if let Some(b) = req.budget.as_ref() {
+        if b.max_steps == 0 || b.max_steps > MAX_SESSION_STEPS {
+            return Err(api_err(
+                ERR_INVALID_PARAM,
+                format!(
+                    "budget.max_steps must be in 1..={MAX_SESSION_STEPS} (got {})",
+                    b.max_steps
+                ),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+    }
     // v10.3: Real telemetry — increment session counter
     state
         .telemetry
