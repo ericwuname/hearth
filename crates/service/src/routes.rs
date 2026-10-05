@@ -995,7 +995,19 @@ pub async fn update_work_node(
     Path(id): Path<String>,
     ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-162（2026-10-05, traecode）：`progress` 必须保持**有限**。修复前原样 `as f32` 采纳——
+    // 客户端发超出 f32 范围、但仍为有限 f64 的数（如 `1e40`）⇒ `as f32` 溢出为 `inf` ⇒
+    // ① 活体读：`serde_json` 把非有限 f32 序列化成 **`null`**（按数字反序列化的客户端直接失败）；
+    // ② 落盘/重载：`MemoryStore::read_nodes` 对解析失败的行**静默跳过** ⇒ 重启后该节点被丢弃。
+    // 缺失/非数字保持既有宽松语义（`unwrap_or(0.0)`，不在本卡范围）。
     let progress = body["progress"].as_f64().unwrap_or(0.0) as f32;
+    if !progress.is_finite() {
+        return Err(api_err(
+            ERR_INVALID_PARAM,
+            "progress must be a finite number",
+            StatusCode::BAD_REQUEST,
+        ));
+    }
     let status = body["status"].as_str().map(|s| match s {
         "completed" => WorkStatus::Completed,
         "in_progress" => WorkStatus::InProgress,
