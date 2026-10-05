@@ -264,6 +264,12 @@ fn extract_hosts(cmd: &str) -> Vec<String> {
 /// env HEARTH_TOOL_TIMEOUT_SECS（config 注入或进程级）> 默认 120；
 /// 上限 600 不变。默认从 180 收到 120（C-fix-status 挂死 5.5h 直接动因：
 /// 无 deadline 时长默认暴露面过大）。
+///
+/// D-160（2026-10-05, traecode）：**显式 `0` 视为非法并回落**（env → 默认 120；
+/// args → 跳过该来源）——修复前 `cap(0) == 0` 被直接采纳 ⇒ `Duration::from_secs(0)`
+/// 让**每次** bash 调用瞬间超时（"护栏被配成自毁"）。口径与 `HEARTH_MAX_STEPS`
+/// 「非法值/`0` 回落默认——护栏不得被配没」一致。**任务剩余期为 0** 是真实 deadline
+/// 耗尽，不属此列（保持 0）。
 fn resolve_timeout_secs(
     args: &serde_json::Value,
     effective: Option<Duration>,
@@ -273,7 +279,11 @@ fn resolve_timeout_secs(
     if let Some(d) = effective {
         return cap(d.as_secs());
     }
-    if let Some(v) = args.get("timeout_secs").and_then(|x| x.as_u64()) {
+    if let Some(v) = args
+        .get("timeout_secs")
+        .and_then(|x| x.as_u64())
+        .filter(|v| *v > 0)
+    {
         return cap(v);
     }
     let from_env = env
@@ -283,7 +293,8 @@ fn resolve_timeout_secs(
             std::env::var("HEARTH_TOOL_TIMEOUT_SECS")
                 .ok()
                 .and_then(|s| s.trim().parse::<u64>().ok())
-        });
+        })
+        .filter(|v| *v > 0);
     cap(from_env.unwrap_or(120))
 }
 
@@ -1016,6 +1027,37 @@ mod tests {
         );
         let args_big = serde_json::json!({"timeout_secs": 9999});
         assert_eq!(resolve_timeout_secs(&args_big, None, &empty), 600);
+    }
+
+    /// D-160（先红后绿）：显式 `0` 不得被采纳为"0 秒超时"——修复前 `cap(0)=0` ⇒
+    /// `Duration::from_secs(0)` 让**每次** bash 调用瞬间失败（"护栏被配成自毁"）。
+    /// 口径与 `HEARTH_MAX_STEPS`「0/非法值回落默认，护栏不得被配没」一致；
+    /// 但**任务剩余期**为 0 是真实 deadline 耗尽，保持 0（不属"配坏"）。
+    #[test]
+    fn test_d160_zero_timeout_is_not_adopted() {
+        use std::collections::HashMap;
+        use std::time::Duration;
+        let empty: HashMap<String, String> = HashMap::new();
+        // env=0 → 回落默认 120（修复前 = 0）
+        let env0: HashMap<String, String> =
+            HashMap::from([("HEARTH_TOOL_TIMEOUT_SECS".to_string(), "0".to_string())]);
+        assert_eq!(
+            resolve_timeout_secs(&serde_json::json!({}), None, &env0),
+            120,
+            "env HEARTH_TOOL_TIMEOUT_SECS=0 必须回落默认 120（护栏不得被配没）"
+        );
+        // args.timeout_secs=0 → 跳过该来源、回落默认 120（修复前 = 0）
+        assert_eq!(
+            resolve_timeout_secs(&serde_json::json!({"timeout_secs": 0}), None, &empty),
+            120,
+            "args.timeout_secs=0 必须跳过该来源、回落默认 120"
+        );
+        // 任务剩余期 = 0 是真实 deadline 耗尽 ⇒ 保持 0（与"配坏"区分）
+        assert_eq!(
+            resolve_timeout_secs(&serde_json::json!({}), Some(Duration::ZERO), &empty),
+            0,
+            "任务剩余期为 0 是真实 deadline 耗尽，应保持 0（不得与非法配置混同）"
+        );
     }
 
     /// S1: 超时返回结构化 JSON（status/elapsed/partial_output）——env 2s 回收 sleep 10。
