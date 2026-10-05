@@ -18,8 +18,11 @@
 //!
 //! 盲区（本套件**不**覆盖，勿误当全覆盖）：
 //!   - 运行时只探代表性端点（sessions / civilization）；其余 handler 由 ② 源码级锁定代偿。
-//!   - 不覆盖 `DefaultBodyLimit` 超限（413）与路径/查询参数拒绝（`Path`/`Query` 的
-//!     `PathRejection` 同样返回纯文本）——属同族但未纳入本卡范围。
+//!   - **`DefaultBodyLimit` 超限（413）实为同一条 `Json` 拒绝链**（`JsonRejection::BytesRejection`），
+//!     已被 `ApiJson` 一并归一，并有断言 ④ 锁定 ⇒ 不再列为"盲区"。
+//!   - 路径/查询参数拒绝（`PathRejection`/`QueryRejection`）：本服务所有 `Path` 均为
+//!     `String`/`(String,String)`、所有 `Query` 均为 `HashMap<String,String>` ⇒ **永不拒绝**
+//!     （无红侧、未纳入本卡；将来若引入强类型 Path/Query，须同法收口）。
 //!   - 不覆盖 auth 中间件 / 并发限流的 401/403/429（这些本就走 B2 统一形状，非本卡对象）。
 
 use std::net::TcpStream;
@@ -170,7 +173,33 @@ fn extractor_rejections_return_unified_json_error() {
     let body3 = rt.block_on(r3.text()).expect("read body ③");
     assert_unified_error_shape("③malformed json on /civilization", &ct3, &body3);
 
-    eprintln!("D-156 PASS: 提取器级 4xx 全部返回统一 JSON 错误形状");
+    // ④ 超 DefaultBodyLimit（2 MiB）→ 413：同属 `Json` 拒绝链（BytesRejection），应被同一包装归一
+    let big = format!("{{\"goal\":\"{}\"}}", "A".repeat(3 * 1024 * 1024));
+    let r4 = rt.block_on(async {
+        client
+            .post(format!("{base}/api/v1/sessions"))
+            .header("content-type", "application/json")
+            .body(big)
+            .send()
+            .await
+            .expect("send ④")
+    });
+    assert_eq!(
+        r4.status().as_u16(),
+        413,
+        "④ 超限体应 413，实际 {}",
+        r4.status()
+    );
+    let ct4 = r4
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body4 = rt.block_on(r4.text()).expect("read body ④");
+    assert_unified_error_shape("④oversize body on /sessions", &ct4, &body4);
+
+    eprintln!("D-156 PASS: 提取器级 4xx 全部返回统一 JSON 错误形状（含 413 超限）");
 }
 
 /// 源码级回归锁：`routes.rs` 的 handler 不得再用裸 `Json<T>` 提取器。
