@@ -595,11 +595,21 @@ static P1_TOTAL_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
 const P1_MAX_TOTAL: usize = 500;
 
 /// P2-1: 429 响应——带 Retry-After 头（门禁自动判定项）。
+///
+/// D-157（2026-10-05, traecode）：本响应此前是**纯文本** `too many requests (…)` 且无
+/// `Content-Type: application/json`，绕过契约「**所有** API 错误返回
+/// `{"error":{"code","message"}}`」/ B2「全部 handler 返回 `Json<ErrorResponse>`」
+/// （中间件层未被 B2 覆盖）。现归一为统一 `ErrorResponse`，`code = RATE_LIMITED`。
+/// 回归锁：`crates/service/tests/rate_limit_error_shape_gate.rs`。
 fn rate_limit_response(reason: &str) -> Response {
-    let mut resp = Response::new(axum::body::Body::from(format!(
-        "too many requests ({reason})"
-    )));
-    *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+    let mut resp = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(ErrorResponse::new(
+            api::ERR_RATE_LIMITED,
+            format!("too many requests ({reason})"),
+        )),
+    )
+        .into_response();
     resp.headers_mut().insert(
         axum::http::header::RETRY_AFTER,
         axum::http::HeaderValue::from_static("5"),

@@ -23,7 +23,8 @@
 //!   - 路径/查询参数拒绝（`PathRejection`/`QueryRejection`）：本服务所有 `Path` 均为
 //!     `String`/`(String,String)`、所有 `Query` 均为 `HashMap<String,String>` ⇒ **永不拒绝**
 //!     （无红侧、未纳入本卡；将来若引入强类型 Path/Query，须同法收口）。
-//!   - 不覆盖 auth 中间件 / 并发限流的 401/403/429（这些本就走 B2 统一形状，非本卡对象）。
+//!   - auth 中间件的 401/403 本就走 B2 统一形状；并发限流 429 曾返回**纯文本**，已由
+//!     **D-157** 归一并由 `rate_limit_error_shape_gate.rs` 锁定（本套件不重复覆盖）。
 
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};

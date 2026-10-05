@@ -249,11 +249,13 @@ impl ErrorResponse {
 // ── 对外错误码词表（`ErrorResponse.error.code`；客户端据此分支，值本身是契约）──
 //
 // 现役（服务端**真实发出**）：`ERR_UNAUTHORIZED` / `ERR_FORBIDDEN` /
-// `ERR_SESSION_NOT_FOUND` / `ERR_INVALID_PARAM` / `ERR_INTERNAL`。
+// `ERR_SESSION_NOT_FOUND` / `ERR_INVALID_PARAM` / `ERR_RATE_LIMITED` / `ERR_INTERNAL`。
 pub const ERR_UNAUTHORIZED: &str = "UNAUTHORIZED";
 pub const ERR_FORBIDDEN: &str = "FORBIDDEN";
 pub const ERR_SESSION_NOT_FOUND: &str = "SESSION_NOT_FOUND";
 pub const ERR_INVALID_PARAM: &str = "INVALID_PARAM";
+/// D-157（2026-10-05, traecode）：限流中间件 429 的错误码（此前 429 返回纯文本、无 code）。
+pub const ERR_RATE_LIMITED: &str = "RATE_LIMITED";
 
 // D-111②（2026-10-02, traecode）：以下 4 个**当前无任何生产者**——服务端从不发出它们
 // （全仓仅有定义行）。此处**保留而非删除**：它们是**对外错误码词表**的一部分（客户端
