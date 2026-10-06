@@ -937,12 +937,11 @@ async fn main() -> anyhow::Result<()> {
     info!("Codex Agent Service starting on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    // P2-1 (audit-fix): 注入 ConnectInfo<SocketAddr>——限流中间件按 per-IP 维度计数
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    // P2-1 (audit-fix): 注入 ConnectInfo<SocketAddr>——限流中间件按 per-IP 维度计数。
+    // D-165（2026-10-05, traecode）：改走**优雅停机**——收到 SIGINT/SIGTERM 后停止接受新连接、
+    // 排空在途请求再退出（此前裸 `axum::serve(..).await` 会在 SIGTERM 时被**立即终止**，
+    // 硬切断在途请求与 SSE 流）。排空的墙钟上界交给编排方（terminationGracePeriodSeconds）。
+    service::serve::serve_with_shutdown(app, listener, service::serve::shutdown_signal()).await?;
 
     Ok(())
 }

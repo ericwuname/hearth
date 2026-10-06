@@ -4,6 +4,7 @@ pub mod lock;
 pub mod openapi;
 pub mod per_user;
 pub mod routes;
+pub mod serve;
 pub mod session;
 pub mod sse;
 /// v8.0: Agent templates.
