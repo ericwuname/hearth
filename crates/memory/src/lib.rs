@@ -482,15 +482,24 @@ impl WorkLineStore {
             .collect()
     }
 
+    /// 更新节点的进度 / 状态（**部分更新**语义）。
+    ///
+    /// D-164（2026-10-05, traecode）：
+    /// - `progress` 改 `Option<f32>`——`None` 即**不改**。此前是必填 `f32`，于是"只改 status"
+    ///   的请求会把进度**静默重置为 0**（产出 "Completed 但 0%" 的自相矛盾状态）。
+    /// - 返回 `Ok(bool)` 区分**是否命中**：`false` = 节点不存在。此前静默跳过并返回 `Ok(())`
+    ///   ⇒ 对不存在 id 的 PATCH 得 200（**假成功**）。
     pub fn update(
         &self,
         id: &str,
-        progress: f32,
+        progress: Option<f32>,
         status: Option<agent_types::WorkStatus>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut nodes = self.nodes.lock().unwrap();
-        if let Some(n) = nodes.iter_mut().find(|n| n.id == id) {
-            n.progress = progress;
+        let hit = if let Some(n) = nodes.iter_mut().find(|n| n.id == id) {
+            if let Some(p) = progress {
+                n.progress = p;
+            }
             if let Some(s) = status {
                 if s == agent_types::WorkStatus::Completed {
                     n.completed_at = Some(chrono::Utc::now().to_rfc3339());
@@ -498,9 +507,13 @@ impl WorkLineStore {
                 n.status = s;
             }
             n.updated_at = chrono::Utc::now().to_rfc3339();
-        }
+            true
+        } else {
+            false
+        };
         drop(nodes);
-        self.flush()
+        self.flush()?;
+        Ok(hit)
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {

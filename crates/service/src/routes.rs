@@ -1018,28 +1018,62 @@ pub async fn update_work_node(
     Path(id): Path<String>,
     ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    // D-162（2026-10-05, traecode）：`progress` 必须保持**有限**。修复前原样 `as f32` 采纳——
-    // 客户端发超出 f32 范围、但仍为有限 f64 的数（如 `1e40`）⇒ `as f32` 溢出为 `inf` ⇒
-    // ① 活体读：`serde_json` 把非有限 f32 序列化成 **`null`**（按数字反序列化的客户端直接失败）；
-    // ② 落盘/重载：`MemoryStore::read_nodes` 对解析失败的行**静默跳过** ⇒ 重启后该节点被丢弃。
-    // 缺失/非数字保持既有宽松语义（`unwrap_or(0.0)`，不在本卡范围）。
-    let progress = body["progress"].as_f64().unwrap_or(0.0) as f32;
-    if !progress.is_finite() {
-        return Err(api_err(
-            ERR_INVALID_PARAM,
-            "progress must be a finite number",
-            StatusCode::BAD_REQUEST,
-        ));
-    }
-    let status = body["status"].as_str().map(|s| match s {
-        "completed" => WorkStatus::Completed,
-        "in_progress" => WorkStatus::InProgress,
-        "blocked" => WorkStatus::Blocked,
-        "review" => WorkStatus::Review,
-        _ => WorkStatus::Pending,
-    });
+    // D-164（2026-10-05, traecode）：收紧 PATCH 语义——`progress`/`status` 均为**部分更新**：
+    // 键缺失 = 不改；键在则必须合法。修复前三处病灶：① 未知 status 静默回落 `Pending`
+    // （客户端拼错被吞）；② `progress` 是必填 f32 ⇒ 只改 status 的请求把进度**静默重置为 0**
+    // （"Completed 但 0%" 自相矛盾）；③ 节点不存在也返回 200（假成功，见下方 `hit`）。
+    let progress: Option<f32> = match body.get("progress") {
+        None => None,
+        Some(v) => {
+            let f = v.as_f64().map(|x| x as f32).ok_or_else(|| {
+                api_err(
+                    ERR_INVALID_PARAM,
+                    "progress must be a number",
+                    StatusCode::BAD_REQUEST,
+                )
+            })?;
+            // D-162：非有限值（如 `1e40` 溢出 f32）会污染为 `null` 并致重载丢节点。
+            if !f.is_finite() {
+                return Err(api_err(
+                    ERR_INVALID_PARAM,
+                    "progress must be a finite number",
+                    StatusCode::BAD_REQUEST,
+                ));
+            }
+            Some(f)
+        }
+    };
+    let status: Option<WorkStatus> = match body.get("status") {
+        None => None,
+        Some(v) => {
+            let s = v.as_str().ok_or_else(|| {
+                api_err(
+                    ERR_INVALID_PARAM,
+                    "status must be a string",
+                    StatusCode::BAD_REQUEST,
+                )
+            })?;
+            Some(match s {
+                "pending" => WorkStatus::Pending,
+                "in_progress" => WorkStatus::InProgress,
+                "blocked" => WorkStatus::Blocked,
+                "review" => WorkStatus::Review,
+                "completed" => WorkStatus::Completed,
+                other => {
+                    return Err(api_err(
+                        ERR_INVALID_PARAM,
+                        format!(
+                            "unknown status: {other} \
+                             (expected pending|in_progress|blocked|review|completed)"
+                        ),
+                        StatusCode::BAD_REQUEST,
+                    ))
+                }
+            })
+        }
+    };
     let uid = get_user_id(&headers, &state.user_store);
-    state
+    let hit = state
         .per_user
         .workline_for(&uid)
         .map_err(|e| {
@@ -1057,6 +1091,14 @@ pub async fn update_work_node(
                 StatusCode::INTERNAL_SERVER_ERROR,
             )
         })?;
+    if !hit {
+        // D-164：节点不存在必须是 404（修复前静默跳过 + 200 假成功）。
+        return Err(api_err(
+            api::ERR_NOT_FOUND,
+            format!("workline node not found: {id}"),
+            StatusCode::NOT_FOUND,
+        ));
+    }
     Ok(StatusCode::OK)
 }
 
