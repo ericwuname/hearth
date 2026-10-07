@@ -83,7 +83,19 @@ impl Config {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            // D-168（2026-10-05, traecode）：**不得静默**。此前用 `let _ =` 丢弃该 `Result`
+            // ⇒ chmod 不生效时文件保持 umask 默认（如 `0644`），**密钥被同机其他用户可读而无提示**
+            //（安全属性静默失效，D-124/D-134/D-135 同族）。现改为**上抛**并给可行动文案：
+            // 文件**已写入**这一点如实说明（避免"假失败"观感），同时明确要手动 chmod 600。
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).with_context(
+                || {
+                    format!(
+                        "config 已写入 {}，但**无法收紧权限至 600**（文件可能对同机其他用户可读，\
+                         该文件可含 API key）；请手动 `chmod 600` 后重试",
+                        path.display()
+                    )
+                },
+            )?;
         }
         Ok(())
     }
