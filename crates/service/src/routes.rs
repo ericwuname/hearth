@@ -1246,12 +1246,21 @@ pub async fn list_templates(State(state): State<Arc<AppState>>) -> impl IntoResp
 }
 
 /// v8.0: POST /api/v1/webhooks — register a webhook.
+///
+/// D-170（2026-10-05, traecode）：**注册时校验** url——修复前 `register` 只 push、恒成功，
+/// 对"永远投不出去"的 url 也回 `{"ok":true}`（假成功），且 curl 选项注入形 url 在注册面即被放行。
 pub async fn register_webhook(
     State(state): State<Arc<AppState>>,
     ApiJson(cfg): ApiJson<crate::webhook::WebhookConfig>,
-) -> impl IntoResponse {
-    state.webhooks.register(cfg);
-    Json(serde_json::json!({"ok": true}))
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    match state.webhooks.try_register(cfg) {
+        Ok(()) => Ok(Json(serde_json::json!({"ok": true}))),
+        Err(e) => Err(api_err(
+            ERR_INVALID_PARAM,
+            format!("invalid webhook url: {e}"),
+            StatusCode::BAD_REQUEST,
+        )),
+    }
 }
 
 /// v10.0: GET /api/v1/resources — system resource snapshot.

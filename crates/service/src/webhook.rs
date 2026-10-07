@@ -6,6 +6,12 @@ use crate::lock::recover;
 use serde::{Deserialize, Serialize};
 use std::sync::RwLock;
 
+/// 进程级 egress 白名单（`HEARTH_EGRESS_ALLOWLIST`）——**注册面与服务面共用同一读取**
+/// （避免"注册时一套口径、投递时另一套"的分叉，D-149 同族纪律）。
+fn egress_allowlist() -> Option<String> {
+    std::env::var("HEARTH_EGRESS_ALLOWLIST").ok()
+}
+
 /// A registered webhook endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
@@ -37,9 +43,16 @@ impl WebhookManager {
         }
     }
 
-    /// Register a new webhook.
-    pub fn register(&self, cfg: WebhookConfig) {
+    /// D-170（2026-10-05, traecode）：**注册时即校验** url（与 `fire` 用**同一份** allowlist 口径）。
+    ///
+    /// 修复前本方法只 push、恒成功 ⇒ `POST /api/v1/webhooks` 对**永远投不出去**的 url 也回
+    /// `{"ok": true}`（**假成功**）：客户端以为注册成功、却永远收不到回调且无从知晓；最险的一类
+    /// 是 curl 选项注入形（`-K/path`，可读宿主文件）——它在**注册面**被放行入库，安全性只靠
+    /// `fire()` 里那条 `warn` 兜底。
+    pub fn try_register(&self, cfg: WebhookConfig) -> Result<(), String> {
+        validate_webhook_url(&cfg.url, egress_allowlist().as_deref()).map_err(|e| e.to_string())?;
         recover(self.hooks.write()).push(cfg);
+        Ok(())
     }
 
     /// Fire all webhooks that match the given event name.
@@ -49,7 +62,7 @@ impl WebhookManager {
     /// 存在两个问题（详见 `validate_webhook_url` 文档）：**curl 选项注入** 与 **SSRF**。
     /// 现在先校验、不通过则跳过并告警（不静默）。
     pub async fn fire(event: &str, payload: &serde_json::Value, hooks: &[WebhookConfig]) {
-        let allowlist = std::env::var("HEARTH_EGRESS_ALLOWLIST").ok();
+        let allowlist = egress_allowlist();
         for h in hooks {
             if h.events.iter().any(|e| e == event) {
                 if let Err(e) = validate_webhook_url(&h.url, allowlist.as_deref()) {
