@@ -811,9 +811,16 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| vec!["http://localhost:5173".parse().unwrap()]);
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(allowed_origin))
+        // D-173（2026-10-08, traecode）：必须含 **PATCH**——本 API 暴露
+        // `PATCH /api/v1/workline/nodes/:id`（`update_work_node`），而浏览器对 PATCH 会先发
+        // **预检**（非简单方法）：白名单缺 PATCH 时预检回道 `Access-Control-Allow-Methods:
+        // GET,POST,OPTIONS` ⇒ 浏览器**拦截**该请求。修复前即便默认允许源
+        // `http://localhost:5173`（本项目自带前端）也**调不动**这个唯一 PATCH 端点
+        // （"路由存在但浏览器不可达"的接线缺口）。DELETE 等仍未列（无对应路由）。
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::PATCH,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([

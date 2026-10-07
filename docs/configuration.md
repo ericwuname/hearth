@@ -40,7 +40,7 @@
 |---|---|---|
 | `API_KEY` | —（开发模式） | 设为非空字符串启用 Bearer token 鉴权。生产部署**必须**设置（P0-1：无 key 且未显式放行时**默认拒绝启动**，fail-closed） |
 | `ALLOW_NO_AUTH` | 未设（关） | 设 `1`/`true` 才允许无鉴权启动，且该模式下服务**只绑 127.0.0.1**。仅限本机开发 |
-| `CORS_ORIGIN` | `http://localhost:5173` | 允许的浏览器来源（单个）。方法与请求头是**固定白名单**（GET/POST/OPTIONS + Content-Type/Authorization），不受本项影响 |
+| `CORS_ORIGIN` | `http://localhost:5173` | 允许的浏览器来源（单个）。方法与请求头是**固定白名单**（GET/POST/**PATCH**/OPTIONS + Content-Type/Authorization），不受本项影响 |
 
 ## LLM Provider（多后端）
 
