@@ -714,7 +714,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // v8.0: multi-user store
+    //
+    // D-169（2026-10-05, traecode）：**接通多租户的配置面**。此前 `UserStore::new(&[])` 恒为空
+    // 且只 `register(api_key,"default")` ⇒ 全仓只会产生 `"default"` 一个 uid，per-user 档
+    // （`MEMORY_DIR/<uid>/civ.jsonl`）恒指向同一份——D-108/D-109 以"跨租户泄露"为由拒绝合并
+    // 全局档的那条隔离，**运行期并不存在**。现支持 `HEARTH_USERS="key1=alice,key2=bob"`
+    // （**未设 ⇒ 行为与今完全相同**）；鉴权侧 `require_api_key` 亦改为"命中任一已注册 key 即通过"。
     let user_store = Arc::new(service::user::UserStore::new(&[]));
+    for (key, user_id) in parse_users_env(std::env::var("HEARTH_USERS").ok().as_deref()) {
+        user_store.register(key, user_id);
+    }
     if let Some(ref key) = api_key {
         user_store.register(key.clone(), "default".into());
     }
@@ -944,6 +953,49 @@ async fn main() -> anyhow::Result<()> {
     service::serve::serve_with_shutdown(app, listener, service::serve::shutdown_signal()).await?;
 
     Ok(())
+}
+
+/// D-169（2026-10-05, traecode）：解析 `HEARTH_USERS`——`"k1=alice,k2=bob"`
+/// （逗号分隔；两侧裁剪；**忽略**空项与无 `=` 的项）。
+///
+/// 纯函数（不读进程环境，便于单测）。键或值任一为空即丢弃该对——避免注册出"空 key"
+/// 这种只能靠空 Bearer 命中的畸形条目。
+fn parse_users_env(raw: Option<&str>) -> Vec<(String, String)> {
+    raw.unwrap_or("")
+        .split(',')
+        .filter_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            let (k, v) = (k.trim(), v.trim());
+            if k.is_empty() || v.is_empty() {
+                None
+            } else {
+                Some((k.to_string(), v.to_string()))
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod parse_users_env_tests {
+    use super::parse_users_env;
+
+    #[test]
+    fn parses_pairs_and_skips_garbage() {
+        assert!(parse_users_env(None).is_empty());
+        assert!(parse_users_env(Some("")).is_empty());
+        assert_eq!(
+            parse_users_env(Some("k1=alice, k2=bob")),
+            vec![
+                ("k1".to_string(), "alice".to_string()),
+                ("k2".to_string(), "bob".to_string())
+            ]
+        );
+        // 空项 / 无 `=` / 空键 / 空值 一律丢弃
+        assert_eq!(
+            parse_users_env(Some(",broken,k3=carol,,=novalue,k4=")),
+            vec![("k3".to_string(), "carol".to_string())]
+        );
+    }
 }
 
 #[cfg(test)]

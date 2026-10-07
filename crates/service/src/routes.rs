@@ -144,29 +144,39 @@ pub async fn require_api_key(
     if req.uri().path() == "/healthz" || req.uri().path() == "/readyz" {
         return Ok(next.run(req).await);
     }
-    if let Some(ref expected) = state.api_key {
+    // D-169（2026-10-05, traecode）：鉴权来源＝「**已注册 key 集**」`∪` 显式 `API_KEY`。
+    //
+    // 修复前只看 `state.api_key`：只配 `HEARTH_USERS`（多租户）而不配 `API_KEY` 时，
+    // "已配 key"被误判成"未配 key" ⇒ 要么放行（`ALLOW_NO_AUTH=1`，等于无鉴权）、
+    // 要么整站 401。既有单 key 亦经 `main.rs` 的 `register(key,"default")` 入册，
+    // 故两种配置方式在**同一判定**下统一（多租户隔离由此真正可用）。
+    if state.api_key.is_some() || state.user_store.has_keys() {
         let provided = req
             .headers()
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "));
-        let ok = provided
-            .map(|p| {
-                p.len() == expected.len()
-                    && p.bytes()
-                        .zip(expected.bytes())
-                        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-                        == 0
-            })
-            .unwrap_or(false);
-        if provided.is_none() {
+        let Some(p) = provided else {
             // 缺凭据 → 401
             return Err(api_err(
                 ERR_UNAUTHORIZED,
                 "missing API key (Authorization: Bearer <API_KEY>)",
                 StatusCode::UNAUTHORIZED,
             ));
-        }
+        };
+        // 命中**任一**已注册 key 即通过（逐 key 常数时间、不早退）；保留单 `API_KEY` 显式比对。
+        let ok = state.user_store.authenticates(p)
+            || state
+                .api_key
+                .as_deref()
+                .map(|expected| {
+                    p.len() == expected.len()
+                        && p.bytes()
+                            .zip(expected.bytes())
+                            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                            == 0
+                })
+                .unwrap_or(false);
         if !ok {
             // 凭据错误 → 403
             return Err(api_err(

@@ -31,6 +31,41 @@ impl UserStore {
     pub fn register(&self, api_key: String, user_id: String) {
         recover(self.keys.write()).insert(api_key, user_id);
     }
+
+    /// D-169（2026-10-05, traecode）：是否**已注册任何 key**。
+    ///
+    /// 供鉴权中间件判定"本次部署是否要求凭据"——既有单 `API_KEY` 亦经
+    /// `register(key, "default")` 入册（见 `main.rs`），故两种配置方式同一判定。
+    /// 这也修掉了 `require_api_key` 原先只看 `state.api_key` 的盲区：只配 `HEARTH_USERS`
+    /// （无 `API_KEY`）时，旧代码会把"已配 key"误判成"未配 key"。
+    pub fn has_keys(&self) -> bool {
+        !recover(self.keys.read()).is_empty()
+    }
+
+    /// D-169：`provided` 是否命中**任一**已注册 key。
+    ///
+    /// 逐 key **常数时间**比对（复用 `ct_eq`，与单 key 路径同一原语），且**遍历全部 key
+    /// 不早退**——否则"是否命中 / 命中第几个"会从耗时泄漏（2026-10-05 联网核实的通行口径）。
+    pub fn authenticates(&self, provided: &str) -> bool {
+        let map = recover(self.keys.read());
+        let mut hit = 0u8;
+        for k in map.keys() {
+            hit |= u8::from(ct_eq(provided, k));
+        }
+        hit != 0
+    }
+}
+
+/// 常数时间字符串等值比较：长度不等 → 不匹配；长度相等 → 逐字节 XOR 折叠（**不早退**）。
+///
+/// 与 `routes::require_api_key` 既有的单 key 比对**同一实现**（此处抽函数以复用）。
+/// 注：长度不等仍走快路径（不比较内容）——长度不属本威胁模型的秘密面。
+fn ct_eq(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
 // D-111②（2026-10-02, traecode）：原 `UserContext { user_id, memory_dir }` 结构体**已删**。
