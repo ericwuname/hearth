@@ -475,6 +475,31 @@ pub async fn open_external(
     }
 }
 
+/// D-166（2026-10-05, traecode）：交互响应的**错误分类**收口。
+///
+/// 修复前 `submit_approval` / `submit_interaction` 把**任何**失败一律映射为
+/// **404 + `ERR_SESSION_NOT_FOUND`**。但 `ToolDispatcher::resolve_interaction` 的失败**全是
+/// 请求级**（`interaction_id` 不匹配 / 无 pending 交互 / 无交互态），`submit_approval` 另有一条
+/// "非法 decision"——把**客户端拼错或重复提交**冒充成"**会话不存在**"（客户端按 `code` 分支会
+/// 误判会话丢失）。正确对照：`get_session_history` 已区分 `Ok(None)`→404 与 `Err`→500。
+///
+/// 口径：**只有会话真的不存在**才是 404/`SESSION_NOT_FOUND`；会话存在时一律 400 `INVALID_PARAM`。
+fn classify_interaction_error(
+    err: &dyn std::fmt::Display,
+    session_exists: bool,
+    id: &str,
+) -> (StatusCode, Json<ErrorResponse>) {
+    if session_exists {
+        api_err(ERR_INVALID_PARAM, format!("{err}"), StatusCode::BAD_REQUEST)
+    } else {
+        api_err(
+            ERR_SESSION_NOT_FOUND,
+            format!("session not found: {id}"),
+            StatusCode::NOT_FOUND,
+        )
+    }
+}
+
 /// POST /api/v1/sessions/:id/approvals
 /// WP-0: 保留为薄适配层（deprecated）——新契约走 POST /interaction/{iid}。
 pub async fn submit_approval(
@@ -482,13 +507,11 @@ pub async fn submit_approval(
     Path(id): Path<String>,
     ApiJson(req): ApiJson<ApprovalReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-166：先取"会话是否存在"（判据与 manager 内部同一份 `get_session`）。
+    let exists = state.sessions.get_session(&id).await.is_some();
     match state.sessions.submit_approval(&id, req).await {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("{e}"),
-            StatusCode::NOT_FOUND,
-        )),
+        Err(e) => Err(classify_interaction_error(&e, exists, &id)),
     }
 }
 
@@ -506,6 +529,8 @@ pub async fn submit_interaction(
             StatusCode::BAD_REQUEST,
         ));
     }
+    // D-166：同 `submit_approval`——先判会话是否存在，再按"会话存在 ⇒ 400 / 不存在 ⇒ 404"分类。
+    let exists = state.sessions.get_session(&id).await.is_some();
     match state
         .sessions
         .submit_interaction(
@@ -519,11 +544,7 @@ pub async fn submit_interaction(
         .await
     {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("{e}"),
-            StatusCode::NOT_FOUND,
-        )),
+        Err(e) => Err(classify_interaction_error(&e, exists, &id)),
     }
 }
 
