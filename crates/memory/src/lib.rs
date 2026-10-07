@@ -8,6 +8,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// D-171（2026-10-08, traecode）：会话**归属用户**（多租户隔离判据）的默认值。
+///
+/// 用于旧记录（JSONL 头无 `owner` 字段）的向后兼容回落到 `"default"`——与
+/// `get_user_id` 的兜底、`create_session` 的无归属路径同档，不产生新的孤档。
+pub fn default_owner() -> String {
+    "default".to_string()
+}
+
 /// A stored session record containing event history and state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRecord {
@@ -15,6 +23,11 @@ pub struct SessionRecord {
     pub provider_name: String,
     pub model: String,
     pub goal: String,
+    /// D-171（2026-10-08, traecode）：会话归属用户。持久化后即使进程重启（会话不在
+    /// 内存表里）也能判归属——否则重启后所有持久化会话对任何租户可见（跨租户泄露）。
+    /// `#[serde(default)]` 兼容旧记录（无该字段 → `"default"`）。
+    #[serde(default = "default_owner")]
+    pub owner: String,
     pub events: Vec<StoredEvent>,
     pub created_at: String,
 }
@@ -36,6 +49,11 @@ pub trait MemoryStore: Send + Sync {
 
     /// Load a session record by ID.
     async fn load_session(&self, session_id: &str) -> Result<Option<SessionRecord>>;
+
+    /// D-171（2026-10-08, traecode）：**轻量**读取会话归属用户——只解析 meta 头行，
+    /// 不加载事件体。供多租户**列表过滤**使用：若走 `load_session` 则每列一个 id 都要
+    /// 把整份会话文件（上限 64 MiB）读进内存，列表端点即成放大器。
+    async fn session_owner(&self, session_id: &str) -> Result<Option<String>>;
 
     /// List all stored session IDs.
     async fn list_sessions(&self) -> Result<Vec<String>>;
@@ -132,6 +150,7 @@ impl MemoryStore for JsonlMemoryStore {
                 "provider_name": record.provider_name,
                 "model": record.model,
                 "goal": record.goal,
+                "owner": record.owner,
                 "created_at": record.created_at,
             });
             writeln!(writer, "{}", serde_json::to_string(&header)?)?;
@@ -178,7 +197,8 @@ impl MemoryStore for JsonlMemoryStore {
             .read_session_text(session_id, MAX_SESSION_FILE_BYTES)
             .await?;
         let mut events = Vec::new();
-        let mut meta: Option<(String, String, String, String, String)> = None;
+        // (session_id, provider_name, model, goal, owner, created_at)
+        let mut meta: Option<(String, String, String, String, String, String)> = None;
 
         for (lineno, line) in content.lines().enumerate() {
             if line.trim().is_empty() {
@@ -213,6 +233,11 @@ impl MemoryStore for JsonlMemoryStore {
                         val["provider_name"].as_str().unwrap_or("").to_string(),
                         val["model"].as_str().unwrap_or("").to_string(),
                         val["goal"].as_str().unwrap_or("").to_string(),
+                        // D-171：旧记录无 `owner` → 回落 `"default"`（向后兼容）。
+                        val["owner"]
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(default_owner),
                         val["created_at"].as_str().unwrap_or("").to_string(),
                     ));
                 }
@@ -229,16 +254,46 @@ impl MemoryStore for JsonlMemoryStore {
         }
 
         match meta {
-            Some((session_id, provider_name, model, goal, created_at)) => Ok(Some(SessionRecord {
-                session_id,
-                provider_name,
-                model,
-                goal,
-                events,
-                created_at,
-            })),
+            Some((session_id, provider_name, model, goal, owner, created_at)) => {
+                Ok(Some(SessionRecord {
+                    session_id,
+                    provider_name,
+                    model,
+                    goal,
+                    owner,
+                    events,
+                    created_at,
+                }))
+            }
             None => Ok(None),
         }
+    }
+
+    async fn session_owner(&self, session_id: &str) -> Result<Option<String>> {
+        let path = self.session_path(session_id);
+        if !path.exists() {
+            return Ok(None);
+        }
+        // D-171：只读**前 64 KiB**——meta 头行必然在其中（写侧头行只有数百字节），
+        // 不把整份会话文件（可至 64 MiB）拉进内存（列表端点不得成为读放大器）。
+        let (text, _truncated) = bounded_io::read_file_text_capped(&path, 64 * 1024).await?;
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if val["type"].as_str() == Some("session_meta") {
+                return Ok(Some(
+                    val["owner"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(default_owner),
+                ));
+            }
+        }
+        Ok(None)
     }
 
     async fn list_sessions(&self) -> Result<Vec<String>> {
@@ -539,6 +594,7 @@ mod tests {
             provider_name: "openai".into(),
             model: "gpt-4o".into(),
             goal: "test goal".into(),
+            owner: "default".into(),
             events: vec![
                 StoredEvent {
                     seq: 0,
@@ -576,6 +632,7 @@ mod tests {
             provider_name: "o".into(),
             model: "m".into(),
             goal: "g".into(),
+            owner: "default".into(),
             events: vec![],
             created_at: "t".into(),
         };
@@ -607,6 +664,7 @@ mod tests {
             provider_name: "o".into(),
             model: "m".into(),
             goal: "g".into(),
+            owner: "default".into(),
             events: vec![],
             created_at: "t".into(),
         };
@@ -642,6 +700,7 @@ mod tests {
             provider_name: "o".into(),
             model: "m".into(),
             goal: "g".into(),
+            owner: "default".into(),
             events: vec![StoredEvent {
                 seq: 0,
                 event_type: "phase".into(),
@@ -794,5 +853,55 @@ mod tests {
         .unwrap();
         let nodes = WorkLineStore::read_nodes(&small, 1024 * 1024).unwrap();
         assert_eq!(nodes.len(), 1, "未超限必须完整解析");
+    }
+
+    /// D-171 回归锁（**先红后绿**）：会话**归属用户**必须随记录**持久化**并可**轻量读回**。
+    ///
+    /// 修复前 `SessionRecord` 无 `owner` 字段、meta 头也不写 ⇒ 进程重启后持久化会话丢失
+    /// 归属，任何租户都能读到彼此的会话（跨租户泄露）。本测试锁三件事：① 全量读回 owner；
+    /// ② `session_owner` 只读 meta 头即得 owner（列表过滤路径）；③ 旧记录（无字段）回落
+    /// `"default"` 且不存在者返回 `None`。
+    #[tokio::test]
+    async fn test_d171_session_owner_persisted_and_read_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = JsonlMemoryStore::new(tmp.path());
+        store
+            .save_session(&SessionRecord {
+                session_id: "owned-1".into(),
+                provider_name: "o".into(),
+                model: "m".into(),
+                goal: "g".into(),
+                owner: "alice".into(),
+                events: vec![],
+                created_at: "t".into(),
+            })
+            .await
+            .unwrap();
+
+        let loaded = store.load_session("owned-1").await.unwrap().unwrap();
+        assert_eq!(loaded.owner, "alice", "owner 必须随记录持久化");
+        assert_eq!(
+            store.session_owner("owned-1").await.unwrap().as_deref(),
+            Some("alice"),
+            "轻量读必须能只凭 meta 头判归属（列表过滤路径）"
+        );
+
+        // 旧记录（无 owner 字段）→ 回落 "default"（向后兼容）。
+        std::fs::write(
+            tmp.path().join("legacy-1.jsonl"),
+            "{\"type\":\"session_meta\",\"session_id\":\"legacy-1\",\"provider_name\":\"o\",\
+             \"model\":\"m\",\"goal\":\"g\",\"created_at\":\"t\"}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            store.session_owner("legacy-1").await.unwrap().as_deref(),
+            Some("default"),
+            "旧记录无 owner 字段必须回落 default（不得判成无归属而误伤可见性）"
+        );
+
+        assert!(
+            store.session_owner("nope").await.unwrap().is_none(),
+            "不存在的会话 → None"
+        );
     }
 }

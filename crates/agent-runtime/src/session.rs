@@ -87,6 +87,14 @@ pub struct Session {
     pub provider_name: String,
     pub model: String,
     pub goal: String,
+    /// D-171（2026-10-08, traecode）：会话**归属用户**（多租户隔离判据）。
+    ///
+    /// 由 [`SessionManager::create_session_with_owner`] 在创建时落定；HTTP 侧所有
+    /// 以 id 寻址的会话 handler 都先经 `ensure_session_owner` 比对调用者 uid，
+    /// **不匹配一律 404**（不泄露"该 id 存在但归别人"）。无归属上下文（测试/CLI）
+    /// 走 `create_session` → `"default"`。持久化前该字段此前**完全缺失** ⇒ 重启后
+    /// 任何租户都能看到彼此的持久化会话（跨租户泄露）。
+    pub owner: String,
     pub phase: String,
     pub steps: u64,
     pub budget_remaining: Option<u64>,
@@ -402,6 +410,7 @@ impl SessionManager {
             provider_name: provider_name.clone(),
             model: model.clone(),
             goal: req.goal.clone(),
+            owner: owner.to_string(),
             phase: "created".into(),
             steps: 0,
             budget_remaining: Some(max_steps),
@@ -429,6 +438,7 @@ impl SessionManager {
                 provider_name: provider_name.clone(),
                 model: model.clone(),
                 goal: req.goal.clone(),
+                owner: owner.to_string(),
                 events: Vec::new(),
                 created_at: chrono::Utc::now().to_rfc3339(),
             };
@@ -582,17 +592,30 @@ impl SessionManager {
 
     /// P0-3 (audit-fix): 会话列表——内存活跃 + 持久化并集，契约匹配
     /// codex-cli 的 `{id, status, steps, budget_remaining}`。
-    pub async fn list_sessions_json(&self) -> Vec<serde_json::Value> {
+    ///
+    /// D-171（2026-10-08, traecode）：**按归属用户过滤**（多租户隔离）。修复前无任何
+    /// 归属条件 ⇒ 在 D-169 开启的 `HEARTH_USERS` 多租户下，任一租户都能在列表里看到
+    /// 其他租户的会话 id（再用 id 直读事件/历史即得对方目标文本）。内存侧按 `Session.owner`，
+    /// 持久化侧按记录头 `owner`（经 `session_owner` 轻量读——不加载事件体）。
+    pub async fn list_sessions_json_for(&self, owner: &str) -> Vec<serde_json::Value> {
         let mut out: Vec<serde_json::Value> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         {
             let map = self.sessions.read().await;
             for (id, sess) in map.iter() {
-                seen.insert(id.clone());
-                let (phase, steps, budget_remaining) = {
+                let (phase, steps, budget_remaining, sess_owner) = {
                     let g = sess.lock().await;
-                    (g.phase.clone(), g.steps, g.budget_remaining)
+                    (
+                        g.phase.clone(),
+                        g.steps,
+                        g.budget_remaining,
+                        g.owner.clone(),
+                    )
                 };
+                seen.insert(id.clone());
+                if sess_owner != owner {
+                    continue;
+                }
                 out.push(serde_json::json!({
                     "id": id,
                     "status": phase,
@@ -601,17 +624,37 @@ impl SessionManager {
                 }));
             }
         }
-        // 持久化但未加载的会话（P1-1 读路径接线后可见）
+        // 持久化但未加载的会话（P1-1 读路径接线后可见）——D-171：仅列**属于本租户**者。
         if let Ok(ids) = self.list_persisted_sessions().await {
             for id in ids {
-                if !seen.contains(&id) {
-                    out.push(serde_json::json!({
-                        "id": id, "status": "persisted", "steps": 0, "budget_remaining": null,
-                    }));
+                if seen.contains(&id) {
+                    continue;
                 }
+                if self.persisted_owner(&id).await.as_deref() != Some(owner) {
+                    continue;
+                }
+                out.push(serde_json::json!({
+                    "id": id, "status": "persisted", "steps": 0, "budget_remaining": null,
+                }));
             }
         }
         out
+    }
+
+    /// D-171（2026-10-08, traecode）：会话**归属用户**查询。内存命中取 `Session.owner`；
+    /// 未命中回落持久化记录头（`MemoryStore::session_owner` 轻量读）。`None` = 无法判定归属
+    /// （会话不存在 / 无 store / 读失败）——调用方一律按"不存在"处理（fail closed）。
+    pub async fn owner_of(&self, id: &str) -> Option<String> {
+        if let Some(sess) = self.get_session(id).await {
+            return Some(sess.lock().await.owner.clone());
+        }
+        self.persisted_owner(id).await
+    }
+
+    /// D-171：从持久化层读归属用户（无 store / 记录缺失 / I/O 错 → `None`）。
+    async fn persisted_owner(&self, id: &str) -> Option<String> {
+        let store = self.memory_store.as_ref()?;
+        store.session_owner(id).await.ok().flatten()
     }
 
     /// Get session status.
@@ -811,6 +854,7 @@ impl SessionManager {
                                 provider_name: s.provider_name.clone(),
                                 model: s.model.clone(),
                                 goal: s.goal.clone(),
+                                owner: s.owner.clone(),
                                 events: vec![StoredEvent {
                                     seq: 0,
                                     event_type: "done".into(),
@@ -1296,6 +1340,7 @@ mod tests {
                 provider_name: "p".into(),
                 model: "m".into(),
                 goal: "g".into(),
+                owner: "default".into(),
                 phase: "done".into(),
                 steps: 0,
                 budget_remaining: None,
@@ -1364,6 +1409,7 @@ mod tests {
             provider_name: "p".into(),
             model: "m".into(),
             goal: "g".into(),
+            owner: "default".into(),
             phase: "created".into(),
             steps: 0,
             budget_remaining: None,
@@ -1423,6 +1469,7 @@ mod tests {
             provider_name: "p".into(),
             model: "m".into(),
             goal: "g".into(),
+            owner: "default".into(),
             phase: "done".into(),
             steps: 3,
             budget_remaining: None,
@@ -1476,6 +1523,7 @@ mod tests {
             provider_name: "p".into(),
             model: "m".into(),
             goal: "replay me".into(),
+            owner: "default".into(),
             phase: "running".into(),
             steps: 0,
             budget_remaining: None,
@@ -1537,6 +1585,7 @@ mod tests {
                 provider_name: "p".into(),
                 model: "m".into(),
                 goal: "persisted".into(),
+                owner: "default".into(),
                 events: vec![
                     StoredEvent {
                         seq: 0,
@@ -1584,6 +1633,7 @@ mod tests {
             provider_name: "p".into(),
             model: "m".into(),
             goal: "cap".into(),
+            owner: "default".into(),
             phase: "running".into(),
             steps: 0,
             budget_remaining: None,
@@ -1632,5 +1682,85 @@ mod tests {
                 "绝对编号须不丢不重"
             );
         }
+    }
+
+    /// D-171 回归锁（**先红后绿**）：会话**归属**必须可判且**列表按租户过滤**。
+    ///
+    /// 修复前 `owner_of` / 归属过滤**都不存在**（`list_sessions_json()` 无 owner 参数）
+    /// ⇒ 多租户下任一租户可见全部会话。本测试锁三件事：① `owner_of` 对**内存**会话返回
+    /// `Session.owner`；② 对**仅持久化**（不在内存表）的会话回落记录头判归属（重启场景）；
+    /// ③ `list_sessions_json_for` 内存与持久化**两侧**都只列本租户。
+    #[tokio::test]
+    async fn test_d171_owner_of_and_scoped_list() {
+        let mut mgr = SessionManager::new(
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolDispatcher::new()),
+            ToolContext::default(),
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(JsonlMemoryStore::new(tmp.path()));
+        // 一条 alice 的**持久化**会话（不在内存表 ⇒ 走 owner_of 的持久化回落）。
+        store
+            .save_session(&SessionRecord {
+                session_id: "p-alice".into(),
+                provider_name: "p".into(),
+                model: "m".into(),
+                goal: "g".into(),
+                owner: "alice".into(),
+                events: vec![],
+                created_at: "t".into(),
+            })
+            .await
+            .unwrap();
+        mgr.set_memory_store(store);
+
+        // 内存里挂一条 bob 的会话。
+        let sess = Arc::new(Mutex::new(Session {
+            id: "m-bob".into(),
+            provider_name: "p".into(),
+            model: "m".into(),
+            goal: "g".into(),
+            owner: "bob".into(),
+            phase: "created".into(),
+            steps: 0,
+            budget_remaining: None,
+            event_tx: None,
+            events: Vec::new(),
+            events_base_seq: 0,
+            running: false,
+            agent: None,
+            budget: Budget::default(),
+            cancel_tx: None,
+            finished_at: None,
+            created_at: std::time::Instant::now(),
+            workspace_dir: std::path::PathBuf::from("/tmp/test"),
+        }));
+        mgr.sessions.write().await.insert("m-bob".into(), sess);
+
+        // ① 内存命中；② 持久化回落；③ 未知 → None。
+        assert_eq!(mgr.owner_of("m-bob").await.as_deref(), Some("bob"));
+        assert_eq!(
+            mgr.owner_of("p-alice").await.as_deref(),
+            Some("alice"),
+            "仅持久化的会话必须能从记录头判归属（重启后仍隔离）"
+        );
+        assert!(mgr.owner_of("nope").await.is_none());
+
+        // ④ 列表按 owner 过滤：alice 只见她的持久化会话，bob 只见他的内存会话。
+        let ids_for = |v: &[serde_json::Value]| -> Vec<String> {
+            v.iter()
+                .filter_map(|x| x["id"].as_str().map(|s| s.to_string()))
+                .collect()
+        };
+        assert_eq!(
+            ids_for(&mgr.list_sessions_json_for("alice").await),
+            vec!["p-alice".to_string()],
+            "alice 的列表不得含 bob 的会话"
+        );
+        assert_eq!(
+            ids_for(&mgr.list_sessions_json_for("bob").await),
+            vec!["m-bob".to_string()],
+            "bob 的列表不得含 alice 的会话（修复前全局可见 = 跨租户泄露）"
+        );
     }
 }

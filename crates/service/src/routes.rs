@@ -131,6 +131,40 @@ fn get_user_id(headers: &axum::http::HeaderMap, user_store: &crate::user::UserSt
         .unwrap_or_else(|| "default".into())
 }
 
+/// D-171（2026-10-08, traecode）：会话不存在（或**不属于调用者**）的统一 404 形状。
+fn session_not_found(id: &str) -> (StatusCode, Json<ErrorResponse>) {
+    api_err(
+        ERR_SESSION_NOT_FOUND,
+        format!("session not found: {id}"),
+        StatusCode::NOT_FOUND,
+    )
+}
+
+/// D-171（2026-10-08, traecode）：**多租户会话归属校验**——以会话 id 寻址的 handler
+/// 的**统一入口**。
+///
+/// 病灶：D-169 打开了 `HEARTH_USERS` 多租户（鉴权按 key 映射到 uid、`create_session`
+/// 也把 uid 记为 `owner`），但**会话读/写面完全没有归属条件**——任一已认证租户只要拿到
+/// 另一租户的会话 id，即可 `GET /sessions/<id>` 读其状态、`GET .../events|messages` 读其
+/// 事件与目标文本、`POST .../messages` 往其会话注入、`POST .../cancel` 停其会话、
+/// `.../artifact/open` 读其工作区文件 ⇒ 跨租户数据泄露 + 完整性破坏（BOLA/IDOR）。
+///
+/// 口径（`owner != uid` ⇒ **404** 而非 403）：对标 OWASP Multi-Tenant Security Cheat Sheet
+/// 与跨租户 BOLA 防护共识——**不要用 403 泄露"该 id 有效但归别人"**，否则攻击者可据
+/// 状态码差异枚举有效会话 id。会话**不存在**与**存在但非本人**走**同一 404 形状**，
+/// 不可区分。归属未知（无 store / 读失败）一律按不存在处理（fail closed）。
+async fn ensure_session_owner(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let uid = get_user_id(headers, &state.user_store);
+    match state.sessions.owner_of(id).await {
+        Some(owner) if owner == uid => Ok(()),
+        _ => Err(session_not_found(id)),
+    }
+}
+
 /// AUTH-0: Bearer-token auth middleware.
 ///
 /// P0-1 (audit-fix): 默认安全反转——未配置 key 时**只有显式 ALLOW_NO_AUTH=1** 才放行
@@ -292,18 +326,25 @@ pub async fn create_session(
 }
 
 /// P0-3 (audit-fix): GET /api/v1/sessions — 会话列表（内存活跃 + 持久化并集）。
+///
+/// D-171：**按调用者 uid 过滤**（多租户隔离）——修复前无归属条件，任一租户可见全部会话 id。
 pub async fn list_sessions(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let sessions = state.sessions.list_sessions_json().await;
+    let uid = get_user_id(&headers, &state.user_store);
+    let sessions = state.sessions.list_sessions_json_for(&uid).await;
     Ok(Json(serde_json::json!({ "sessions": sessions })))
 }
 
 /// GET /api/v1/sessions/:id
 pub async fn get_session_status(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404，同一形状）。
+    ensure_session_owner(&state, &headers, &id).await?;
     match state.sessions.get_status(&id).await {
         Some(status) => Ok((StatusCode::OK, Json(status))),
         None => {
@@ -319,11 +360,7 @@ pub async fn get_session_status(
                     };
                     Ok((StatusCode::OK, Json(status)))
                 }
-                _ => Err(api_err(
-                    ERR_SESSION_NOT_FOUND,
-                    format!("session not found: {id}"),
-                    StatusCode::NOT_FOUND,
-                )),
+                _ => Err(session_not_found(&id)),
             }
         }
     }
@@ -337,6 +374,8 @@ pub async fn send_message(
     Path(id): Path<String>,
     ApiJson(req): ApiJson<MessageReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404）——在任何副作用之前。
+    ensure_session_owner(&state, &headers, &id).await?;
     // Last-Event-ID: 客户端已收到的最后 seq → 重放缓冲中 seq 之后的事件
     let last_seq = headers
         .get("last-event-id")
@@ -359,15 +398,14 @@ pub async fn send_message(
 /// WP-2 (v23 phase3): GET /api/v1/sessions/:id/events —— 录制导出（JSONL，每行一个信封事件）。
 pub async fn session_events_export(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得导出他人会话事件（含目标文本）。
+    ensure_session_owner(&state, &headers, &id).await?;
     let lines = state.sessions.session_events_jsonl(&id).await;
     if lines.is_empty() && state.sessions.get_session(&id).await.is_none() {
-        return Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("session not found: {id}"),
-            StatusCode::NOT_FOUND,
-        ));
+        return Err(session_not_found(&id));
     }
     Ok((
         StatusCode::OK,
@@ -384,6 +422,8 @@ pub async fn session_stream(
     headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得订阅他人会话实时流。
+    ensure_session_owner(&state, &headers, &id).await?;
     let last_seq = headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
@@ -407,6 +447,7 @@ pub async fn session_stream(
 /// 路径校验在 SessionManager::open_artifact（workspace 内）。
 pub async fn open_artifact(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -418,16 +459,9 @@ pub async fn open_artifact(
             StatusCode::BAD_REQUEST,
         ));
     }
-    // D-111：同 `open_external`——先判存在性（404），再谈产物错误（400）。
-    // 原实现把两者都写成 `ERR_SESSION_NOT_FOUND` + 400（码与状态自相矛盾，
-    // 且"路径穿越被拒"被报成"会话不存在"）。
-    if state.sessions.get_session(&id).await.is_none() {
-        return Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("session not found: {id}"),
-            StatusCode::NOT_FOUND,
-        ));
-    }
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得读他人会话工作区产物。
+    // D-111：先判存在性（404），再谈产物错误（400）——本关同时覆盖存在性与归属。
+    ensure_session_owner(&state, &headers, &id).await?;
     match state.sessions.open_artifact(&id, &rel).await {
         Ok(content) => Ok((
             StatusCode::OK,
@@ -449,6 +483,7 @@ pub async fn open_artifact(
 /// url → 默认浏览器。路径校验在 SessionManager::open_external（workspace 内）。
 pub async fn open_external(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -460,21 +495,9 @@ pub async fn open_external(
             StatusCode::BAD_REQUEST,
         ));
     }
-    // D-111（2026-10-02, traecode）：**先显式判会话是否存在**，再区分错误语义。
-    //
-    // 病灶：原实现的 `Err` 一律映射成 `ERR_SESSION_NOT_FOUND` + **400**——于是
-    // "路径穿越被拒 / 产物读失败"（客户端错）与"会话不存在"（应 404）混成同一个码，
-    // 且错误码与状态码自相矛盾（"未找到"配 400）。而 `SessionManager` 的错误**只能**
-    // 靠错误文本区分，本项目**明令禁止**文本判定（RC20 反模式禁令，见 dispatcher.rs）。
-    // ⇒ 用"先查存在性"消除歧义：不存在 → 404 SESSION_NOT_FOUND；其余 → 400 INVALID_PARAM。
-    // （同款存在性检查已是本文件 `session_stream` 的既有做法。）
-    if state.sessions.get_session(&id).await.is_none() {
-        return Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("session not found: {id}"),
-            StatusCode::NOT_FOUND,
-        ));
-    }
+    // D-111：**先显式判会话是否存在**，再区分错误语义（路径穿越/读失败 → 400；不存在 → 404）。
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得对他人会话工作区发起系统打开。
+    ensure_session_owner(&state, &headers, &id).await?;
     match state.sessions.open_external(&id, &rel).await {
         Ok(msg) => Ok((StatusCode::OK, msg)),
         Err(e) => Err(api_err(
@@ -514,14 +537,16 @@ fn classify_interaction_error(
 /// WP-0: 保留为薄适配层（deprecated）——新契约走 POST /interaction/{iid}。
 pub async fn submit_approval(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<String>,
     ApiJson(req): ApiJson<ApprovalReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    // D-166：先取"会话是否存在"（判据与 manager 内部同一份 `get_session`）。
-    let exists = state.sessions.get_session(&id).await.is_some();
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得代他人会话审批。
+    ensure_session_owner(&state, &headers, &id).await?;
+    // D-166：会话已确证存在 ⇒ 后续失败一律 400 `INVALID_PARAM`。
     match state.sessions.submit_approval(&id, req).await {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(classify_interaction_error(&e, exists, &id)),
+        Err(e) => Err(classify_interaction_error(&e, true, &id)),
     }
 }
 
@@ -529,6 +554,7 @@ pub async fn submit_approval(
 /// R1 id 强校验 + R2 一次性消费由 dispatcher 保证；payload 内容内核不解析。
 pub async fn submit_interaction(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path((id, iid)): Path<(String, String)>,
     ApiJson(req): ApiJson<api::InteractionResponse>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -539,8 +565,9 @@ pub async fn submit_interaction(
             StatusCode::BAD_REQUEST,
         ));
     }
-    // D-166：同 `submit_approval`——先判会话是否存在，再按"会话存在 ⇒ 400 / 不存在 ⇒ 404"分类。
-    let exists = state.sessions.get_session(&id).await.is_some();
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得代他人会话应答交互。
+    ensure_session_owner(&state, &headers, &id).await?;
+    // D-166：会话已确证存在 ⇒ 后续失败一律 400 `INVALID_PARAM`。
     match state
         .sessions
         .submit_interaction(
@@ -554,15 +581,18 @@ pub async fn submit_interaction(
         .await
     {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(classify_interaction_error(&e, exists, &id)),
+        Err(e) => Err(classify_interaction_error(&e, true, &id)),
     }
 }
 
 /// POST /api/v1/sessions/:id/cancel
 pub async fn cancel_session(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得停他人会话。
+    ensure_session_owner(&state, &headers, &id).await?;
     match state.sessions.cancel_session(&id).await {
         Ok(()) => Ok((
             StatusCode::OK,
@@ -592,15 +622,14 @@ pub async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoRespons
 /// B1 (trunk-freeze): GET /api/v1/sessions/:id/messages
 pub async fn get_session_history(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-171：归属校验（不存在 / 非本人 → 404）——不得读他人会话消息历史（含目标文本）。
+    ensure_session_owner(&state, &headers, &id).await?;
     match state.sessions.get_history(&id).await {
         Ok(Some(history)) => Ok((StatusCode::OK, Json(history))),
-        Ok(None) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("session not found: {id}"),
-            StatusCode::NOT_FOUND,
-        )),
+        Ok(None) => Err(session_not_found(&id)),
         Err(e) => Err(api_err(
             ERR_INTERNAL,
             format!("{e}"),

@@ -1215,6 +1215,9 @@ impl memory::MemoryStore for FailingMemoryStore {
     async fn load_session(&self, _id: &str) -> Result<Option<memory::SessionRecord>> {
         Ok(None)
     }
+    async fn session_owner(&self, _id: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
     async fn list_sessions(&self) -> Result<Vec<String>> {
         Err(anyhow::anyhow!("store unavailable"))
     }
