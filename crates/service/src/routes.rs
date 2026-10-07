@@ -274,6 +274,8 @@ pub async fn create_session(
             ));
         }
     }
+    // D-172：调用者 uid 提前取——webhook 投递（下方）与 civ 公告、会话归属都要用它。
+    let uid = get_user_id(&headers, &state.user_store);
     // v10.3: Real telemetry — increment session counter
     state
         .telemetry
@@ -281,9 +283,15 @@ pub async fn create_session(
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     // v10.4: Fire webhooks on session create
+    // D-172：按**发起者 uid** 过滤——只投给同租户的 hook（修复前对全部 hook 广播 ⇒
+    // 多租户下 alice 可收割 bob 的会话目标文本）。
     let _ = state
         .webhooks
-        .fire_event("session_created", &serde_json::json!({"goal": req.goal}))
+        .fire_event(
+            "session_created",
+            &serde_json::json!({"goal": req.goal}),
+            &uid,
+        )
         .await;
 
     // v10.4: CIV auto-write — record session creation on civilization line
@@ -301,7 +309,6 @@ pub async fn create_session(
         tags: vec!["session_create".into()],
     };
     // D-108：写入**可见的** per-user 文明线档（病灶与理由见本函数上方文档）。
-    let uid = get_user_id(&headers, &state.user_store);
     match state.per_user.civ_for(&uid) {
         Ok(store) => {
             if let Err(e) = store.append(civ_entry) {
@@ -1280,8 +1287,12 @@ pub async fn list_templates(State(state): State<Arc<AppState>>) -> impl IntoResp
 /// 对"永远投不出去"的 url 也回 `{"ok":true}`（假成功），且 curl 选项注入形 url 在注册面即被放行。
 pub async fn register_webhook(
     State(state): State<Arc<AppState>>,
-    ApiJson(cfg): ApiJson<crate::webhook::WebhookConfig>,
+    headers: axum::http::HeaderMap,
+    ApiJson(mut cfg): ApiJson<crate::webhook::WebhookConfig>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // D-172：owner 由**服务端**按调用者 uid 强制写入（请求体即便带了 `owner` 也被覆盖，
+    // 不可伪造）——否则任一租户可伪造 owner 去订阅他人事件。
+    cfg.owner = get_user_id(&headers, &state.user_store);
     match state.webhooks.try_register(cfg) {
         Ok(()) => Ok(Json(serde_json::json!({"ok": true}))),
         Err(e) => Err(api_err(

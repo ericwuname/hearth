@@ -17,15 +17,36 @@ fn egress_allowlist() -> Option<String> {
 pub struct WebhookConfig {
     pub url: String,
     pub events: Vec<String>,
+    /// D-172（2026-10-08, traecode）：**归属用户**（多租户隔离判据）。由服务端在
+    /// `register_webhook` 里按调用者 uid **强制写入**（请求体里即便带了该字段也被**覆盖**，
+    /// 不可伪造）；`#[serde(default)]` 仅为兼容不带该字段的请求体。
+    #[serde(default)]
+    pub owner: String,
+}
+
+/// D-172（2026-10-08, traecode）：从注册表里选出**属于该 owner** 且订阅了该 event 的 hook。
+///
+/// 纯函数（不触网）——便于单测"跨租户不广播"这一条不变式。修复前 `fire` 对所有 hook
+/// **无条件广播**，而 `create_session` 会在**任何租户**建会话时把 `{"goal": …}` 投给
+/// **全部** hook ⇒ 多租户下 alice 注册一个 hook 即可**收割 bob 的会话目标文本**。
+fn select_hooks(hooks: &[WebhookConfig], event: &str, owner: &str) -> Vec<WebhookConfig> {
+    hooks
+        .iter()
+        .filter(|h| h.owner == owner && h.events.iter().any(|e| e == event))
+        .cloned()
+        .collect()
 }
 
 /// In-memory webhook registry.
 ///
 /// D-111（2026-10-02, traecode）**注释订正**：旧注释称 "per-user keyed by user_id,
 /// for future per-user isolation"——**不实**：本结构就是一张**裸 `Vec`**，没有
-/// user_id 维度（`register` 只 push，`fire` 对所有 hook 广播）。多用户隔离属
-/// **未实现的能力**；真要做得先给 hook 加 owner 维度并改 fire 的筛选条件
-/// （属能力扩展），故此处只如实订正，不虚挂。
+/// user_id 维度（`register` 只 push，`fire` 对所有 hook 广播）。
+///
+/// D-172（2026-10-08, traecode）**补齐该能力**：`WebhookConfig` 增 `owner` 维度，
+/// `fire_event` 只选**同一 owner** 的 hook（见 [`select_hooks`]）——多租户隔离由此覆盖
+/// webhook 面（此前是 D-169 打开多租户后的**跨租户泄露**缺口：任一租户注册 hook 即收全站
+/// `session_created` 的目标文本）。
 pub struct WebhookManager {
     hooks: RwLock<Vec<WebhookConfig>>,
 }
@@ -131,10 +152,13 @@ impl WebhookManager {
     }
 
     /// v10.4: Fire matching webhooks from the registry.
-    pub async fn fire_event(&self, event: &str, payload: &serde_json::Value) {
-        let hooks = recover(self.hooks.read()).clone();
-        if !hooks.is_empty() {
-            Self::fire(event, payload, &hooks).await;
+    ///
+    /// D-172（2026-10-08, traecode）：只投递给**同一 `owner`** 订阅了该 event 的 hook
+    /// （修复前对所有 hook 无条件广播 = 跨租户泄露）。
+    pub async fn fire_event(&self, event: &str, payload: &serde_json::Value, owner: &str) {
+        let matched = select_hooks(&recover(self.hooks.read()), event, owner);
+        if !matched.is_empty() {
+            Self::fire(event, payload, &matched).await;
         }
     }
 
@@ -291,6 +315,41 @@ mod tests {
         // 通配写法 `*.example.com` 与其裸域等价
         assert!(validate_webhook_url("https://a.example.com/x", Some("*.example.com")).is_ok());
         assert!(validate_webhook_url("https://example.com/x", Some("*.example.com")).is_ok());
+    }
+
+    /// D-172 回归锁（**先红后绿**）：hook 选择必须**按 owner 隔离**——修复前 `fire`
+    /// 对所有 hook 无条件广播 ⇒ 任一租户建会话时其 `{"goal": …}` 会投给**全部** hook
+    /// （多租户下 = 跨租户收割目标文本）。
+    #[test]
+    fn test_d172_select_hooks_is_owner_scoped() {
+        let mk = |url: &str, owner: &str, events: &[&str]| WebhookConfig {
+            url: url.into(),
+            events: events.iter().map(|s| s.to_string()).collect(),
+            owner: owner.into(),
+        };
+        let hooks = vec![
+            mk("http://a/h", "alice", &["session_created"]),
+            mk("http://b/h", "bob", &["session_created"]),
+            mk("http://a2/h", "alice", &["other"]),
+        ];
+
+        // alice 只命中**她自己的**、且订阅了该 event 的那一条。
+        let got = select_hooks(&hooks, "session_created", "alice");
+        assert_eq!(
+            got.len(),
+            1,
+            "alice 只应有 1 条命中（修复前会命中全部 2 条 session_created）"
+        );
+        assert_eq!(got[0].url, "http://a/h");
+
+        // bob 同理——绝不能拿到 alice 的。
+        let got_b = select_hooks(&hooks, "session_created", "bob");
+        assert_eq!(got_b.len(), 1);
+        assert_eq!(got_b[0].url, "http://b/h");
+
+        // 未注册的 owner / 未订阅的 event → 不命中。
+        assert!(select_hooks(&hooks, "session_created", "carol").is_empty());
+        assert!(select_hooks(&hooks, "other", "bob").is_empty());
     }
 
     /// P1-13（D-36）回归锁——投递子进程的两条不变式（与已修的 D-18/D-32 同类）：
