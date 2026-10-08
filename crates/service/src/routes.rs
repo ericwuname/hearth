@@ -390,16 +390,22 @@ pub async fn send_message(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
+    // D-178（2026-10-08, traecode）：错误**分类**——修复前 Err 一律映射
+    // `404 SESSION_NOT_FOUND`（与 D-166 同族：会话其实存在，却报"不存在"；且把
+    // "会话已结束/在跑"这种**客户端时序错误**冒充成"目标不存在"）。
+    // 现按"会话是否**存活于内存**"分类：存活 ⇒ 400 `INVALID_PARAM`（请求与当前状态不符）；
+    // 不存活（仅持久化/未知）⇒ 404。判据与 D-166 对 approvals/interaction 的处置同款。
+    let live = state.sessions.get_session(&id).await.is_some();
     match state.sessions.send_message(&id, req).await {
         Ok(rx) => {
             let (base, replay) = state.sessions.session_events_with_base(&id).await;
             Ok(sse::sse_stream_with_replay(rx, replay, base, last_seq))
         }
-        Err(e) => Err(api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("{e}"),
-            StatusCode::NOT_FOUND,
-        )),
+        Err(e) => Err(if live {
+            api_err(ERR_INVALID_PARAM, format!("{e}"), StatusCode::BAD_REQUEST)
+        } else {
+            session_not_found(&id)
+        }),
     }
 }
 

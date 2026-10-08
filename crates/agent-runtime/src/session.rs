@@ -701,6 +701,22 @@ impl SessionManager {
             .await
             .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
 
+        // D-178（2026-10-08, traecode）：**终态/在途会话不再接受消息**。
+        //
+        // 病灶：本函数是**单发**设计——首次 `send_message` 会把 `s.agent` **取走**（`agent.take()`）。
+        // 对**已完成**（`finished_at.is_some()`）或**已在跑**（`running == true`）的会话再发一次，
+        // 会：① 走进 `agent None` 分支把 phase **改写为 "error"**、`finished_at` 重置 —— 与 D-159
+        // 同族（"终态不可变"被破坏：丢掉真实完成时间、重置 TTL 淘汰时钟）；② 把**成功完成**的会话
+        // 对外报成 error（假故障）。CLI 侧早已**自行**兜底（`lib.rs` 对 `status==done/cancelled`
+        // 拒绝 resume、提示"会话已结束"）——恰因服务端缺这道守卫。
+        // 判据与 D-159/D-152 同源：`finished_at.is_some()` = 已落终态；`running` = 在途。
+        {
+            let s = session.lock().await;
+            if s.running || s.finished_at.is_some() {
+                anyhow::bail!("session already finished or running: {}", id);
+            }
+        }
+
         let rx = {
             let s = session.lock().await;
             s.event_tx
