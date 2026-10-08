@@ -1224,10 +1224,38 @@ pub async fn create_bridge(
             StatusCode::BAD_REQUEST,
         ));
     }
-    let strategy = match body["strategy"].as_str().unwrap_or("round_robin") {
-        "debate" => bridge::BridgeStrategy::Debate,
-        "majority" => bridge::BridgeStrategy::MajorityVote,
-        _ => bridge::BridgeStrategy::RoundRobin,
+    // D-177（2026-10-08, traecode）：`strategy` 的**严格校验**——修复前 `_ => RoundRobin`
+    // 把**未知/拼错的策略名静默当成 round_robin**（客户端 `"voting"`/`"debate "` 被吞，
+    // 讨论按错误策略跑完且**无从知晓**；与 D-164「未知 workline status 静默回落 Pending」
+    // 同族）。口径：键**缺失**才取默认（文档语义），键**在**则必须是合法字符串且属
+    // `{round_robin,debate,majority}`，否则 **400 INVALID_PARAM**（非字符串同样 400，
+    // 与 D-164「status must be a string」一致）。
+    let strategy = match body.get("strategy") {
+        None => bridge::BridgeStrategy::RoundRobin,
+        Some(v) => {
+            let s = v.as_str().ok_or_else(|| {
+                api_err(
+                    ERR_INVALID_PARAM,
+                    "strategy must be a string",
+                    StatusCode::BAD_REQUEST,
+                )
+            })?;
+            match s {
+                "round_robin" => bridge::BridgeStrategy::RoundRobin,
+                "debate" => bridge::BridgeStrategy::Debate,
+                "majority" => bridge::BridgeStrategy::MajorityVote,
+                other => {
+                    return Err(api_err(
+                        ERR_INVALID_PARAM,
+                        format!(
+                            "unknown strategy: {other} \
+                             (expected round_robin|debate|majority)"
+                        ),
+                        StatusCode::BAD_REQUEST,
+                    ))
+                }
+            }
+        }
     };
     let result = state
         .sessions
