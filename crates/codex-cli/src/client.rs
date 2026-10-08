@@ -153,9 +153,8 @@ impl CodexClient {
             .await
             .context("list sessions failed")?;
         let body = json_capped(resp, "sessions").await?;
-        let sessions: Vec<SessionInfo> =
-            serde_json::from_value(body["sessions"].clone()).unwrap_or_default();
-        Ok(sessions)
+        // D-184（2026-10-08, traecode）：**不再静默回落**——形状不符显式上抛（见 `parse_sessions`）。
+        parse_sessions(&body)
     }
 
     /// GET /api/v1/sessions/:id/messages → history replay.
@@ -328,6 +327,22 @@ impl CodexClient {
     }
 }
 
+/// D-184（2026-10-08, traecode）：解析 `/api/v1/sessions` 响应体——**形状不符必须上抛**。
+///
+/// 病灶（"静默回落"族，承 D-164「未知 status 静默回落 Pending」/ D-177「未知 strategy 静默回落
+/// round_robin」）：旧实现 `serde_json::from_value(body["sessions"].clone()).unwrap_or_default()`
+/// 把解析失败**静默吞成空列表**——契约漂移时，用户在 `hearth repl` 的 `/sessions` 看到
+/// `(no active sessions)`，而服务端其实**有会话**；等于把"解析失败"伪装成"没有数据"。
+/// 调用方**早已**备好 `Err` 分支（`repl.rs`：`Err(e) => render::error(...)`），缺的只是
+/// 客户端**从不产出**该错误。
+pub(crate) fn parse_sessions(body: &serde_json::Value) -> Result<Vec<SessionInfo>> {
+    let arr = body
+        .get("sessions")
+        .cloned()
+        .context("响应缺 `sessions` 字段（契约不符）")?;
+    serde_json::from_value(arr).context("`sessions` 字段形状不符（契约不符）")
+}
+
 /// Parse a `text/event-stream` response body into a stream of SseEvent.
 fn parse_sse_stream(resp: reqwest::Response) -> impl futures::Stream<Item = Result<SseEvent>> {
     let stream = tokio_stream::wrappers::ReceiverStream::new({
@@ -455,6 +470,40 @@ pub fn classify_error(err: &anyhow::Error) -> (&'static str, String, &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D-184 回归锁（**先红后绿**）：`/sessions` 的解析**不得静默回落**成空列表。
+    /// 修复前 `unwrap_or_default()` 会把"契约不符"伪装成"没有会话"（用户看不到任何错误）。
+    #[test]
+    fn test_d184_parse_sessions_surfaces_contract_mismatch() {
+        // ① 正常形状 → 逐条解析。
+        let ok = serde_json::json!({"sessions": [
+            {"id": "s1", "status": "running", "steps": 3, "budget_remaining": 7},
+            {"id": "s2", "status": "done"}
+        ]});
+        let parsed = parse_sessions(&ok).expect("正常形状必须解析成功");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].id, "s1");
+        assert_eq!(parsed[0].steps, Some(3));
+        assert_eq!(parsed[1].id, "s2");
+
+        // ② 空列表是**合法**结果（确实没有会话）——不得被误判为错误。
+        let empty = serde_json::json!({"sessions": []});
+        assert!(parse_sessions(&empty).expect("空列表合法").is_empty());
+
+        // ③ 缺 `sessions` 字段 → **必须报错**（修复前：静默 Ok(vec![])）。
+        let missing = serde_json::json!({"data": []});
+        assert!(
+            parse_sessions(&missing).is_err(),
+            "缺 `sessions` 字段必须上抛（修复前静默回落成空列表 ⇒ 用户看到\\(no active sessions\\)）"
+        );
+
+        // ④ 字段形状不符（`sessions` 不是数组）→ **必须报错**。
+        let bad_shape = serde_json::json!({"sessions": "oops"});
+        assert!(
+            parse_sessions(&bad_shape).is_err(),
+            "`sessions` 形状不符必须上抛（不得静默回落）"
+        );
+    }
 
     #[test]
     fn parse_sse_single_event() {
