@@ -2,7 +2,7 @@ use crate::session::SessionManager;
 use crate::sse;
 use api::{
     ApprovalReq, ErrorResponse, MessageReq, SessionCreate, ERR_FORBIDDEN, ERR_INTERNAL,
-    ERR_INVALID_PARAM, ERR_SESSION_NOT_FOUND, ERR_UNAUTHORIZED,
+    ERR_INVALID_PARAM, ERR_LLM_ERROR, ERR_SESSION_NOT_FOUND, ERR_UNAUTHORIZED,
 };
 use axum::{
     extract::{Path, Query, Request, State},
@@ -1297,17 +1297,16 @@ pub async fn create_bridge(
             }
         }
     };
+    // D-183（2026-10-08, traecode）：**上游失败分类**——此处已是**唯一**剩余错误源
+    // （入参/归属校验全部前置），其失败即 bridge 真去调 provider 失败 ⇒ 契约表的
+    // `LLM_ERROR`→**502**。修复前一律 `500 INTERNAL`：① 与契约表不符（该码从不发出，
+    // 客户端按 code/状态码分支永远走不到）；② 语义上把"**上游可重试**"与"**服务端缺陷**"
+    // 混为一谈（文案本就写着 "transient provider error"，码却说 internal——自相矛盾）。
     let result = state
         .sessions
         .create_bridge(topic, participants, strategy)
         .await
-        .map_err(|e| {
-            api_err(
-                ERR_INTERNAL,
-                format!("{e}"),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )
-        })?;
+        .map_err(|e| api_err(ERR_LLM_ERROR, format!("{e}"), StatusCode::BAD_GATEWAY))?;
     Ok(Json(
         serde_json::json!({"id": result.0, "summary": result.1, "turns": result.2}),
     ))
