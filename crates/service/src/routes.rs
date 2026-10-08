@@ -1250,29 +1250,33 @@ pub async fn create_bridge(
 use std::sync::atomic::AtomicU64;
 
 /// v7.0: Simple in-memory telemetry collector.
+///
+/// D-176（2026-10-08, traecode）：原三字段中 `error_count` / `steps_total` **全仓零
+/// `fetch_add`**（唯一写入方 `session_count` 在 `create_session` 自增）⇒ `/api/v1/telemetry`
+/// 恒报两个**结构性 0**，却被命名为"实时指标"（`global-panorama-v10.1.md` 已记录该现象，
+/// 驱动文档此前未跟踪）。按 D-107 先例（退役 `reuse_rate`——"拿结构性 0 当业务指标比不报更糟"），
+/// **删除**这两个无写入方的字段；若日后要报，须**先接线到消费点**再谈。
 pub struct TelemetryCollector {
+    /// 累计**创建**的会话数（`create_session` 自增；单调不减——**非**"活跃数"）。
     pub session_count: AtomicU64,
-    pub error_count: AtomicU64,
-    pub steps_total: AtomicU64,
 }
 
 impl Default for TelemetryCollector {
     fn default() -> Self {
         Self {
             session_count: AtomicU64::new(0),
-            error_count: AtomicU64::new(0),
-            steps_total: AtomicU64::new(0),
         }
     }
 }
 
 /// GET /api/v1/telemetry — real-time metrics.
+///
+/// D-176：只报**有真实写入方**的计数（`session_count`）。原 `error_count`/`steps_total`
+/// 恒 0（无写入方）已删——不再对外提供假指标。
 pub async fn get_telemetry(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let tc = &state.telemetry;
     Json(serde_json::json!({
         "session_count": tc.session_count.load(Ordering::Relaxed),
-        "error_count": tc.error_count.load(Ordering::Relaxed),
-        "steps_total": tc.steps_total.load(Ordering::Relaxed),
     }))
 }
 
@@ -1305,13 +1309,17 @@ pub async fn register_webhook(
 }
 
 /// v10.0: GET /api/v1/resources — system resource snapshot.
+///
+/// D-176（2026-10-08, traecode）：原键名 `sessions_active` 读的是**累计**创建数
+/// （`session_count`，单调不减、从不回退）——**名不副实**（"活跃"意味着有回退的当前量）。
+/// 已如实改名为 `sessions_created_total`（CLI `whoami` 只读 `instance_id`，不受影响）。
 pub async fn get_resources(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let pid = std::process::id();
     let snap = resource_monitor::snapshot(pid);
     Json(serde_json::json!({
         "instance_id": &state.instance_id,
         "snapshot": snap,
-        "sessions_active": state.telemetry.session_count.load(std::sync::atomic::Ordering::Relaxed),
+        "sessions_created_total": state.telemetry.session_count.load(std::sync::atomic::Ordering::Relaxed),
     }))
 }
 
