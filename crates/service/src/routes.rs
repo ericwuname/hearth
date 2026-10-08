@@ -680,6 +680,25 @@ pub fn civ_store_degraded(failures: u64) -> bool {
     failures > 5
 }
 
+/// D-182（2026-10-08, traecode）：civ 写**结果**记账——成功**清零**、失败自增。
+///
+/// 病灶（HA/可用性）：`civ_write_failures` 原先**只增不减**（`CivWriterAdapter` 两处
+/// `fetch_add`、全仓无清零），而 `/readyz` 在 `>5` 时判 503 ⇒ 与适配器注释自称的
+/// "**连续**失败"不符（实现是**累计**失败）：一次**瞬时**抖动累计过阈后，该实例
+/// **永久**不 ready（负载均衡永久摘除，直到进程重启），即便故障早已恢复——把"可自愈的
+/// 抖动"放大成"实例下线"。
+///
+/// 现收敛为**真·连续**语义：任一成功清零。抽成本函数以便单测——适配器在**二进制 crate**
+/// （`main.rs`）内，集成测试无法直接触达其计数逻辑。
+pub fn record_civ_write(failures: &std::sync::atomic::AtomicU64, ok: bool) {
+    use std::sync::atomic::Ordering;
+    if ok {
+        failures.store(0, Ordering::SeqCst);
+    } else {
+        failures.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 /// GET /readyz — readiness probe (verifies session manager is accessible).
 /// EPIC-B（audit-breakdown-v22 B1a）：真实探活——访问 session store 列表，
 /// 依赖不可用（I/O 失败/内部错误）返回 503，可用返回 200。
@@ -1571,6 +1590,47 @@ mod d49_tests {
         assert!(hits[0].content.contains("needle"));
         // 大小写不敏感（沿用 CivilizationStore::search 语义）。
         assert_eq!(civ_feed_entries(&store, Some("NEEDLE")).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod d182_tests {
+    use super::{civ_store_degraded, record_civ_write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// D-182 回归锁（**先红后绿**）：civ 写失败计数必须是**连续**语义——任一成功**清零**。
+    ///
+    /// 修复前该计数**只增不减**（`CivWriterAdapter` 两处 `fetch_add`、全仓无清零）：
+    /// 6 次瞬时失败后 `/readyz` **永久** 503（HA：LB 永久摘除该实例），即便故障已恢复。
+    #[test]
+    fn test_d182_civ_write_failures_reset_on_success() {
+        let f = AtomicU64::new(0);
+
+        // 连续 6 次失败 → 越过阈值（>5）→ degraded（与既有 readyz 口径一致）。
+        for _ in 0..6 {
+            record_civ_write(&f, false);
+        }
+        assert_eq!(f.load(Ordering::SeqCst), 6);
+        assert!(
+            civ_store_degraded(f.load(Ordering::SeqCst)),
+            "应判 degraded"
+        );
+
+        // 一次**成功**即清零 ⇒ 恢复 ready（修复前此处仍为 6 ⇒ 永久 503）。
+        record_civ_write(&f, true);
+        assert_eq!(
+            f.load(Ordering::SeqCst),
+            0,
+            "**连续**语义：成功必须清零（修复前只增不减 ⇒ 永久 degraded）"
+        );
+        assert!(
+            !civ_store_degraded(f.load(Ordering::SeqCst)),
+            "清零后必须恢复 ready"
+        );
+
+        // 单次失败仍会自增（不破坏"暴露连续失败"的本意）。
+        record_civ_write(&f, false);
+        assert_eq!(f.load(Ordering::SeqCst), 1);
     }
 }
 

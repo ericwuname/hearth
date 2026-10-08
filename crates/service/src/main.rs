@@ -120,19 +120,23 @@ impl agent_core::CivWriter for CivWriterAdapter {
         // P1-4: 失败计数（连续失败暴露到 /readyz，不再是静默 warn）。
         // D-109：写进**该 owner 的可见档**——与 API 读侧（`per_user.civ_for(uid)`）
         // 同一个文件；store 构造失败与 append 失败都计入 failures 并留痕。
+        // D-182：计数改为**真·连续**语义（`routes::record_civ_write`——成功清零、失败自增）。
+        // 修复前只增不减 ⇒ 瞬时抖动过阈后 `/readyz` **永久** 503（HA：实例被永久摘除）。
         let store = match self.per_user.civ_for(&self.owner) {
             Ok(s) => s,
             Err(e) => {
-                self.failures
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                crate::routes::record_civ_write(&self.failures, false);
                 tracing::warn!(owner = %self.owner, "civ auto-write: per-user store 不可用: {e}");
                 return;
             }
         };
-        if let Err(e) = store.append(entry) {
-            self.failures
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            tracing::warn!("civ auto-write failed: {e}");
+        match store.append(entry) {
+            // D-182：成功即清零——这才是注释所说的"**连续**失败"。
+            Ok(()) => crate::routes::record_civ_write(&self.failures, true),
+            Err(e) => {
+                crate::routes::record_civ_write(&self.failures, false);
+                tracing::warn!("civ auto-write failed: {e}");
+            }
         }
     }
 }
