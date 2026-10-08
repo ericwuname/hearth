@@ -166,6 +166,43 @@ async fn ensure_session_owner(
     }
 }
 
+/// D-179（2026-10-08, traecode）：**"存活于内存"判据**——`ensure_session_owner` 的"存在"
+/// 是"内存**或**持久化"，但**实时**端点（开产物 / 系统打开 / 审批 / 交互 / 发消息）要的是
+/// **内存中活跃**的会话：仅持久化的会话（重启后未被加载）没有工作区句柄、没有 dispatcher
+/// 交互项 ⇒ 应如实 **404**。
+///
+/// 病灶（D-171 引入的漂移）：D-171 把这几处的"显式存在性检查"换成 `ensure_session_owner`
+/// 后，对**仅持久化**的会话，其内层错误被硬编码成 400 ⇒ 返回 **400 `INVALID_PARAM`**
+/// 且 message 写着 `session not found: …`（**码与文案自相矛盾**）；而**同一 id** 在
+/// `cancel_session` / `session_stream` / `send_message`（D-178）上正确报 **404**。
+/// 本函数把这些端点的判据统一到"是否存活于内存"（与 D-166/D-178 同口径）。
+async fn session_live(state: &AppState, id: &str) -> bool {
+    state.sessions.get_session(id).await.is_some()
+}
+
+/// D-179（收编 D-166 的 `classify_interaction_error`）：按 **"是否存活于内存"** 把内层错误
+/// 分类——存活 ⇒ 400 `INVALID_PARAM`（请求与当前状态不符）；不存活 ⇒ 404 `SESSION_NOT_FOUND`。
+///
+/// D-166 原病灶（本函数的前身只服务 approvals/interaction）：`submit_approval` /
+/// `submit_interaction` 把**任何**失败一律映射为 **404 + `ERR_SESSION_NOT_FOUND`**——而
+/// `ToolDispatcher::resolve_interaction` 的失败**全是请求级**（`interaction_id` 不匹配 /
+/// 无 pending 交互 / 无交互态；`submit_approval` 另有"非法 decision"），于是把**客户端拼错或
+/// 重复提交**冒充成"**会话不存在**"（客户端按 `code` 分支会误判会话丢失）。
+/// ⇒ 口径：**只有"会话不在"才是 404**；"在但不匹配当前状态"一律 400。
+/// D-179 把这一口径**推广到全部"实时"端点**（开产物 / 系统打开 / 审批 / 交互 / 发消息），
+/// 并把判据从 D-171 的"存在（内存**或**持久化）"**收紧为"存活于内存"**。
+fn classify_live_error(
+    err: &dyn std::fmt::Display,
+    live: bool,
+    id: &str,
+) -> (StatusCode, Json<ErrorResponse>) {
+    if live {
+        api_err(ERR_INVALID_PARAM, format!("{err}"), StatusCode::BAD_REQUEST)
+    } else {
+        session_not_found(id)
+    }
+}
+
 /// AUTH-0: Bearer-token auth middleware.
 ///
 /// P0-1 (audit-fix): 默认安全反转——未配置 key 时**只有显式 ALLOW_NO_AUTH=1** 才放行
@@ -395,7 +432,7 @@ pub async fn send_message(
     // "会话已结束/在跑"这种**客户端时序错误**冒充成"目标不存在"）。
     // 现按"会话是否**存活于内存**"分类：存活 ⇒ 400 `INVALID_PARAM`（请求与当前状态不符）；
     // 不存活（仅持久化/未知）⇒ 404。判据与 D-166 对 approvals/interaction 的处置同款。
-    let live = state.sessions.get_session(&id).await.is_some();
+    let live = session_live(&state, &id).await;
     match state.sessions.send_message(&id, req).await {
         Ok(rx) => {
             let (base, replay) = state.sessions.session_events_with_base(&id).await;
@@ -474,8 +511,9 @@ pub async fn open_artifact(
         ));
     }
     // D-171：归属校验（不存在 / 非本人 → 404）——不得读他人会话工作区产物。
-    // D-111：先判存在性（404），再谈产物错误（400）——本关同时覆盖存在性与归属。
+    // D-179：**存活**判据——仅持久化的会话（无工作区句柄）应 404，不得报 400。
     ensure_session_owner(&state, &headers, &id).await?;
+    let live = session_live(&state, &id).await;
     match state.sessions.open_artifact(&id, &rel).await {
         Ok(content) => Ok((
             StatusCode::OK,
@@ -485,11 +523,7 @@ pub async fn open_artifact(
             )],
             content,
         )),
-        Err(e) => Err(api_err(
-            ERR_INVALID_PARAM,
-            format!("{e}"),
-            StatusCode::BAD_REQUEST,
-        )),
+        Err(e) => Err(classify_live_error(&e, live, &id)),
     }
 }
 
@@ -509,44 +543,22 @@ pub async fn open_external(
             StatusCode::BAD_REQUEST,
         ));
     }
-    // D-111：**先显式判会话是否存在**，再区分错误语义（路径穿越/读失败 → 400；不存在 → 404）。
     // D-171：归属校验（不存在 / 非本人 → 404）——不得对他人会话工作区发起系统打开。
+    // D-179：**存活**判据——仅持久化的会话应 404（不得报 400 且文案自相矛盾）。
     ensure_session_owner(&state, &headers, &id).await?;
+    let live = session_live(&state, &id).await;
     match state.sessions.open_external(&id, &rel).await {
         Ok(msg) => Ok((StatusCode::OK, msg)),
-        Err(e) => Err(api_err(
-            ERR_INVALID_PARAM,
-            format!("{e}"),
-            StatusCode::BAD_REQUEST,
-        )),
+        Err(e) => Err(classify_live_error(&e, live, &id)),
     }
 }
 
 /// D-166（2026-10-05, traecode）：交互响应的**错误分类**收口。
 ///
-/// 修复前 `submit_approval` / `submit_interaction` 把**任何**失败一律映射为
-/// **404 + `ERR_SESSION_NOT_FOUND`**。但 `ToolDispatcher::resolve_interaction` 的失败**全是
-/// 请求级**（`interaction_id` 不匹配 / 无 pending 交互 / 无交互态），`submit_approval` 另有一条
-/// "非法 decision"——把**客户端拼错或重复提交**冒充成"**会话不存在**"（客户端按 `code` 分支会
-/// 误判会话丢失）。正确对照：`get_session_history` 已区分 `Ok(None)`→404 与 `Err`→500。
+/// D-179（2026-10-08, traecode）：本函数已**并入** [`classify_live_error`]（同一逻辑，
+/// 且判据由"存在"收紧为"存活"）——原 `classify_interaction_error(&e, true, &id)` 的**硬编码
+/// `true`** 正是"仅持久化会话被误报 400"的根因。此处不再保留独立函数（避免逐字重复=漂移陷阱）。
 ///
-/// 口径：**只有会话真的不存在**才是 404/`SESSION_NOT_FOUND`；会话存在时一律 400 `INVALID_PARAM`。
-fn classify_interaction_error(
-    err: &dyn std::fmt::Display,
-    session_exists: bool,
-    id: &str,
-) -> (StatusCode, Json<ErrorResponse>) {
-    if session_exists {
-        api_err(ERR_INVALID_PARAM, format!("{err}"), StatusCode::BAD_REQUEST)
-    } else {
-        api_err(
-            ERR_SESSION_NOT_FOUND,
-            format!("session not found: {id}"),
-            StatusCode::NOT_FOUND,
-        )
-    }
-}
-
 /// POST /api/v1/sessions/:id/approvals
 /// WP-0: 保留为薄适配层（deprecated）——新契约走 POST /interaction/{iid}。
 pub async fn submit_approval(
@@ -557,10 +569,12 @@ pub async fn submit_approval(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // D-171：归属校验（不存在 / 非本人 → 404）——不得代他人会话审批。
     ensure_session_owner(&state, &headers, &id).await?;
-    // D-166：会话已确证存在 ⇒ 后续失败一律 400 `INVALID_PARAM`。
+    // D-166 + D-179：按"会话是否**存活于内存**"分类——存活 ⇒ 400 `INVALID_PARAM`（请求级）；
+    // 仅持久化 / 未加载 ⇒ 404（无 dispatcher 交互项，D-171 后不得再硬编码成 400）。
+    let live = session_live(&state, &id).await;
     match state.sessions.submit_approval(&id, req).await {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(classify_interaction_error(&e, true, &id)),
+        Err(e) => Err(classify_live_error(&e, live, &id)),
     }
 }
 
@@ -581,7 +595,8 @@ pub async fn submit_interaction(
     }
     // D-171：归属校验（不存在 / 非本人 → 404）——不得代他人会话应答交互。
     ensure_session_owner(&state, &headers, &id).await?;
-    // D-166：会话已确证存在 ⇒ 后续失败一律 400 `INVALID_PARAM`。
+    // D-166 + D-179：按"存活于内存"分类（同 `submit_approval`）。
+    let live = session_live(&state, &id).await;
     match state
         .sessions
         .submit_interaction(
@@ -595,7 +610,7 @@ pub async fn submit_interaction(
         .await
     {
         Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"})))),
-        Err(e) => Err(classify_interaction_error(&e, true, &id)),
+        Err(e) => Err(classify_live_error(&e, live, &id)),
     }
 }
 
