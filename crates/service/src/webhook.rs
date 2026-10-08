@@ -162,9 +162,12 @@ impl WebhookManager {
         }
     }
 
-    pub fn list(&self) -> Vec<WebhookConfig> {
-        recover(self.hooks.read()).clone()
-    }
+    // D-180（2026-10-08, traecode）：原 `pub fn list(&self) -> Vec<WebhookConfig>`
+    // （返回注册表快照）**全仓零调用方**——生产侧只用 `try_register`（注册）与
+    // `fire_event`（投递），webhook 也没有 `GET` 读取端点；测试侧两个 webhook 套件均走 HTTP。
+    // 按 D-111/D-78 纪律**删除**（"只有定义、无任何读取方"的 `pub` 方法 = 漂移陷阱）。
+    // 防回潮：`crates/service/tests/retired_webhook_list_gate.rs`（源码级 pin）。
+    // 若日后确需读取（如新增 `GET /api/v1/webhooks`），**先接线到消费点**再加回来。
 }
 
 /// webhook 投递超时（原实现同为 5s；提为常量以便生产与回归测试共用）。
