@@ -618,6 +618,16 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
+    // D-175（2026-10-08, traecode）：注册**按 owner 构造经验库**的工厂——使 agent-loop 收尾
+    // 写入的经验条目（含 `problem = 会话目标文本`）落到该租户的档
+    // （`per_user.experience_for(owner)` → `MEMORY_DIR/<uid>/experience.jsonl`），而不是
+    // **全局单例**（多租户下 = 所有租户目标文本混进同一文件、且一旦开复用即跨租户注入）。
+    // 与 D-109 对文明线写入器的处置同款；单租户（uid 恒 `default`）行为不变。
+    {
+        let pu = per_user.clone();
+        sessions.set_experience_factory(Arc::new(move |owner: &str| pu.experience_for(owner)));
+    }
+
     let sessions = Arc::new(sessions);
 
     // OOM-1 (global-audit): periodically evict finished sessions from the
@@ -746,8 +756,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Build app state
     let observer_iid = instance_id.clone();
-    // v20.0 S3: experience store handle for the observer's prune/upgrade loop.
-    let observer_experience = experience_store.clone();
+    // D-175：经验库已按租户分区，维护循环改为**逐 per-user 档**剪枝
+    // （全局单例不再被会话写入，对它的剪枝只覆盖 CLI/无工厂回落用量）。
+    let observer_per_user = per_user.clone();
     let state = Arc::new(routes::AppState {
         sessions,
         api_key,
@@ -758,7 +769,9 @@ async fn main() -> anyhow::Result<()> {
         // 零读取方（真实的第三权接线是上方 `sessions.set_observer(...)`），已删。
         user_store,
         template_manager,
-        experience_store,
+        // D-175：原 `experience_store` 字段**已删**——`experience_metrics` 改读 per-user 档
+        // 后，请求态里那份全局单例**零读取方**（真正生效的是上方 `sessions.set_experience_factory`
+        // 与 `set_experience_store` 回落）。同 D-108/D-111 对"只写不读"字段的处置。
         tool_registry,
         webhooks,
         per_user,
@@ -794,9 +807,12 @@ async fn main() -> anyhow::Result<()> {
             // 而该字段**无任何写入方**（唯一自增点 `search()` 已随 D-47 删除）⇒ 恒返回空、
             // 日志里的 `core_candidates` 恒 0 —— 属"给死接口打日志"。已随接口一并删除；
             // 经验库现定位为**只写审计档**（复用需另行设计，见 `experience` 模块头与 D-100 裁决）。
-            let pruned = observer_experience.prune(0.3, 90).await;
+            let mut pruned = 0usize;
+            for st in observer_per_user.all_experience() {
+                pruned += st.prune(0.3, 90).await;
+            }
             if pruned > 0 {
-                tracing::info!(pruned, "experience maintenance (v20 observer)");
+                tracing::info!(pruned, "experience maintenance (v20 observer, per-user)");
             }
         }
     });

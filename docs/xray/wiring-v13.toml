@@ -236,8 +236,14 @@ severity = "red"
 
 [[capability.chain]]
 file = "crates/service/src/main.rs"
-all = ["observer_experience.prune(0.3, 90)"]
-meaning = "组合根 observer 任务真实调用遗忘函数"
+all = ["observer_per_user.all_experience()", "st.prune(0.3, 90)"]
+meaning = "组合根 observer 任务真实调用遗忘函数（D-175 起**逐 per-user 档**剪枝）"
+# 2026-10-08 复算（D-175，traecode）：锚点随「经验库按租户分区」同步——全局单例的
+# `observer_experience.prune(0.3, 90)` 改为**逐 per-user 档**遍历剪枝
+# （`observer_per_user.all_experience()` + `st.prune(0.3, 90)`）。若只剪（已不再被会话写入的）
+# 全局单例，则**真档（per-user）永不被剪** ⇒ 遗忘机制失效——本锚正是为防这种"接线漂移"而设。
+# **能力不变（prune 仍每小时真实执行）、条数仍 16、severity 仍 red**——纯锚点/文案同步。
+# （旧写法 `observer_experience.prune(0.3, 90)` 已全仓消失，故**不**留作历史锚点——那会恒红。）
 # 2026-10-02 收窄（D-107，traecode）：本项原含第二环锚点
 # `observer_experience.upgrade_core()`，claim 也写作 "prune + upgrade_core"。
 # 但 `upgrade_core()` 的过滤条件依赖 `Experience.reference_count`，而该字段

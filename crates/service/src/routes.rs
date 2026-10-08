@@ -115,8 +115,9 @@ pub struct AppState {
     pub webhooks: Arc<crate::webhook::WebhookManager>,
     /// v8.0: per-user store multiplexer (v10.0: now actively wired).
     pub per_user: Arc<crate::per_user::PerUserStore>,
-    /// v11.0: Experience store for the self-evolution loop.
-    pub experience_store: Arc<experience::ExperienceStore>,
+    // D-175（2026-10-08, traecode）：原 `experience_store: Arc<ExperienceStore>` 字段**已删**
+    // ——经验库已按 uid 分区（`per_user.experience_for(uid)`），`experience_metrics` 改读
+    // per-user 档后此字段**零读取方**（真正生效的是组合根的 `set_experience_factory`）。
     /// v10.0: instance identity string.
     pub instance_id: String,
 }
@@ -1565,7 +1566,14 @@ pub async fn registry_list(State(state): State<Arc<AppState>>) -> Json<serde_jso
 }
 
 /// GET /api/v1/experience/metrics
-pub async fn experience_metrics(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    let m = state.experience_store.metrics().await;
+///
+/// D-175（2026-10-08, traecode）：**按调用者 uid** 读该租户的经验档（`per_user.experience_for`），
+/// 而不是全局单例——修复前所有租户共用一份指标（且会话也写进同一文件）。
+pub async fn experience_metrics(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<serde_json::Value> {
+    let uid = get_user_id(&headers, &state.user_store);
+    let m = state.per_user.experience_for(&uid).metrics().await;
     Json(serde_json::to_value(m).unwrap_or_default())
 }

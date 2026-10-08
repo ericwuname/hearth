@@ -84,7 +84,11 @@ fn real_workspace_wiring_all_green() {
         // `set_civ_writer(`（单个全局 writer，写全局档 ⇒ API 不可见）改为
         // `set_civ_writer_factory(`（按归属用户构造 writer，落到 `per_user.civ_for(uid)`
         // 的可见档）。**纯锚点/文案**——能力条数（仍 16）、severity（仍 red）不变。
-        spec_hash == 0x457ac49206c92a81, // 2026-10-02 复算（FNV-1a 64；D-109 civ 写入归属链）
+        // 2026-10-08 复算（D-175）：`experience-prune-wired` 的锚点随「经验库按租户分区」同步——
+        // 由全局单例 `observer_experience.prune(0.3, 90)` 换底为**逐 per-user 档**遍历
+        // （`observer_per_user.all_experience()` + `st.prune(0.3, 90)`）。能力不变（prune 仍每小时
+        // 真实执行）、**条数仍 16**、severity 仍 red——纯锚点/文案同步 + 哈希复算。
+        spec_hash == 0x631a2246da8a5584, // 2026-10-08 复算（FNV-1a 64；D-175 经验库按租户分区）
         "wiring spec hash changed — actual=0x{spec_hash:016x}；若是有意改动 spec，请更新此锁",
     );
 

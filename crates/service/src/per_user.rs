@@ -1,6 +1,7 @@
 // v8.0: Per-user store multiplexer.
 // Each user gets their own subdirectory under the base memory root.
 use crate::lock::recover;
+use experience::ExperienceStore;
 use memory::{CivilizationStore, WorkLineStore};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,12 @@ pub struct PerUserStore {
     base_dir: PathBuf,
     civ: RwLock<HashMap<String, Arc<CivilizationStore>>>,
     work: RwLock<HashMap<String, Arc<WorkLineStore>>>,
+    /// D-175（2026-10-08, traecode）：**per-user 经验库**。修复前经验库是**进程级单例**
+    /// （`main.rs` 一个 `ExperienceStore`），而 agent-loop 每次 run 收尾都会把
+    /// `problem = <会话目标文本>` 追加进去 ⇒ 多租户下**所有租户的目标文本落进同一文件**
+    /// （派生数据未按租户分区；目录数据 + 若开复用即跨租户注入）。按业界口径（派生学习制品
+    /// 必须按租户命名空间隔离）与 D-108/D-109 对 civ 线的同一处置，改为按 uid 分档。
+    exp: RwLock<HashMap<String, Arc<ExperienceStore>>>,
 }
 
 impl PerUserStore {
@@ -19,7 +26,33 @@ impl PerUserStore {
             base_dir: base_dir.to_path_buf(),
             civ: RwLock::new(HashMap::new()),
             work: RwLock::new(HashMap::new()),
+            exp: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// D-175：取/建该租户的**经验库**（`<base>/<uid>/experience.jsonl`，延迟加载）。
+    ///
+    /// 同步、不读盘（`set_path_deferred`）——与 civ/workline 的懒建同款；首次
+    /// `append`/`recent_failures`/`metrics`/`prune` 时才真正读盘（D-119 懒加载）。
+    pub fn experience_for(&self, user_id: &str) -> Arc<ExperienceStore> {
+        let mut map = recover(self.exp.write());
+        if let Some(store) = map.get(user_id) {
+            return store.clone();
+        }
+        let dir = self.base_dir.join(user_id);
+        let store = Arc::new(ExperienceStore::new());
+        store.set_path_deferred(dir.join("experience.jsonl"));
+        map.insert(user_id.to_string(), store.clone());
+        store
+    }
+
+    /// D-175：**已创建**的所有 per-user 经验库快照（供后台维护循环逐档剪枝）。
+    ///
+    /// 盲区：只含"本进程已被请求触达过"的租户——从未被触达者其档尚未创建（懒建固有）；
+    /// 首次被触达时由 `prune` 的 `ensure_loaded` 读到旧盘内容，故剪枝不会漏掉已存在的数据
+    /// （只是推迟到该租户下次被访问）。与 civ/workline 的懒建语义一致。
+    pub fn all_experience(&self) -> Vec<Arc<ExperienceStore>> {
+        recover(self.exp.read()).values().cloned().collect()
     }
 
     /// Get or create a civilization store for the given user.
@@ -113,5 +146,48 @@ mod tests {
 
         let w = store.workline_for("bob").expect("可写目录应成功");
         assert!(Arc::ptr_eq(&w, &store.workline_for("bob").unwrap()));
+    }
+
+    /// D-175 回归锁（**先红后绿**）：经验库必须**按 uid 分档**——修复前是进程级单例，
+    /// 任一租户 run 收尾追加的 `<会话目标文本>` 会与所有租户共用一个文件（跨租户泄露）。
+    #[tokio::test]
+    async fn test_d175_experience_is_per_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = PerUserStore::new(tmp.path());
+
+        // 同一 uid 复用同一实例；不同 uid 是不同实例。
+        let a1 = store.experience_for("alice");
+        let a2 = store.experience_for("alice");
+        assert!(Arc::ptr_eq(&a1, &a2), "同一 uid 必须复用同一 store");
+        let b = store.experience_for("bob");
+        assert!(
+            !Arc::ptr_eq(&a1, &b),
+            "不同 uid 必须是不同 store（修复前共用单例）"
+        );
+
+        // 写侧隔离：alice 追加后 bob 的档不受影响。
+        a1.append(experience::Experience {
+            id: "e-a".into(),
+            category: "failure".into(),
+            problem: "alice-only-goal-d175".into(),
+            solution: "s".into(),
+            success: false,
+            effectiveness: 0.6,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(a1.metrics().await.total_experiences, 1);
+        assert_eq!(
+            b.metrics().await.total_experiences,
+            0,
+            "**跨租户泄露**：alice 的条目不得出现在 bob 的档里"
+        );
+
+        // 维护遍历能看到已创建的档（含 alice、bob）。
+        assert_eq!(store.all_experience().len(), 2);
+
+        // 落盘路径按 uid 分区：两档文件各自独立存在。
+        assert!(tmp.path().join("alice").join("experience.jsonl").exists());
     }
 }

@@ -243,7 +243,13 @@ impl ExperienceStore {
 
     /// Prune low-effectiveness experiences older than max_age_days.
     /// Returns number of entries removed.
+    ///
+    /// D-175（2026-10-08, traecode）：**先 `ensure_loaded`**。此前直接读内存 `entries`
+    /// ——对**懒加载**（`set_path_deferred`）创建的 store（多租户 per-user 档即如此），
+    /// `entries` 还是空的 ⇒ 剪枝**删不掉任何东西**，且 `loaded` 仍为 false，稍后首次
+    /// `append` 触发懒加载会把"本应被剪掉"的旧条目**又读回来**（剪枝形同虚设）。
     pub async fn prune(&self, min_effectiveness: f32, max_age_days: i64) -> usize {
+        self.ensure_loaded().await;
         let cutoff = chrono::Utc::now().timestamp() - max_age_days * 86400;
         let mut entries = self.entries.write().await;
         let before = entries.len();
@@ -267,7 +273,12 @@ impl ExperienceStore {
     /// D-107：三项指标都取自**真实写入的事实**（条数 / 高质量率 / 失败率）；
     /// 原先的 `reuse_rate` 已删除——它读的 `reference_count` 无任何写入方，
     /// 对外恒报 0（拿"结构性 0"当业务指标比不报更糟）。
+    ///
+    /// D-175（2026-10-08, traecode）：**先 `ensure_loaded`**——否则懒加载（`set_path_deferred`）
+    /// 创建的 store 在首次 `append` 前会把磁盘上已有的条目**误报为 0**（多租户 per-user 档
+    /// 由 `PerUserStore::experience_for` 懒建，正是这条路径）。
     pub async fn metrics(&self) -> GrowthMetrics {
+        self.ensure_loaded().await;
         let entries = self.entries.read().await;
         let total = entries.len() as f32;
         if total == 0.0 {

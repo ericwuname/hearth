@@ -166,6 +166,12 @@ impl Session {
 /// （抽别名同时消除 clippy `type_complexity`。）
 pub type CivWriterFactory = Arc<dyn Fn(&str) -> Arc<dyn agent_core::CivWriter> + Send + Sync>;
 
+/// D-175（2026-10-08, traecode）：经验库**工厂**的类型别名——按归属用户（owner）构造该用户的
+/// 经验库。组合根（service）在闭包内把 owner 绑定到 `per_user.experience_for(owner)`，使经验
+/// 条目（含 `problem = 会话目标文本`）落到**该租户的档**，而不是全局单例（跨租户泄露）。
+/// 未注册工厂时回落全局单例（单租户/测试，行为不变）。
+pub type ExperienceFactory = Arc<dyn Fn(&str) -> Arc<ExperienceStore> + Send + Sync>;
+
 /// Manages all active sessions.
 pub struct SessionManager {
     sessions: RwLock<HashMap<String, Arc<Mutex<Session>>>>,
@@ -177,6 +183,9 @@ pub struct SessionManager {
     // 注入后永不生效（详见 loop.rs 同处注释）。
     /// v11.0: Experience store injected into each new AgentLoop.
     experience_store: Option<Arc<ExperienceStore>>,
+    /// D-175（2026-10-08, traecode）：经验库**工厂**——按 owner 构造 per-user 档。
+    /// 设定后优先于 `experience_store`（后者退化为"无工厂时的回落单例"）。
+    experience_factory: Option<ExperienceFactory>,
     /// P4: CostMeter for session-scoped token accounting.
     cost_meter: Arc<Mutex<CostMeter>>,
     /// P5: MemoryStore for session persistence across restarts.
@@ -204,6 +213,7 @@ impl SessionManager {
             dispatcher,
             ctx,
             experience_store: None,
+            experience_factory: None,
             cost_meter: Arc::new(Mutex::new(CostMeter::new())),
             memory_store: None,
             civ_writer_factory: None,
@@ -228,6 +238,13 @@ impl SessionManager {
     /// v11.0: Set the experience store to inject into each new AgentLoop.
     pub fn set_experience_store(&mut self, store: Arc<ExperienceStore>) {
         self.experience_store = Some(store);
+    }
+
+    /// D-175（2026-10-08, traecode）：注入经验库**工厂**——按 owner 构造 per-user 档，
+    /// 使经验条目（含会话目标文本）**按租户分区**。设工厂后 `experience_store` 单例
+    /// 仅作无工厂时的回落。
+    pub fn set_experience_factory(&mut self, factory: ExperienceFactory) {
+        self.experience_factory = Some(factory);
     }
 
     /// P5: Set the MemoryStore for session persistence.
@@ -386,7 +403,11 @@ impl SessionManager {
 
         // P1-04：原 A4/A5 的 retriever / lsp_bridge 注入已删除（顶层裁决「删除」）。
         // v11.0: Inject experience store
-        if let Some(ref store) = self.experience_store {
+        // D-175：**优先按 owner 构造 per-user 经验库**（工厂），否则回落全局单例——
+        // 修复前恒用全局单例 ⇒ 多租户下所有租户的目标文本落进同一 `experience.jsonl`。
+        if let Some(ref factory) = self.experience_factory {
+            agent.set_experience_store(factory(owner));
+        } else if let Some(ref store) = self.experience_store {
             agent.set_experience_store(store.clone());
         }
         // D-109: 注入**按 owner 构造**的文明线写入器——写入落到该用户的可见档
