@@ -1218,11 +1218,16 @@ impl SessionManager {
     }
 
     /// P4: List all registered provider names and their models.
-    pub fn list_providers(&self) -> Vec<serde_json::Value> {
+    ///
+    /// D-187（2026-10-08, traecode）：返回**契约型** `api::ModelInfo`（原为手搓
+    /// `json!({"provider": …, "model": …})` 的 `Vec<serde_json::Value>`）——字段逐字段一致，
+    /// 但手搓版让契约里的 `ModelInfo` **零构造**、且文档只声明元素型、外层无型。
+    /// 现统一走类型：序列化形状不变，契约与实现对齐。
+    pub fn list_providers(&self) -> Vec<api::ModelInfo> {
         self.registry
             .list_detailed()
             .into_iter()
-            .map(|(name, model)| serde_json::json!({"provider": name, "model": model}))
+            .map(|(provider, model)| api::ModelInfo { provider, model })
             .collect()
     }
 

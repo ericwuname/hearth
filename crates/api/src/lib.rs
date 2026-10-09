@@ -198,6 +198,18 @@ pub struct ModelInfo {
     pub model: String,
 }
 
+/// D-187（2026-10-08, traecode）：`GET /api/v1/models` 的**真实**响应外层。
+///
+/// 病灶：`ApiDoc` 只声明了**元素**型 `ModelInfo`，而真实响应是 `{"providers": [...]}`——
+/// 外层**缺一层类型**；且 `SessionManager::list_providers` 一直**手搓**
+/// `json!({"provider": …, "model": …})`（字段与 `ModelInfo` **逐字段一致**），
+/// 即"有现成契约型却没用上"。现收敛为类型化返回：**序列化形状不变**（对现有客户端非破坏）。
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ModelsResponse {
+    /// 已注册（含未配 key 的空 provider，客户端据此提示）的 provider 列表。
+    pub providers: Vec<ModelInfo>,
+}
+
 // ── B1 (trunk-freeze): session message history response ──
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionHistory {

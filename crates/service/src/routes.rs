@@ -636,6 +636,10 @@ pub async fn cancel_session(
 }
 
 /// GET /api/v1/models
+///
+/// D-187（2026-10-08, traecode）：改为返回**契约型** `api::ModelsResponse`（原为临时
+/// `json!({"providers": providers})`）——序列化形状不变（`{"providers":[{"provider":…,"model":…}]}`），
+/// 但契约与实现自此对齐（`ApiDoc` schemas 收录 `ModelsResponse`）。
 pub async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // P4: expose all registered providers from the registry
     let sessions = state.sessions.clone();
@@ -643,9 +647,7 @@ pub async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoRespons
     // registered providers from the models that were registered at startup.
     // For now, return a dynamically discovered list via the session manager.
     let providers = sessions.list_providers();
-    Json(serde_json::json!({
-        "providers": providers,
-    }))
+    Json(api::ModelsResponse { providers })
 }
 
 /// B1 (trunk-freeze): GET /api/v1/sessions/:id/messages

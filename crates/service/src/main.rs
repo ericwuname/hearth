@@ -32,6 +32,7 @@ use tool_runtime::{ToolContext, ToolDispatcher, ToolRegistry};
     api::ApprovalReq,
     api::SessionStatus,
     api::ModelInfo,
+    api::ModelsResponse,
     api::ErrorResponse,
     api::ErrorBody,
     api::SessionHistory,
