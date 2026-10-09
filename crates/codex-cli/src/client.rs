@@ -358,7 +358,10 @@ fn parse_sse_stream(resp: reqwest::Response) -> impl futures::Stream<Item = Resu
                         // Y2: 纯函数解析（可单测）——处理完整事件，保留跨块残行
                         let (events, leftover) = parse_sse_lines(&buf);
                         for ev in events {
-                            if tx.send(Ok(ev)).await.is_err() {
+                            // D-188：`ev` 已是 `Result<SseEvent>`（非法 JSON ⇒ Err）——
+                            // 原样转发到消费端**已有的** Err 分支（`lib.rs` → `render::error`），
+                            // 修复前非法 data 被静默置 `Value::Null` ⇒ 答案内容无声丢失。
+                            if tx.send(ev).await.is_err() {
                                 return;
                             }
                         }
@@ -389,7 +392,10 @@ fn parse_sse_stream(resp: reqwest::Response) -> impl futures::Stream<Item = Resu
 /// Y2: Pure SSE parser — split raw SSE text into (complete events, leftover partial).
 /// Keeps chunked-stream semantics: an unterminated event (its `event:`/`data:` lines)
 /// stays verbatim in `leftover` until the terminating blank line arrives.
-fn parse_sse_lines(raw: &str) -> (Vec<SseEvent>, String) {
+///
+/// D-188（2026-10-08, traecode）：返回 `Vec<Result<SseEvent>>`——事件 `data:` **JSON 非法即
+/// `Err`**（带原始内容与原因），而非静默回落成 `Value::Null`（"静默回落"族，承 D-184）。
+fn parse_sse_lines(raw: &str) -> (Vec<Result<SseEvent>>, String) {
     let mut events = Vec::new();
     let mut event_type = String::new();
     let mut data = String::new();
@@ -398,12 +404,17 @@ fn parse_sse_lines(raw: &str) -> (Vec<SseEvent>, String) {
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty() {
             if !event_type.is_empty() || !data.is_empty() {
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&data).unwrap_or(serde_json::Value::Null);
-                events.push(SseEvent {
-                    event_type: std::mem::take(&mut event_type),
-                    data: parsed,
-                });
+                // D-188：先取走 event_type（事件已终止），解析失败也**不得**把事件类型遗留到下一条。
+                let ty = std::mem::take(&mut event_type);
+                let parsed = serde_json::from_str::<serde_json::Value>(&data)
+                    .map(|v| SseEvent {
+                        event_type: ty,
+                        data: v,
+                    })
+                    .with_context(|| {
+                        format!("SSE `data:` 非法 JSON（契约漂移/流被截断？）原始内容={data:?}")
+                    });
+                events.push(parsed);
                 data.clear();
             }
             // 事件已终止：rest 清空（已完成事件的行不再需要保留）
@@ -510,8 +521,9 @@ mod tests {
         let raw = "event: Phase\ndata: {\"p\":\"plan\"}\n\n";
         let (events, rest) = parse_sse_lines(raw);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, "Phase");
-        assert_eq!(events[0].data["p"], "plan");
+        let ev = events[0].as_ref().expect("合法 JSON 应成功");
+        assert_eq!(ev.event_type, "Phase");
+        assert_eq!(ev.data["p"], "plan");
         assert!(rest.is_empty());
     }
 
@@ -524,8 +536,9 @@ mod tests {
         // chunk 2: 续上（闭合 JSON 字符串）+ 空行终止
         let (e2, rest2) = parse_sse_lines(&format!("{rest1}lo\"\n\n"));
         assert_eq!(e2.len(), 1);
-        assert_eq!(e2[0].event_type, "Token");
-        assert_eq!(e2[0].data.as_str().unwrap(), "hello");
+        let ev = e2[0].as_ref().expect("合法 JSON 应成功");
+        assert_eq!(ev.event_type, "Token");
+        assert_eq!(ev.data.as_str().unwrap(), "hello");
         assert!(rest2.is_empty());
     }
 
@@ -533,8 +546,9 @@ mod tests {
     fn parse_sse_tool_call_event() {
         let raw = "event: ToolCall\ndata: {\"name\":\"bash\",\"args\":{\"cmd\":\"ls\"}}\n\n";
         let (events, _) = parse_sse_lines(raw);
-        assert_eq!(events[0].event_type, "ToolCall");
-        assert_eq!(events[0].data["name"], "bash");
+        let ev = events[0].as_ref().expect("合法 JSON 应成功");
+        assert_eq!(ev.event_type, "ToolCall");
+        assert_eq!(ev.data["name"], "bash");
     }
 
     #[test]
@@ -543,9 +557,24 @@ mod tests {
             "event: Phase\ndata: \"plan\"\n\nevent: Done\ndata: {\"steps\":3,\"ok\":true}\n\n";
         let (events, _) = parse_sse_lines(raw);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].event_type, "Phase");
-        assert_eq!(events[1].event_type, "Done");
-        assert_eq!(events[1].data["steps"], 3);
+        let e0 = events[0].as_ref().expect("合法 JSON 应成功");
+        let e1 = events[1].as_ref().expect("合法 JSON 应成功");
+        assert_eq!(e0.event_type, "Phase");
+        assert_eq!(e1.event_type, "Done");
+        assert_eq!(e1.data["steps"], 3);
+    }
+
+    #[test]
+    fn parse_sse_invalid_json_is_error_not_silent_null() {
+        // D-188：非法 JSON 的 `data:` 必须成为 `Err`——修复前被 `unwrap_or(Null)` 静默置空，
+        // 消费端 `sse.data.get("delta")` 恒 None ⇒ 答案内容无声丢失（"静默回落"族）。
+        let raw = "event: Token\ndata: {not-json\n\n";
+        let (events, _) = parse_sse_lines(raw);
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].is_err(),
+            "D-188：非法 JSON 的 SSE data 须 Err，而非静默 Value::Null"
+        );
     }
 
     #[test]
