@@ -49,12 +49,18 @@ pub struct Turn {
 }
 
 /// Discussion strategy.
+///
+/// D-181（2026-10-08, traecode）：原第四变体 `SingleSpeaker { speaker }` **已退役**——它
+/// **全仓零构造方**（HTTP 层 `routes::create_bridge` 只产 3 种；`create_session` 亦不构造），
+/// `run_single` 因而**不可达**；且"单模型发言"**不是多模型讨论**（业界多智能体协作模式＝
+/// debate / voting / expert-panel / hierarchical / round-robin，无 "single"；单模型诉求走
+/// `/api/v1/sessions` 即可）⇒ 按 D-78/D-111 纪律删除（"只有定义、无任何构造方" = 漂移陷阱）。
+/// 防回潮：`crates/bridge/tests/retired_single_speaker_gate.rs`（源码级 pin + 在用策略反向对照）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BridgeStrategy {
     RoundRobin,
     Debate,
     MajorityVote,
-    SingleSpeaker { speaker: String },
 }
 
 #[allow(clippy::derivable_impls)]
@@ -96,7 +102,6 @@ impl BridgeSession {
             BridgeStrategy::RoundRobin => self.run_round_robin(max_rounds).await,
             BridgeStrategy::MajorityVote => self.run_majority(max_rounds).await,
             BridgeStrategy::Debate => self.run_debate(max_rounds).await,
-            BridgeStrategy::SingleSpeaker { .. } => self.run_single(max_rounds).await,
         }
     }
 
@@ -219,35 +224,6 @@ impl BridgeSession {
         }
         let result = format!("Debate complete — {} turns.", self.turns.len());
         Ok(result)
-    }
-
-    async fn run_single(&mut self, _max_rounds: u32) -> anyhow::Result<String> {
-        let speaker = if let BridgeStrategy::SingleSpeaker { speaker } = &self.strategy {
-            speaker.clone()
-        } else {
-            self.participants.first().cloned().unwrap_or_default()
-        };
-        let provider = self.registry.get(&speaker)?;
-        let req = ChatRequest {
-            messages: vec![msg(
-                Role::System,
-                &format!("Topic: {topic}\nProvide your analysis.", topic = self.topic),
-            )],
-            tools: vec![],
-            temperature: Some(0.5),
-            max_tokens: Some(2048),
-            stream: false,
-        };
-        let resp = provider.chat(req).await?;
-        let content = resp.content.unwrap_or_default();
-        let turn = Turn {
-            index: 0,
-            provider_key: speaker.clone(),
-            model: provider.model().to_string(),
-            content: content.clone(),
-        };
-        self.turns.push(turn);
-        Ok(content)
     }
 
     fn build_context(&self, current: &str) -> String {
