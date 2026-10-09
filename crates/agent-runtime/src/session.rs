@@ -507,29 +507,30 @@ impl SessionManager {
     }
 
     /// WP-2 (v23 phase3): 录制导出——会话事件缓冲 → 带信封的 JSONL 行。
+    ///
+    /// D-174（2026-10-08, traecode）：**存活会话**走内存缓冲（实时）；**非存活**（仅持久化 /
+    /// 重启后）**回落持久化录制**——修复前只读内存缓冲 ⇒ 重启后对**存在的**会话导出为空、
+    /// 且 handler 会误报 404（D-166 同族）。回落时只取能**还原为 [`AgentEvent`]** 的条目
+    /// （完成时追加的 `done` 是**汇总**而非事件，反序列化失败 ⇒ 自然跳过），两态**同形状**。
     pub async fn session_events_jsonl(&self, id: &str) -> Vec<String> {
-        let (base, events) = self.session_events_with_base(id).await;
-        let mut env = crate::envelope::EnvelopeState::new();
-        env.seq = base; // D-101：保持绝对编号
-        events
-            .into_iter()
-            .map(|mut evt| {
-                env.wrap(&mut evt);
-                let enveloped = api::EnvelopedEvent {
-                    schema_version: 1,
-                    ts: chrono::Utc::now().to_rfc3339(),
-                    seq: env.seq,
-                    span_id: env
-                        .span_stack
-                        .last()
-                        .map(|(sid, _)| sid.clone())
-                        .unwrap_or_default(),
-                    parent_id: env.span_stack.last().and_then(|(_, p)| p.clone()),
-                    event: evt,
-                };
-                serde_json::to_string(&enveloped).unwrap_or_default()
-            })
-            .collect()
+        if self.get_session(id).await.is_some() {
+            let (base, events) = self.session_events_with_base(id).await;
+            return envelope_jsonl(base, events);
+        }
+        match self.load_persisted_session(id).await {
+            Ok(Some(record)) => {
+                let mut base = None;
+                let mut events = Vec::new();
+                for se in &record.events {
+                    if let Ok(evt) = serde_json::from_value::<AgentEvent>(se.payload.clone()) {
+                        base.get_or_insert(se.seq);
+                        events.push(evt);
+                    }
+                }
+                envelope_jsonl(base.unwrap_or(0), events)
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// WP-8 (v23 phase5): 打开产物——读 session workspace 内文件内容。
@@ -885,27 +886,41 @@ impl SessionManager {
                         }
 
                         // P5: Persist completed session to MemoryStore
+                        //
+                        // D-174（2026-10-08, traecode）：此前只落**一条** `done` 摘要
+                        // （create 时 `events: Vec::new()`、完成时仅追加摘要）⇒ 磁盘上的
+                        // "录制"根本不是事件日志，`GET .../events` 重启后无从导出（且报 404）。
+                        // 现改为把**全量事件流 + done 摘要**一起 **append** 落盘（`append_events`
+                        // = 追加写 WAL；header 已由 create 的 `save_session` 写入）。**刻意不用
+                        // `save_session`**——它整文件重写（truncate+rename），会抹掉已追加内容。
                         if let Some(ref store) = memory_store {
-                            let record = SessionRecord {
-                                session_id: s.id.clone(),
-                                provider_name: s.provider_name.clone(),
-                                model: s.model.clone(),
-                                goal: s.goal.clone(),
-                                owner: s.owner.clone(),
-                                events: vec![StoredEvent {
-                                    seq: 0,
-                                    event_type: "done".into(),
-                                    payload: serde_json::json!({
-                                        "ok": ok,
-                                        "steps": steps_used,
-                                        "phase": s.phase,
-                                        "usage": report.usage,
-                                    }),
+                            let mut stored: Vec<StoredEvent> = s
+                                .events
+                                .iter()
+                                .enumerate()
+                                .map(|(i, e)| StoredEvent {
+                                    seq: s.events_base_seq + i as u64,
+                                    event_type: agent_event_kind(e),
+                                    payload: serde_json::to_value(e)
+                                        .unwrap_or(serde_json::Value::Null),
                                     timestamp: chrono::Utc::now().to_rfc3339(),
-                                }],
-                                created_at: chrono::Utc::now().to_rfc3339(),
-                            };
-                            if let Err(e) = store.save_session(&record).await {
+                                })
+                                .collect();
+                            stored.push(StoredEvent {
+                                seq: s.events_base_seq + s.events.len() as u64,
+                                // D-174：摘要用**独立** event_type——否则与流里的
+                                // `AgentEvent::Done`（kind 亦为 "done"）**同名冲突**，
+                                // 消费者 `find(event_type=="done")` 取到哪条不确定。
+                                event_type: "done_summary".into(),
+                                payload: serde_json::json!({
+                                    "ok": ok,
+                                    "steps": steps_used,
+                                    "phase": s.phase,
+                                    "usage": report.usage,
+                                }),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            });
+                            if let Err(e) = store.append_events(&s.id, &stored).await {
                                 tracing::warn!(
                                     "P5: failed to persist completed session {}: {e:#}",
                                     s.id
@@ -1332,6 +1347,33 @@ fn agent_event_kind(e: &AgentEvent) -> String {
         AgentEvent::PlanDraft { .. } => "plan_draft",
     }
     .to_string()
+}
+
+/// D-174（2026-10-08, traecode）：把事件序列包成**带信封的 JSONL** 行——实时（内存缓冲）
+/// 与持久化回落**共用同一实现**，保证两种状态导出的行**形状一致**（避免"两态不同形状"）。
+/// `base` 为绝对信封基址（见 [`Session::events_base_seq`]）。
+fn envelope_jsonl(base: u64, events: Vec<AgentEvent>) -> Vec<String> {
+    let mut env = crate::envelope::EnvelopeState::new();
+    env.seq = base; // D-101：保持绝对编号
+    events
+        .into_iter()
+        .map(|mut evt| {
+            env.wrap(&mut evt);
+            let enveloped = api::EnvelopedEvent {
+                schema_version: 1,
+                ts: chrono::Utc::now().to_rfc3339(),
+                seq: env.seq,
+                span_id: env
+                    .span_stack
+                    .last()
+                    .map(|(sid, _)| sid.clone())
+                    .unwrap_or_default(),
+                parent_id: env.span_stack.last().and_then(|(_, p)| p.clone()),
+                event: evt,
+            };
+            serde_json::to_string(&enveloped).unwrap_or_default()
+        })
+        .collect()
 }
 
 #[cfg(test)]

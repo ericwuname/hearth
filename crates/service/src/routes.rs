@@ -454,10 +454,11 @@ pub async fn session_events_export(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // D-171：归属校验（不存在 / 非本人 → 404）——不得导出他人会话事件（含目标文本）。
     ensure_session_owner(&state, &headers, &id).await?;
+    // D-174（2026-10-08, traecode）：`ensure_session_owner` **已保证会话存在**（内存或持久化）
+    // ⇒ 此处**不得**再因"内存缓冲为空"而报 404（D-166：会话存在即不得报 SESSION_NOT_FOUND；
+    // 修复前对**重启后的持久化会话**导出恒 404）。导出 = 实时内存缓冲；非存活会话由
+    // `session_events_jsonl` 回落**持久化录制**（两态同形状）。
     let lines = state.sessions.session_events_jsonl(&id).await;
-    if lines.is_empty() && state.sessions.get_session(&id).await.is_none() {
-        return Err(session_not_found(&id));
-    }
     Ok((
         StatusCode::OK,
         [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],

@@ -1174,18 +1174,36 @@ async fn test_p5_session_survives_restart() {
     );
     assert!(
         !record.events.is_empty(),
-        "P5 A2: persisted session should have at least one event (done)"
+        "P5 A2: persisted session should have at least one event (full stream + done_summary)"
     );
     let done_event = record
         .events
         .iter()
-        .find(|e| e.event_type == "done")
-        .expect("P5 A2: persisted session should contain a 'done' event");
+        .find(|e| e.event_type == "done_summary")
+        .expect("P5 A2: persisted session should contain a 'done_summary' event");
     let payload = &done_event.payload;
     assert_eq!(
         payload["ok"], true,
         "P5 A2: persisted 'done' event should have ok=true, got: {}",
         payload
+    );
+
+    // D-174（2026-10-08, traecode）：持久化录制必须是**全量事件流**（而非仅一条 `done` 摘要）。
+    // 修复前完成路径只 `save_session` 一条 `done`（events 全丢）⇒ 磁盘上的"录制"不是事件日志。
+    assert!(
+        record.events.len() > 1,
+        "D-174: 完成会话的持久化录制应含**全量事件流**（>1 条），实得 {} 条",
+        record.events.len()
+    );
+    assert!(
+        record.events.iter().any(|e| e.event_type != "done"),
+        "D-174: 持久化录制应含**至少一个非 done** 的真实事件（证明全量流已 append 落盘）；\
+         实得 kinds={:?}",
+        record
+            .events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect::<Vec<_>>()
     );
 
     eprintln!(

@@ -67,7 +67,10 @@ pub const API_ROUTES: &[(&str, &[(&str, &str)])] = &[
     ("/api/v1/sessions/{id}/cancel", &[("post", "取消会话")]),
     (
         "/api/v1/sessions/{id}/events",
-        &[("get", "录制导出（JSONL 信封事件流）")],
+        &[(
+            "get",
+            "录制导出（JSONL 信封事件流；非存活会话回落持久化录制）",
+        )],
     ),
     ("/api/v1/sessions/{id}/stream", &[("get", "实时 SSE 流")]),
     (
