@@ -153,25 +153,16 @@ pub struct ApprovalReq {
 
 // ── WP-0: 通用交互原语（v23 §2.1 定版）──
 
-/// WP-0: 交互请求——内核/服务端发出的通用人类介入点。
-/// 内核只认 `id` / `blocking` / `timeout`，**绝不 match `kind`、绝不解析 `payload`**。
-/// `kind` 必须是开放字符串（"approval" / "clarification" / 自定义）——
-/// 做成 Rust enum 等于把 UI 焊进内核。
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct InteractionRequest {
-    /// 唯一 id——响应必须携带（R1 强校验 + R2 一次性消费）。
-    pub id: String,
-    /// 开放字符串。内核不 match。
-    pub kind: String,
-    /// true=阻塞等待响应（agent 暂停）；false=通知型（不阻塞）。
-    pub blocking: bool,
-    /// 超时秒数；None=无限等待。
-    pub timeout: Option<u64>,
-    /// 超时行为提示（"abort" / "continue" 等）——内核按原样透传，不解析。
-    pub on_timeout: Option<String>,
-    /// kind 专属负载——内核不解析。
-    pub payload: serde_json::Value,
-}
+// D-185（2026-10-08, traecode）：原 `pub struct InteractionRequest { id, kind, blocking,
+// timeout, on_timeout, payload }`（WP-0 曾规划的"交互请求"契约型）**已删除**——它**零构造、
+// 零读取、未入契约**（`ApiDoc` 的 `components(schemas(…))` 从未列出它）。原因：内核与
+// 服务端**实际发出**的人类介入点是 **SSE 事件** `Event::InteractionRequested { id, kind, … }`
+// （见 `agent-core`），请求型的"结构体契约"从未落地——与在用兄弟类型 `InteractionResponse`
+// 形成**不对称**（响应型在用、请求型从未存在）。按 D-111/D-78 纪律删除（"只有定义、
+// 无任何消费者" = 漂移陷阱）。
+// 防回潮：`crates/api/tests/retired_interaction_request_gate.rs`（源码级 pin +
+// `InteractionResponse` 反向对照）。若日后确需该结构（如新增轮询式交互查询端点），
+// 请**先接线消费者**再立卡加回。
 
 /// WP-0: 交互响应——客户端 → POST /api/v1/sessions/{id}/interaction/{iid}。
 /// 服务端只校验 id 匹配 + 一次性消费；payload 内容不解析（kind 语义由上层决定）。
