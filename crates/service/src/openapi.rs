@@ -100,7 +100,12 @@ pub const API_ROUTES: &[(&str, &[(&str, &str)])] = &[
     ("/api/v1/resources", &[("get", "资源占用快照")]),
     ("/api/v1/tools", &[("get", "列出已注册工具")]),
     ("/api/v1/tools/search", &[("get", "搜索工具生态")]),
-    ("/api/v1/tools/install", &[("post", "安装工具")]),
+    // D-167：语义如实——本端点是**清单登记**（供 search/tool-registry 发现），
+    // **不安装、不执行**任何命令（工具执行走 ToolDispatcher，与本注册表无关）。
+    (
+        "/api/v1/tools/install",
+        &[("post", "登记工具清单（供发现/检索；不执行任何命令）")],
+    ),
     (
         "/api/v1/tool-registry",
         &[("get", "列出已登记工具清单（含 TOOLS_DIR 自动发现的）")],

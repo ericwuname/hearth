@@ -1649,6 +1649,14 @@ pub async fn search_tools(
 }
 
 /// POST /api/v1/tools/install
+///
+/// D-167（2026-10-08, traecode）：**语义如实化**。`ToolRegistry` 是**清单目录（catalog）**——
+/// `install()` 只把 `ToolManifest` 插进内存 map，**不落地产物、不执行任何命令**（工具执行走
+/// `ToolDispatcher` + `tools-builtin`，与本注册表无关；`ToolManifest.command`/`sha256` **全仓
+/// 零读取**，见 D-73）。修复前响应 `{"status":"installed"}`（201）对客户端**暗示"装上了可执行
+/// 的工具"**，实际什么也不会执行 ⇒ 声称≠实现。**为什么不接线执行**：本端点的 manifest 由
+/// **客户端**提供、`command` 是**任意字符串**，真去执行即把该端点变成**远程命令执行（RCE）**
+/// 入口 ⇒ 安全上不可接受。故一律表明这是**清单登记**（供 `search`/`tool-registry` 发现）。
 #[derive(Debug, Deserialize)]
 pub struct InstallToolReq {
     pub manifest: tool_runtime::ToolManifest,
@@ -1659,14 +1667,16 @@ pub async fn install_tool(
     ApiJson(req): ApiJson<InstallToolReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let name = req.manifest.name.clone();
+    // D-167：响应**不得**出现 "installed"（暗示可执行）。
+    let note = "清单已登记（供发现/检索）；该注册表不安装、不执行任何命令";
     match state.tool_registry.install(req.manifest) {
         Ok(true) => Ok((
             StatusCode::CREATED,
-            Json(serde_json::json!({"status":"installed","tool":name})),
+            Json(serde_json::json!({"status":"registered","tool":name,"note":note})),
         )),
         Ok(false) => Ok((
             StatusCode::OK,
-            Json(serde_json::json!({"status":"already_installed","tool":name})),
+            Json(serde_json::json!({"status":"already_registered","tool":name,"note":note})),
         )),
         Err(e) => Err(api_err(
             // D-111：`ToolRegistry::install` 的失败是**清单本身不合法/重复冲突**（客户端错），
