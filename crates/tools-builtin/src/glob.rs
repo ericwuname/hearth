@@ -177,7 +177,11 @@ impl Tool for GlobTool {
         if matched.is_empty() {
             Ok("(no matches)".into())
         } else {
-            Ok(matched.join("\n"))
+            // D-194：工具层输出截断（与 bash 的 64KB S1 同口径；此前条目数无上限）。
+            Ok(crate::bash::truncate_output(
+                &matched.join("\n"),
+                crate::bash::S1_MAX_OUTPUT_BYTES,
+            ))
         }
     }
 }
@@ -253,6 +257,40 @@ mod tests {
                 .await
                 .is_err(),
             "glob pattern with '..' should be denied"
+        );
+    }
+
+    /// D-194（2026-10-08, traecode）：**glob 输出必须有工具层截断**（与 bash 的 64KB S1 口径一致）。
+    /// 病灶：`walk_readonly` 只限递归**深度**（64），**不限条目数** ⇒ 大目录树可把**无界**条目
+    /// 列表灌进模型上下文（"无界输出"，D-21/D-53/D-55 同族）。
+    #[tokio::test]
+    async fn test_d194_glob_output_is_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        // 造 6000 个匹配文件（每行 ~16 字节 ⇒ 输出约 96KB > 64KB 上限）。
+        for i in 0..6000 {
+            std::fs::write(dir.path().join(format!("entry-{i:05}.txt")), "x").unwrap();
+        }
+        let tool = GlobTool::with_sandbox(Arc::new(sandbox::NoopSandbox::new(
+            sandbox::SandboxConfig::default(),
+        )));
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let out = tool
+            .execute(serde_json::json!({"pattern": "*.txt"}), &ctx)
+            .await
+            .unwrap();
+        // 64KB（= bash S1_MAX_OUTPUT_BYTES）为界；留 4KB 余量给截断标记。
+        assert!(
+            out.len() <= 64 * 1024 + 4096,
+            "D-194：glob 输出必须被截断到工具层上限；实得 {} bytes",
+            out.len()
+        );
+        assert!(
+            out.contains("[truncated]"),
+            "D-194：超限输出必须带截断标记；实得 {} bytes",
+            out.len()
         );
     }
 }

@@ -150,7 +150,11 @@ impl Tool for GrepTool {
         if stdout.is_empty() {
             Ok("(no matches)".into())
         } else {
-            Ok(stdout)
+            // D-194：工具层输出截断（与 bash 的 64KB S1 同口径；此前受沙箱 8MiB 上限约束）。
+            Ok(crate::bash::truncate_output(
+                &stdout,
+                crate::bash::S1_MAX_OUTPUT_BYTES,
+            ))
         }
     }
 }
@@ -378,5 +382,39 @@ mod tests {
             )
             .await;
         assert!(denied.is_err(), "/etc/shadow 越权必须拒绝（仍防越权）");
+    }
+
+    /// D-194（2026-10-08, traecode）：**grep 输出必须有工具层截断**（与 bash 的 64KB S1 口径一致）。
+    /// 病灶：grep 直接把沙箱捕获的 `stdout` 原样返回——沙箱上限是 **8MiB**（`MAX_CAPTURED_BYTES`），
+    /// 远超工具层规范的 64KB ⇒ 一次宽泛搜索最多可向模型上下文注入 **8MiB**（≈128× 常规），
+    /// 上下文膨胀 / 成本（"无界输出"，D-21/D-53/D-55 同族）。
+    #[tokio::test]
+    async fn test_d194_grep_output_is_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut body = String::new();
+        for i in 0..20000 {
+            body.push_str(&format!("matchline {i}\n"));
+        }
+        std::fs::write(dir.path().join("big.txt"), body).unwrap();
+        let tool = GrepTool::new();
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let out = tool
+            .execute(serde_json::json!({"pattern": "matchline"}), &ctx)
+            .await
+            .unwrap();
+        // 64KB（= bash S1_MAX_OUTPUT_BYTES）为界；留 4KB 余量给截断标记。
+        assert!(
+            out.len() <= 64 * 1024 + 4096,
+            "D-194：grep 输出必须被截断到工具层上限；实得 {} bytes",
+            out.len()
+        );
+        assert!(
+            out.contains("[truncated]"),
+            "D-194：超限输出必须带截断标记；实得 {} bytes",
+            out.len()
+        );
     }
 }

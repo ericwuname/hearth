@@ -301,9 +301,11 @@ fn resolve_timeout_secs(
 /// hearth-slim S1: 输出截断（工具层，sandbox crate 零触碰）——
 /// stdout/stderr 任一超 64KB → 保头 2/3 + 尾 1/3，中间显式标记（防
 /// 45 万 tokens 式输出膨胀复发；`[truncated]` 标记供模型/测试识别）。
-const S1_MAX_OUTPUT_BYTES: usize = 64 * 1024;
+pub(crate) const S1_MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
-fn truncate_output(s: &str, max: usize) -> String {
+/// D-194（2026-10-08, traecode）：由 `pub(crate)` 暴露，供 `grep`/`glob` 复用**同一口径**的
+/// 工具层输出截断（此前仅 bash 有；grep/glob 缺 ⇒ 输出可灌到沙箱上限 8MiB）。
+pub(crate) fn truncate_output(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }
