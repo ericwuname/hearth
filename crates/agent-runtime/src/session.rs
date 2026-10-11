@@ -544,23 +544,8 @@ impl SessionManager {
             .await
             .ok_or_else(|| anyhow::anyhow!("session not found: {id}"))?;
         let ws = session.lock().await.workspace_dir.clone();
-        // 1. 拒绝绝对路径与 .. 穿越
-        let p = std::path::Path::new(rel_path);
-        if p.components().any(|c| {
-            matches!(
-                c,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        }) {
-            anyhow::bail!("path traversal denied: {rel_path}");
-        }
-        // 2. join 后必须仍在 workspace 内
-        let full = ws.join(rel_path);
-        if !full.starts_with(&ws) {
-            anyhow::bail!("path outside workspace denied: {rel_path}");
-        }
+        // D-190：词法 + **解析软链/junction 后**的双重校验（返回 workspace 内**真实**路径）。
+        let full = resolve_in_workspace(&ws, rel_path).await?;
         let (mut content, truncated) = read_file_text_capped(&full, MAX_CAPTURED_BYTES as u64)
             .await
             .map_err(|e| anyhow::anyhow!("read artifact {rel_path} failed: {e}"))?;
@@ -585,27 +570,10 @@ impl SessionManager {
             .await
             .ok_or_else(|| anyhow::anyhow!("session not found: {id}"))?;
         let ws = session.lock().await.workspace_dir.clone();
-        // 1. 拒绝绝对路径与 .. 穿越
-        let p = std::path::Path::new(rel_path);
-        if p.components().any(|c| {
-            matches!(
-                c,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        }) {
-            anyhow::bail!("path traversal denied: {rel_path}");
-        }
-        // 2. join 后必须仍在 workspace 内（URL 直开除外——无文件系统访问）
+        // D-190：解析为 workspace 内**真实**路径（词法 + 链接后双重校验）；
+        // URL 直开除外（无文件系统访问）。
         if !is_http_url(rel_path) {
-            let full = ws.join(rel_path);
-            if !full.starts_with(&ws) {
-                anyhow::bail!("path outside workspace denied: {rel_path}");
-            }
-            if !full.exists() {
-                anyhow::bail!("artifact not found: {rel_path}");
-            }
+            let full = resolve_in_workspace(&ws, rel_path).await?;
             let target = full.to_string_lossy().to_string();
             return spawn_open(&target).await;
         }
@@ -1376,6 +1344,45 @@ fn envelope_jsonl(base: u64, events: Vec<AgentEvent>) -> Vec<String> {
         .collect()
 }
 
+/// D-190（2026-10-08, traecode）：把 `rel` 解析为 **workspace 内**的**真实**路径。
+///
+/// 两道防线：① **词法**——拒 `..`/根/前缀，且 `ws.join(rel)` 须 `starts_with(ws)`；
+/// ② **解析链接后**（`canonicalize`）再校验仍在 workspace 内。修复前只有①，而 workspace 内的
+/// **目录链接**（Unix symlink / Windows junction，agent 的 `bash` 均可创建）能让词法前缀成立
+/// 却**跟随到外部** ⇒ `open_artifact`/`open_external` 越权读/打开 workspace 之外的文件
+/// （提示注入 → 任意可读文件回传）。fail-closed：目标不存在/不可解析同样拒绝。
+async fn resolve_in_workspace(
+    ws: &std::path::Path,
+    rel: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    let p = std::path::Path::new(rel);
+    if p.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        anyhow::bail!("path traversal denied: {rel}");
+    }
+    let full = ws.join(rel);
+    if !full.starts_with(ws) {
+        anyhow::bail!("path outside workspace denied: {rel}");
+    }
+    // ② 解析软链/junction 后再校验（ws 解析失败时退回原值——只会更严、不会更松）。
+    let ws_real = tokio::fs::canonicalize(ws)
+        .await
+        .unwrap_or_else(|_| ws.to_path_buf());
+    let full_real = tokio::fs::canonicalize(&full)
+        .await
+        .map_err(|e| anyhow::anyhow!("artifact not found or unreadable: {rel}: {e}"))?;
+    if !full_real.starts_with(&ws_real) {
+        anyhow::bail!("path outside workspace denied (symlink/junction escape): {rel}");
+    }
+    Ok(full_real)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1471,6 +1478,102 @@ mod tests {
             mgr.get_session("running").await.is_some(),
             "running=true 的会话永不回收"
         );
+    }
+
+    /// D-190（2026-10-08, traecode）：在 `link` 处创建指向 `target` 的**目录链接**——
+    /// Unix 用 symlink；Windows 用 junction（`mklink /J`，**无需管理员**）。返回 `false`
+    /// 表示本环境无法创建（能力缺失，测试跳过）。手法同 `project-xray`（D-141）。
+    #[cfg(any(unix, windows))]
+    fn make_dir_link(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(windows)]
+        {
+            matches!(
+                std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .output(),
+                Ok(o) if o.status.success()
+            )
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+    }
+
+    /// D-190（2026-10-08, traecode）：**工作区逃逸**——`open_artifact` 只做**词法**校验
+    /// （拒 `..`/根/前缀 + `ws.join(rel).starts_with(ws)`），**不解析软链/junction**。
+    /// 而在 workspace 内创建一个**目录链接**指向外部目录（agent 的 `bash` 可做：
+    /// Unix `ln -s`、Windows `mklink /J` 均免管理员），再请求 `link/secret.txt`：
+    /// 词法前缀成立 ⇒ 服务端**跟随链接**读出 workspace **之外**的文件 ⇒
+    /// 提示注入可经此把任意可读文件回传给会话属主（**越权读**）。
+    /// 修复口径：解析软链/junction 后**再**校验仍在 workspace 内（`canonicalize`）。
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn test_d190_open_artifact_rejects_directory_link_escape() {
+        let registry = Arc::new(ProviderRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new());
+        let mgr = SessionManager::new(registry, dispatcher, ToolContext::default());
+
+        let base = std::env::temp_dir().join(format!("hearth-d190-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let ws = base.join("ws");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "TOPSECRET-OUTSIDE-WORKSPACE").unwrap();
+
+        let link = ws.join("escape");
+        if !make_dir_link(&outside, &link) {
+            eprintln!("skip: 本环境无法创建目录链接（junction/symlink），能力缺失");
+            let _ = std::fs::remove_dir_all(&base);
+            return;
+        }
+
+        {
+            let mut g = mgr.sessions.write().await;
+            g.insert(
+                "d190".into(),
+                Arc::new(Mutex::new(Session {
+                    id: "d190".into(),
+                    provider_name: "p".into(),
+                    model: "m".into(),
+                    goal: "g".into(),
+                    owner: "default".into(),
+                    phase: "created".into(),
+                    steps: 0,
+                    budget_remaining: None,
+                    event_tx: None,
+                    events: Vec::new(),
+                    events_base_seq: 0,
+                    running: false,
+                    agent: None,
+                    budget: Budget::default(),
+                    cancel_tx: None,
+                    finished_at: None,
+                    created_at: std::time::Instant::now(),
+                    workspace_dir: ws.clone(),
+                })),
+            );
+        }
+
+        let r = mgr.open_artifact("d190", "escape/secret.txt").await;
+        assert!(
+            r.is_err(),
+            "D-190：经 workspace 内**目录链接**逃逸的路径必须被拒（词法校验挡不住链接）——\
+             实得 Ok({:?})（越权读到了 workspace 之外的文件）",
+            r.as_ref().ok()
+        );
+        // 反向对照：workspace **内**的普通文件仍必须可读（防加固矫枉过正）。
+        std::fs::write(ws.join("ok.txt"), "inside-ok").unwrap();
+        let ok = mgr.open_artifact("d190", "ok.txt").await;
+        assert_eq!(
+            ok.as_deref().ok(),
+            Some("inside-ok"),
+            "反向对照：workspace 内普通文件必须仍可读；实得 {ok:?}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// D-152 回归锁（**先红后绿**）：`cancel_session` 对**从未启动**的会话（`cancel_tx == None`，
