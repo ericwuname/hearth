@@ -52,7 +52,12 @@ fn egress_allowed(host: &str, allowlist: &[String]) -> bool {
     })
 }
 
-/// 极简 HTML→纯文本（去标签/实体；不引重依赖）。返回去标签后的文本。
+/// 极简 HTML→纯文本（去标签 + 解码实体；不引重依赖）。返回去标签后的文本。
+///
+/// D-189（2026-10-08, traecode）：此前只去标签、**不解码实体**——头注自称"去标签/实体"
+/// 但 `&amp;`/`&lt;Vec&lt;T&gt;&gt;`/`&nbsp;` 等原样泄漏给模型（Rust 文档页满屏 `&lt;`/`&gt;`，
+/// 模型可能照抄成错代码）= "声称≠实现"。现补上**实体解码**一半（解码在**去标签之后**，
+/// 故 `&lt;script&gt;` 只会变成文本 `<script>`、不会被当标签再删）。
 fn strip_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_tag = false;
@@ -64,7 +69,80 @@ fn strip_html(s: &str) -> String {
             _ => {}
         }
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    decode_entities(&out)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 极简 HTML 实体解码（常用命名实体 + 数字引用）——补齐头注"去标签/实体"的**实体**一半。
+/// 未知实体**原样保留**（不猜测、不破坏原文）；无 `&` 时零成本直通。
+fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after = &rest[amp + 1..];
+        // 实体名最长按 10 字符找 `;`（按**字符**边界推进，避免切进多字节字符）。
+        let mut ent_end: Option<usize> = None;
+        for (n, (idx, ch)) in after.char_indices().enumerate() {
+            if ch == ';' {
+                ent_end = Some(idx);
+                break;
+            }
+            if n >= 10 {
+                break;
+            }
+        }
+        match ent_end.and_then(|e| decode_entity(&after[..e]).map(|rep| (e, rep))) {
+            Some((e, rep)) => {
+                out.push_str(&rep);
+                rest = &after[e + 1..]; // 跳过 ';'（单字节）
+            }
+            None => {
+                // 非实体：原样吐回 `&`，从下一个字符继续（不吞字、不误改）
+                out.push('&');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 单个实体名（不含 `&`/`;`）→ 替换文本；未知 ⇒ `None`。
+fn decode_entity(ent: &str) -> Option<String> {
+    // 数字引用：`#123`（十进制）/ `#x1F`（十六进制）。
+    if let Some(num) = ent.strip_prefix('#') {
+        let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
+            u32::from_str_radix(hex, 16).ok()?
+        } else {
+            num.parse::<u32>().ok()?
+        };
+        return char::from_u32(code).map(|c| c.to_string());
+    }
+    let named = match ent {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+        "nbsp" => " ",
+        "copy" => "\u{a9}",
+        "reg" => "\u{ae}",
+        "hellip" => "\u{2026}",
+        "mdash" => "\u{2014}",
+        "ndash" => "\u{2013}",
+        "lsquo" => "\u{2018}",
+        "rsquo" => "\u{2019}",
+        "ldquo" => "\u{201c}",
+        "rdquo" => "\u{201d}",
+        _ => return None,
+    };
+    Some(named.to_string())
 }
 
 #[async_trait]
@@ -216,6 +294,28 @@ mod tests {
         assert!(r.contains("标题"), "应保留文本: {r}");
         assert!(r.contains("正文内容"));
         assert!(!r.contains('<'), "不应残留标签");
+    }
+
+    /// D-189（2026-10-08, traecode）：头注自称"去**标签/实体**"，但 `strip_html` 只去标签、
+    /// **不解码实体** ⇒ `&amp;` / `&lt;Vec&lt;T&gt;&gt;` / `&nbsp;` 等**原样泄漏给模型**
+    /// （Rust 文档页满屏 `&lt;`/`&gt;`，模型读到 `&lt;Vec&lt;T&gt;&gt;` 可能照抄成错代码）——"声称≠实现"。
+    /// 本测试：常用命名实体 + 数字引用（十进制/十六进制）必须解码；未知实体**原样保留**。
+    #[test]
+    fn test_strip_html_decodes_entities() {
+        let r = strip_html("<p>a &amp; b &lt;Vec&lt;T&gt;&gt; &nbsp;c &#39;q&#39; &#x40;</p>");
+        assert!(r.contains("a & b"), "`&amp;` 须解码为 &：{r}");
+        assert!(r.contains("<Vec<T>>"), "`&lt;`/`&gt;` 须解码：{r}");
+        assert!(r.contains("'q'"), "`&#39;`（十进制）须解码：{r}");
+        assert!(r.contains('@'), "`&#x40;`（十六进制）须解码：{r}");
+        assert!(
+            !r.contains("&amp;") && !r.contains("&lt;") && !r.contains("&nbsp;"),
+            "不得残留已知实体：{r}"
+        );
+        // 未知实体原样保留（不猜测、不破坏原文）
+        let u = strip_html("<p>x &bogus; y</p>");
+        assert!(u.contains("&bogus;"), "未知实体须原样保留：{u}");
+        // 无 `&` 时零成本直通（行为不变）
+        assert_eq!(strip_html("<b>plain</b>"), "plain");
     }
 
     /// WS10: web_fetch 白名单拒绝路径（deny-by-default，不真发请求）
