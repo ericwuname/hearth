@@ -33,23 +33,49 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
-pub struct WebSearchTool {
-    client: reqwest::Client,
-}
+pub struct WebSearchTool;
 
 impl WebSearchTool {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(20))
-            // 搜索源的 HTML 端点对无 UA 的请求常直接拒绝——带常规 UA。
-            .user_agent(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
-                 hearth-agent/0.2 (web_search)",
-            )
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        Self { client }
+        Self
     }
+}
+
+/// D-192（2026-10-08, traecode）：构建带**逐跳白名单复检**的客户端。
+///
+/// 病灶：原 `new()` 用默认客户端（**无重定向策略**）⇒ reqwest **自动跟随最多 10 跳且不复检
+/// 白名单**。配置 `HEARTH_EGRESS_ALLOWLIST` 时，白名单内源若 302 到 `169.254.169.254`
+/// （云元数据）/ `127.0.0.1`（本机服务），请求**已经发出**（出网治理被一条 302 绕过）——
+/// 与 `web_fetch` 2026-10-01 所修**同一漏洞**，此处为**残留**（不对称半修）。
+/// 修法与 `web_fetch` 对齐：自定义策略、**每一跳**复检 `egress_allowed_open`（S2 口径：空白名单=放开）、跳数上限 5。
+///
+/// 现**每次调用**构建（白名单来自 `ctx.env`、构造期不可知；亦符合"env 须经 ToolContext 注入"的纪律）。
+fn build_client(allowlist: Vec<String>) -> reqwest::Client {
+    let allowlist_for_redirect = allowlist;
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        // 搜索源的 HTML 端点对无 UA 的请求常直接拒绝——带常规 UA。
+        .user_agent(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+             hearth-agent/0.2 (web_search)",
+        )
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.error("too many redirects (web_search cap)");
+            }
+            match attempt.url().host_str() {
+                Some(h) if egress_allowed_open(Some(h), &allowlist_for_redirect) => {
+                    attempt.follow()
+                }
+                Some(h) => {
+                    tracing::warn!(host = h, "web_search redirect denied by egress allowlist");
+                    attempt.error("redirect target not in HEARTH_EGRESS_ALLOWLIST")
+                }
+                None => attempt.error("redirect target has no host"),
+            }
+        }))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 impl Default for WebSearchTool {
@@ -401,6 +427,8 @@ web_search(query=\"cargo workspace 依赖继承 workspace = true\")。\n\
         }
 
         // 主源 → 回落源（源端限流/结构变更时不至于整个工具失效）。
+        // D-192：带**逐跳白名单复检**的客户端（复用上面已解析的 allowlist）。
+        let client = build_client(allowlist.clone());
         let mut failures: Vec<String> = Vec::new();
         for (name, url, parser) in [
             (
@@ -416,7 +444,7 @@ web_search(query=\"cargo workspace 依赖继承 workspace = true\")。\n\
         ] {
             // S2 审计：出网留痕（与 bash 的 [net] 审计同规——不阻断，只记）。
             tracing::info!(source = name, host = %url, "web_search egress audit");
-            match fetch_html(&self.client, url).await {
+            match fetch_html(&client, url).await {
                 Ok(html) => {
                     let hits = parser(&html);
                     if hits.is_empty() {
