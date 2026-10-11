@@ -112,6 +112,10 @@ impl Tool for ReadTool {
             &path_str
         };
 
+        // D-191：**相对**路径须逐段拒链接（防 workspace 内目录链接逃逸到 cwd 之外）。
+        if !crate::is_rooted_path(std::path::Path::new(path_str)) {
+            crate::reject_link_traversal(&ctx.cwd, path_str).await?;
+        }
         let path = ctx.cwd.join(path_str);
         // P0-06（2026-10-01, traecode）：原为 `tokio::fs::read_to_string`——**整文件入内存**，
         // `limit` 管不住读入量（D-21）。改为有界读取：最多读 MAX_READ_BYTES（+1 字节
@@ -369,5 +373,44 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("no lines in range"), "{result:?}");
+    }
+
+    /// D-191（2026-10-08, traecode）：**工作区逃逸（读路径，安全）**——相对路径经 workspace 内
+    /// **目录链接**（Unix symlink / Windows junction，**均免管理员**）读 cwd 之外的文件。
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn test_d191_read_rejects_directory_link_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        let ws = dir.path().join("ws");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(outside.join("secret.txt"), "TOPSECRET").unwrap();
+        if !crate::make_dir_link(&outside, &ws.join("escape")) {
+            eprintln!("skip: 本环境无法创建目录链接（junction/symlink），能力缺失");
+            return;
+        }
+        let tool = ReadTool::new();
+        let ctx = ToolContext {
+            cwd: ws.clone(),
+            ..Default::default()
+        };
+        let r = tool
+            .execute(serde_json::json!({"path": "escape/secret.txt"}), &ctx)
+            .await;
+        assert!(
+            r.is_err(),
+            "D-191：经目录链接逃逸的**读**必须被拒；实得 {r:?}"
+        );
+        // 反向对照：workspace 内普通文件仍必须可读。
+        std::fs::write(ws.join("ok.txt"), "inside-ok").unwrap();
+        let ok = tool
+            .execute(serde_json::json!({"path": "ok.txt"}), &ctx)
+            .await
+            .unwrap();
+        assert!(
+            ok.contains("inside-ok"),
+            "反向对照：workspace 内读必须仍成功"
+        );
     }
 }

@@ -126,6 +126,11 @@ impl Tool for EditTool {
         let mode = crate::extract_str_arg(&args, "mode").unwrap_or_else(|| "write".into());
         let append = mode == "append";
 
+        // D-191：**相对**路径须逐段拒链接（防 workspace 内目录链接逃逸到 cwd 之外——
+        // 本工具跑在 agent 进程内，非 bash 沙箱，故这是**唯一**防线）。
+        if !crate::is_rooted_path(std::path::Path::new(path_str)) {
+            crate::reject_link_traversal(&ctx.cwd, path_str).await?;
+        }
         let path = ctx.cwd.join(path_str);
 
         // Ensure parent directory exists
@@ -490,5 +495,53 @@ mod tests {
         let saved = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(saved, long, "覆盖语义：最终文件必须是完整新内容");
         assert!(!saved.contains("OLD_CONTENT"), "旧内容必须被完全覆盖");
+    }
+
+    /// D-191（2026-10-08, traecode）：**工作区逃逸（写路径，安全）**——相对路径经 workspace 内
+    /// **目录链接**（Unix symlink / Windows junction，**均免管理员**）逃到 cwd 之外。修复前
+    /// 只做词法校验 ⇒ `write_file("escape/pwn.txt")` **真的写到 workspace 之外**（持久化/RCE 面）。
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn test_d191_write_file_rejects_directory_link_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        let ws = dir.path().join("ws");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&ws).unwrap();
+        if !crate::make_dir_link(&outside, &ws.join("escape")) {
+            eprintln!("skip: 本环境无法创建目录链接（junction/symlink），能力缺失");
+            return;
+        }
+        let ctx = ToolContext {
+            cwd: ws.clone(),
+            ..Default::default()
+        };
+        let tool = EditTool::new();
+        let r = tool
+            .execute(
+                serde_json::json!({"path": "escape/pwn.txt", "content": "PWNED"}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            r.is_err(),
+            "D-191：经目录链接逃逸的**写**必须被拒；实得 {r:?}"
+        );
+        assert!(
+            !outside.join("pwn.txt").exists(),
+            "D-191：workspace 之外**不得**出现该文件（越权写）"
+        );
+        // 反向对照：workspace 内普通文件仍必须可写（防加固矫枉过正）。
+        let ok = tool
+            .execute(
+                serde_json::json!({"path": "ok.txt", "content": "fine"}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            ok.is_ok(),
+            "反向对照：workspace 内写必须仍成功；实得 {ok:?}"
+        );
+        assert_eq!(std::fs::read_to_string(ws.join("ok.txt")).unwrap(), "fine");
     }
 }

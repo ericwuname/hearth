@@ -102,6 +102,10 @@ impl Tool for PatchTool {
             &path_str
         };
 
+        // D-191：**相对**路径须逐段拒链接（防 workspace 内目录链接逃逸到 cwd 之外）。
+        if !crate::is_rooted_path(std::path::Path::new(rel)) {
+            crate::reject_link_traversal(&ctx.cwd, rel).await?;
+        }
         let path = ctx.cwd.join(rel);
         // D-53（2026-10-01）：**无界读入第 7 落点**。apply_patch 是"读-改-写"，
         // 因此**不能**像只读工具那样"有界截断读取"——截断会静默损坏文件内容

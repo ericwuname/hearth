@@ -49,6 +49,72 @@ pub fn is_rooted_path(p: &std::path::Path) -> bool {
     p.has_root() || matches!(p.components().next(), Some(std::path::Component::Prefix(_)))
 }
 
+/// D-191（2026-10-08, traecode）：**相对**路径的逐段**链接检查**——拒绝经 workspace 内
+/// **软链/junction** 逃逸到 cwd 之外。
+///
+/// 病灶：`read`/`edit`(write_file)/`patch`/`grep` 对相对路径只做**词法**校验（拒 `..`），
+/// 随后 `cwd.join(rel)` 而**不解析链接**；agent 的 `bash` 可在 workspace 内创建**目录链接**
+/// 指向外部（Unix `ln -s` / Windows `mklink /J`，**均免管理员**）⇒ `write("link/x")`
+/// **写到 cwd 之外**（持久化/RCE 面）、`read("link/secret")` 读 workspace 之外的文件。
+/// 这些工具**跑在 agent 进程内**（不在 bash 的 landlock 沙箱里，Windows 更是 NoopSandbox
+/// 零隔离）⇒ 本检查是**唯一**防线（与 D-190 同根因；绝对路径分支仍走既有白名单）。
+///
+/// 手法：从 cwd 起逐段 `symlink_metadata`（**不跟随**链接）——任一前缀是链接即拒。
+/// **fail-closed**：悬空链接同样被拒（`symlink_metadata` 对链接本身成功）。
+pub async fn reject_link_traversal(cwd: &std::path::Path, rel: &str) -> anyhow::Result<()> {
+    let mut cur = cwd.to_path_buf();
+    for comp in std::path::Path::new(rel).components() {
+        if let std::path::Component::Normal(name) = comp {
+            cur.push(name);
+            if let Ok(md) = tokio::fs::symlink_metadata(&cur).await {
+                if is_link_like(&md) {
+                    anyhow::bail!(
+                        "path traversal via symlink/junction denied: {rel} (at {})",
+                        cur.display()
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// D-191：判定该元数据是否为**软链/junction**。Windows 用**重解析点**属性——它**同时覆盖**
+/// symlink 与 junction（`FileType::is_symlink()` 对 junction 不可靠）；其余平台用 `is_symlink()`。
+fn is_link_like(md: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        // FILE_ATTRIBUTE_REPARSE_POINT = 0x400（覆盖 symlink 与 junction）
+        md.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        md.file_type().is_symlink()
+    }
+}
+
+/// D-191（测试支撑）：创建**目录链接**——Unix 用 symlink；Windows 用 junction
+/// （`mklink /J`，**无需管理员**）。返回 `false` 表示本环境无法创建（能力缺失，测试跳过）。
+#[cfg(test)]
+pub fn make_dir_link(target: &std::path::Path, link: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        matches!(
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output(),
+            Ok(o) if o.status.success()
+        )
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+}
+
 /// **家目录放行是否有真实沙箱兜底？**（2026-10-01 修复，traecode）
 ///
 /// 立项理由（R3 / v0.1.3）：landlock 把 workspace 之外置为**只读**，

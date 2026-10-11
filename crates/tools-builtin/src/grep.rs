@@ -110,6 +110,10 @@ impl Tool for GrepTool {
                     tracing::warn!("path outside allowed roots (workspace/home) denied: {}", s);
                     return Err(anyhow!("path traversal denied: {}", s));
                 }
+                // D-191：**相对**路径须逐段拒链接（防 workspace 内目录链接逃逸到 cwd 之外）。
+                if !crate::is_rooted_path(p) {
+                    crate::reject_link_traversal(&ctx.cwd, &s).await?;
+                }
                 s.to_string()
             }
             None => ctx.cwd.display().to_string(),
