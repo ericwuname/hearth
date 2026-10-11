@@ -1270,18 +1270,34 @@ impl AgentLoop {
     /// cwd 外路径 = invalid（结构化失败，不读——防 verifier 代读任意文件）。
     fn read_capped_workspace_file(&self, rel: &str) -> Result<String, String> {
         let p = std::path::Path::new(rel);
-        if p.is_absolute() {
+        // D-193（2026-10-08, traecode）：原**只拒绝对路径**（`is_absolute()`）——头注却称
+        // "criteria 指向 cwd 外路径 = invalid（**不读**——防 verifier 代读任意文件）"，
+        // 而 `..` 未拒 ⇒ `cwd.join("../x")` 读到 workspace **之外**（"声称≠实现"）。
+        // 现：拒绝对路径（含 Windows"有根无前缀"`/x` 与盘符前缀）**+ `..` 穿越**。
+        if p.is_absolute()
+            || p.has_root()
+            || matches!(p.components().next(), Some(std::path::Component::Prefix(_)))
+            || p.components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             return Err("路径越权（file: 条目必须为 workspace 相对路径）".into());
         }
         let full = self.cwd.join(p);
-        let meta = std::fs::metadata(&full).map_err(|e| e.to_string())?;
+        // 再**解析软链/junction 后**校验仍在 workspace 内（防 workspace 内目录链接逃逸；
+        // 与 D-190/D-191 同根因）。fail-closed：目标不存在/不可解析同样拒绝。
+        let cwd_real = std::fs::canonicalize(&self.cwd).unwrap_or_else(|_| self.cwd.clone());
+        let full_real = std::fs::canonicalize(&full).map_err(|e| e.to_string())?;
+        if !full_real.starts_with(&cwd_real) {
+            return Err("路径越权（解析链接后落在 workspace 之外）".into());
+        }
+        let meta = std::fs::metadata(&full_real).map_err(|e| e.to_string())?;
         if !meta.is_file() {
             return Err("不是常规文件".into());
         }
         if meta.len() > 64 * 1024 {
             return Err("超过 64KB 上限".into());
         }
-        std::fs::read_to_string(&full).map_err(|e| e.to_string())
+        std::fs::read_to_string(&full_real).map_err(|e| e.to_string())
     }
 
     /// W8/A4 (RC31): goal_drift 自动检测——独立 LLM 调用比对"最终产物/最终
@@ -8431,6 +8447,81 @@ mod tests {
             "cargo test --manifest-path m/Cargo.toml"
         ));
         assert!(!AgentLoop::cmd_is_side_effectful("cat RESULT.txt"));
+    }
+
+    /// D-193（2026-10-08, traecode）：`read_capped_workspace_file` 的**工作区逃逸**（安全）。
+    ///
+    /// 头注自称"criteria 指向 cwd 外路径 = invalid（结构化失败，**不读**——防 verifier
+    /// 代读任意文件）"，但实现**只拒绝对路径**（`p.is_absolute()`）——**`..` 未拒** ⇒
+    /// `cwd.join("../secret.txt")` 读到 workspace **之外**；且**不解析软链/junction**。
+    /// criteria 由规划器/模型产出（`set_pending_acceptance`）⇒ 提示注入可让 verifier
+    /// **代读任意文件**（与 D-190/D-191 同族）。
+    #[test]
+    fn test_d193_read_capped_workspace_file_rejects_escape() {
+        let base = tempfile::tempdir().unwrap();
+        let ws = base.path().join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(base.path().join("secret.txt"), "TOPSECRET").unwrap();
+
+        let llm: Arc<dyn LlmProvider> = Arc::new(MockLlm::new(vec![]));
+        let agent = AgentLoop::new(
+            llm,
+            Arc::new(ToolDispatcher::new()),
+            bash_tool_ctx(ws.clone()),
+            Goal::new("conversation"),
+        );
+
+        // ① `..` 穿越：修复前读到 workspace 之外的 secret.txt（RED）
+        let r = agent.read_capped_workspace_file("../secret.txt");
+        assert!(
+            r.is_err(),
+            "D-193：`file:` 条目经 `..` 逃出 workspace 必须被拒（头注自称不读 cwd 外）；实得 {r:?}"
+        );
+
+        // ② 目录链接逃逸（Unix symlink / Windows junction，均免管理员）
+        let outside = base.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("s2.txt"), "TOPSECRET2").unwrap();
+        if make_dir_link(&outside, &ws.join("escape")) {
+            let r2 = agent.read_capped_workspace_file("escape/s2.txt");
+            assert!(
+                r2.is_err(),
+                "D-193：经目录链接逃逸的 `file:` 读取必须被拒；实得 {r2:?}"
+            );
+        }
+
+        // 反向对照：workspace **内**的普通文件仍必须可读。
+        std::fs::write(ws.join("ok.txt"), "inside-ok").unwrap();
+        let ok = agent.read_capped_workspace_file("ok.txt");
+        assert_eq!(
+            ok.as_deref().ok(),
+            Some("inside-ok"),
+            "反向对照：workspace 内文件必须仍可读；实得 {ok:?}"
+        );
+    }
+
+    /// D-193（测试支撑）：创建**目录链接**（Unix symlink / Windows junction，均免管理员）。
+    #[cfg(any(unix, windows))]
+    fn make_dir_link(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(windows)]
+        {
+            matches!(
+                std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .output(),
+                Ok(o) if o.status.success()
+            )
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    fn make_dir_link(_t: &std::path::Path, _l: &std::path::Path) -> bool {
+        false
     }
 
     /// 端到端：criteria `file:` 通过（产物正确）→ completed + passed 生产者。
