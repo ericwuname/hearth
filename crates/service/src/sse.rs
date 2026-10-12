@@ -8,6 +8,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::broadcast::Receiver;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
@@ -98,8 +99,28 @@ pub fn sse_stream_with_replay(
             build_sse(&evt, &env).map(Ok)
         }
         Err(err) => {
-            tracing::warn!("SSE: broadcast receiver lagged, events dropped: {err}");
-            None
+            // D-195（2026-10-08, traecode）：订阅者消费慢于广播容量 ⇒ tokio 丢弃落后事件
+            // 并回报 `Lagged(n)`。修复前仅 `tracing::warn!` 后继续 ⇒ **静默丢失**：
+            // `EnvelopeState::seq` 只在**收到**事件时推进 ⇒ 客户端所见 seq **仍连续**，
+            // 无法由 seq/Last-Event-ID 侦测缺口；对流式答案即 token **静默缺失**
+            // （用户看到截断/跳字而**无任何指示**）。对齐业界（SSE：落后消费者须被
+            // 显式告知 + 可重同步）处置：
+            //   ① `env.seq += n`——保持**绝对序号**一致（被丢事件在会话 `events` 缓冲中
+            //      仍占位，序号必须计入；否则客户端按 seq 侦测不到缺口、重连按
+            //      Last-Event-ID 重放也会**错位**）；
+            //   ② 发一条**合成 `notice` 事件**（`{type:"notice",dropped:n}`，**非终止**，
+            //      流继续）显式告知客户端缺口 ⇒ 客户端可据 seq 缺口检测 / 按
+            //      Last-Event-ID 重连重放（亦可用 `GET /events` 全量取回）。
+            // 契约：`api::AgentEvent` 头注"契约只增不改：FE 未知 kind 宽容"——新增
+            // `notice` kind 属**只增**（旧宽容客户端忽略、新客户端显式提示）。
+            let BroadcastStreamRecvError::Lagged(dropped) = err;
+            env.seq = env.seq.saturating_add(dropped);
+            tracing::warn!(
+                "SSE: broadcast receiver lagged, {dropped} event(s) dropped; \
+                 notifying client via notice (seq={})",
+                env.seq
+            );
+            Some(Ok(build_notice(dropped, &env)))
         }
     });
 
@@ -145,6 +166,23 @@ fn build_sse(evt: &AgentEvent, env: &EnvelopeState) -> Option<SseEvent> {
     };
     let data = serde_json::to_string(&enveloped).ok()?;
     Some(SseEvent::default().event(event_type).data(data))
+}
+
+/// D-195：把"广播被追平、丢了 `dropped` 条"编码为一条**非终止**的 `notice` SSE 事件。
+/// 载荷沿用**扁平信封**形状（顶层 `type` + 业务字段）与 `build_sse` 一致，使消费端可用
+/// 同一解析路径识别；`span_id`/`parent_id` 取当前 span 上下文（无 span 时为空）。
+/// 消费端据此可检测缺口（`seq` 跳变 / `dropped>0`）并按 Last-Event-ID 重连重放。
+fn build_notice(dropped: u64, env: &EnvelopeState) -> SseEvent {
+    let data = serde_json::json!({
+        "schema_version": 1,
+        "ts": chrono::Utc::now().to_rfc3339(),
+        "seq": env.seq,
+        "span_id": env.span_stack.last().map(|(sid, _)| sid.clone()).unwrap_or_default(),
+        "parent_id": env.span_stack.last().and_then(|(_, p)| p.clone()),
+        "type": "notice",
+        "dropped": dropped,
+    });
+    SseEvent::default().event("notice").data(data.to_string())
 }
 
 #[cfg(test)]
@@ -380,5 +418,47 @@ mod tests {
         assert!(json.contains("正在规划任务分解"), "text 入流: {json}");
         assert!(json.contains("\"span_id\""), "span_id 在信封: {json}");
         eprintln!("WP-9 PASS: ThinkSummary 带 span_id（可关联具体 span）");
+    }
+
+    // ── D-195: 广播被追平（Lagged）⇒ 发 notice 事件 + 绝对序号一致（先红后绿） ──
+
+    #[tokio::test]
+    async fn test_d195_lagged_emits_notice_and_advances_seq() {
+        use axum::response::IntoResponse;
+        use http_body_util::BodyExt;
+        use tokio::sync::broadcast;
+
+        // 容量 2：订阅后**不读**，灌入 6 条（5 token + 1 done）⇒ 必触发 Lagged(4)
+        let (tx, rx) = broadcast::channel::<AgentEvent>(2);
+        let sse = sse_stream_with_replay(rx, Vec::new(), 0, 0);
+        for i in 0..5 {
+            let _ = tx.send(AgentEvent::Token {
+                delta: format!("t{i}"),
+            });
+        }
+        let _ = tx.send(AgentEvent::Done {
+            report: serde_json::json!({"ok": true}),
+        });
+
+        let body = sse.into_response().into_body();
+        let bytes = body.collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&bytes);
+
+        // ① 必有一条 notice 事件（修复前**无**——静默丢弃）
+        assert!(
+            text.contains("event: notice"),
+            "广播被追平必须发 notice 事件（修复前静默丢弃）: {text}"
+        );
+        // ② notice 报告被丢条数（容量 2、灌入 6 ⇒ 丢 4）
+        assert!(
+            text.contains("\"dropped\":4"),
+            "notice 必须报告被丢条数 4: {text}"
+        );
+        // ③ 绝对序号一致：被丢事件计入 seq ⇒ done 事件的 seq = 6
+        //    （修复前 seq=2——序号不计被丢事件 ⇒ 客户端无法由 seq/Last-Event-ID 侦测缺口）
+        assert!(
+            text.contains("\"seq\":6"),
+            "被丢事件必须计入绝对序号（done 的 seq 应为 6）: {text}"
+        );
     }
 }

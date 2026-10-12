@@ -1836,6 +1836,19 @@ async fn render_events(
                         Err(e) => render::error(&format!("审批提交失败: {e}")),
                     }
                 }
+                // D-195：服务端广播被追平 ⇒ 事件被丢。服务端发一条**非终止** `notice`
+                // 事件报告缺口；此处**显式提示**（修复前落 `_ => {}` ⇒ 静默——用户看到
+                // 被截断/跳字的答案却无任何指示）。可用 Last-Event-ID 重连重放补齐。
+                "notice" => {
+                    let dropped = sse
+                        .data
+                        .get("dropped")
+                        .and_then(|d| d.as_u64())
+                        .unwrap_or(0);
+                    render::info(&format!(
+                        "⚠ 流式事件丢失 {dropped} 条（服务端广播被追平）；可携 Last-Event-ID 重连重放，或 GET /events 全量取回"
+                    ));
+                }
                 _ => {}
             },
             Err(e) => {
