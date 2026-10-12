@@ -1836,6 +1836,32 @@ async fn render_events(
                         Err(e) => render::error(&format!("审批提交失败: {e}")),
                     }
                 }
+                // D-197（2026-10-08, traecode）：补齐远程渲染事件覆盖（承 D-153 同族——
+                // "远程渲染点漏改一处"）。本地渲染器 `run_local.rs` 对 `AgentEvent` 是**穷尽
+                // match**（编译器保证齐全），而远程按字符串匹配、缺臂即静默落 `_ => {}`。
+                // 本处与 `repl.rs` 均补 `goal_changed`/`interaction_resolved`（此前远程丢失：
+                // 用户看不到目标修订与交互响应事实）。防复发：`tests/remote_render_event_parity_gate.rs`。
+                "goal_changed" => {
+                    let revision = sse
+                        .data
+                        .get("revision")
+                        .and_then(|r| r.as_u64())
+                        .unwrap_or(0);
+                    let new_goal = sse_str(&sse.data, "new_goal").unwrap_or("");
+                    render::info(&format!(
+                        "  🔁 目标已修订（revision {revision}）：{}——原目标保留为锚点",
+                        new_goal.chars().take(60).collect::<String>()
+                    ));
+                }
+                "interaction_resolved" => {
+                    let by = sse_str(&sse.data, "by").unwrap_or("");
+                    let resolved = sse
+                        .data
+                        .get("resolved")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    render::info(&format!("↪ 交互已响应 by={by} resolved={resolved}"));
+                }
                 // D-195：服务端广播被追平 ⇒ 事件被丢。服务端发一条**非终止** `notice`
                 // 事件报告缺口；此处**显式提示**（修复前落 `_ => {}` ⇒ 静默——用户看到
                 // 被截断/跳字的答案却无任何指示）。可用 Last-Event-ID 重连重放补齐。

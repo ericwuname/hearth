@@ -149,6 +149,8 @@ pub async fn run(
         // Process SSE stream
         tokio::pin!(stream);
         let mut done_seen = false;
+        // D-197：span 嵌套深度（`span_open`/`span_close` 成对）——与 `lib.rs::render_events` 对齐。
+        let mut depth: usize = 0;
         loop {
             tokio::select! {
                 event = stream.next() => {
@@ -311,6 +313,98 @@ pub async fn run(
                                     if let Some(e) = crate::sse_str(&sse.data, "message") {
                                         render::error(e);
                                     }
+                                }
+                                // D-197（2026-10-08, traecode）：补齐远程 REPL 事件覆盖——
+                                // 与 `lib.rs::render_events` / 本地 `run_local.rs` 对齐。修复前
+                                // span/artifact/think_summary/plan_draft/goal_changed/
+                                // interaction_resolved/notice 全部静默落 `_ => {}`（远程 REPL
+                                // 看不到产物、规划草案、目标修订、流缺口）。防复发：
+                                // `tests/remote_render_event_parity_gate.rs`。
+                                "span_open" => {
+                                    depth += 1;
+                                    let name =
+                                        sse.data.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                    let t0 = sse.data.get("t0").and_then(|t| t.as_str()).unwrap_or("");
+                                    render::span_open(name, depth, t0);
+                                }
+                                "span_close" => {
+                                    let dur = sse
+                                        .data
+                                        .get("duration_ms")
+                                        .and_then(|d| d.as_u64())
+                                        .unwrap_or(0);
+                                    render::span_close(depth, dur);
+                                    depth = depth.saturating_sub(1);
+                                }
+                                "artifact" => {
+                                    let path =
+                                        sse.data.get("path").and_then(|p| p.as_str()).unwrap_or("?");
+                                    let kind =
+                                        sse.data.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
+                                    let delta = sse
+                                        .data
+                                        .get("delta_lines")
+                                        .and_then(|d| d.as_u64())
+                                        .unwrap_or(0);
+                                    render::artifact(path, kind, delta);
+                                }
+                                "think_summary" => {
+                                    let phase = sse
+                                        .data
+                                        .get("phase")
+                                        .and_then(|p| p.as_str())
+                                        .unwrap_or("?");
+                                    let text =
+                                        sse.data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                                    render::think_summary(phase, text);
+                                }
+                                "plan_draft" => {
+                                    let steps =
+                                        sse.data.get("steps").unwrap_or(&serde_json::Value::Null);
+                                    let found =
+                                        sse.data.get("gaps_found").and_then(|g| g.as_u64()).unwrap_or(0);
+                                    let ask =
+                                        sse.data.get("gaps_to_ask").and_then(|g| g.as_u64()).unwrap_or(0);
+                                    let assumed = sse
+                                        .data
+                                        .get("auto_assumed")
+                                        .unwrap_or(&serde_json::Value::Null);
+                                    let ask_details = sse
+                                        .data
+                                        .get("gaps_to_ask_details")
+                                        .unwrap_or(&serde_json::Value::Null);
+                                    render::plan_draft(steps, found, ask, assumed, ask_details);
+                                }
+                                "goal_changed" => {
+                                    let revision = sse
+                                        .data
+                                        .get("revision")
+                                        .and_then(|r| r.as_u64())
+                                        .unwrap_or(0);
+                                    let new_goal = crate::sse_str(&sse.data, "new_goal").unwrap_or("");
+                                    render::info(&format!(
+                                        "  🔁 目标已修订（revision {revision}）：{}——原目标保留为锚点",
+                                        new_goal.chars().take(60).collect::<String>()
+                                    ));
+                                }
+                                "interaction_resolved" => {
+                                    let by = crate::sse_str(&sse.data, "by").unwrap_or("");
+                                    let resolved = sse
+                                        .data
+                                        .get("resolved")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    render::info(&format!("↪ 交互已响应 by={by} resolved={resolved}"));
+                                }
+                                "notice" => {
+                                    let dropped = sse
+                                        .data
+                                        .get("dropped")
+                                        .and_then(|d| d.as_u64())
+                                        .unwrap_or(0);
+                                    render::info(&format!(
+                                        "⚠ 流式事件丢失 {dropped} 条（服务端广播被追平）；可携 Last-Event-ID 重连重放，或 GET /events 全量取回"
+                                    ));
                                 }
                                 _ => {}
                             }
