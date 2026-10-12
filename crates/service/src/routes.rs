@@ -1424,6 +1424,14 @@ pub fn builtin_tools() -> Vec<(&'static str, Arc<dyn tool_runtime::Tool>)> {
         ("apply_patch", Arc::new(tools_builtin::PatchTool::new())),
         ("glob", Arc::new(tools_builtin::GlobTool::new())),
         ("grep", Arc::new(tools_builtin::GrepTool::new())),
+        // D-199（2026-10-08, traecode）：补齐到与 CLI 本地 `build_dispatcher` **同集**。
+        // 此前 service 只注册 6 个 ⇒ 远程会话（生产/多租户路径）缺受控联网与任务清单能力
+        // （本地直跑有、远程没有）。egress 由**白名单**治理而非"少注册工具"：`bash` 早已注册、
+        // 出网是 S2 默认放开，故 `web_fetch`/`web_search` 不新增出网面，只是同一 agent 的便利工具。
+        ("todo_write", Arc::new(tools_builtin::TodoWriteTool::new())),
+        ("introspect", Arc::new(tools_builtin::IntrospectTool::new())),
+        ("web_fetch", Arc::new(tools_builtin::WebTool::new())),
+        ("web_search", Arc::new(tools_builtin::WebSearchTool::new())),
     ]
 }
 
@@ -1492,6 +1500,24 @@ mod d44_tests {
             assert!(
                 reported.iter().any(|r| r == n),
                 "真实注册的 `{n}` 未出现在 /api/v1/tools"
+            );
+        }
+    }
+
+    /// D-199 回归锁：service 内置工具表必须与 CLI 本地 `build_dispatcher` **同集**。
+    ///
+    /// 此前 service `builtin_tools()` 只有 6 个（bash/read/edit/apply_patch/glob/grep），
+    /// **缺** `web_fetch`/`web_search`/`todo_write`/`introspect` ⇒ 远程会话（生产/多租户路径）
+    /// 缺少受控联网与任务清单能力（本地直跑有、远程没有），`GET /api/v1/tools` 亦只报 6 个。
+    /// 语义上是**同一 agent**，remote 只是托管形态 ⇒ 工具集必须一致（egress 由**白名单**治理，
+    /// 而非靠"少注册工具"来治理；且 `bash` 早已注册、其出网为 S2 默认放开）。
+    #[test]
+    fn test_d199_service_tools_match_cli_builtin_set() {
+        let names = tool_names();
+        for n in ["web_fetch", "web_search", "todo_write", "introspect"] {
+            assert!(
+                names.iter().any(|x| x == n),
+                "service 内置工具表缺 `{n}`——远程会话与本地 CLI 不齐（修复前缺失；实得 {names:?}）"
             );
         }
     }
