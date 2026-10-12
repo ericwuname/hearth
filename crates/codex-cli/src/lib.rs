@@ -751,6 +751,16 @@ pub async fn hearth_main() -> Result<()> {
                         resolved.egress_allowlist.join(",")
                     };
                     println!("egress-allowlist = {egress}");
+                    // D-201（2026-10-08, traecode）：降级链此前在 `config get` 概览里**缺席**
+                    // （`ResolvedConfig.providers` 已生效）⇒ 用户看不到已生效的降级链。
+                    println!(
+                        "providers       = {}",
+                        if resolved.providers.is_empty() {
+                            format!("(单通道：{})", resolved.provider)
+                        } else {
+                            resolved.providers.join(",")
+                        }
+                    );
                     println!("(文件: {})", path.display());
                 } else {
                     let v = match field.as_str() {
@@ -766,6 +776,15 @@ pub async fn hearth_main() -> Result<()> {
                             resolved.feedback_prompt.to_string()
                         }
                         "read-roots" | "read_roots" => read_roots(),
+                        // D-201（2026-10-08, traecode）：`providers`（降级链）此前 `config get`
+                        // 不认（报"未知字段"）——用户看不到已生效的降级链。
+                        "providers" => {
+                            if resolved.providers.is_empty() {
+                                format!("(单通道：{})", resolved.provider)
+                            } else {
+                                resolved.providers.join(",")
+                            }
+                        }
                         "egress-allowlist" | "egress_allowlist" => {
                             if resolved.egress_allowlist.is_empty() {
                                 "(deny-by-default：全部拒绝)".to_string()
@@ -775,7 +794,7 @@ pub async fn hearth_main() -> Result<()> {
                         }
                         other => {
                             eprintln!(
-                                "未知字段: {other}——可用: provider/model/url/api-key/mode/feedback-prompt/read-roots/egress-allowlist"
+                                "未知字段: {other}——可用: provider/model/url/api-key/mode/feedback-prompt/read-roots/providers/egress-allowlist"
                             );
                             return Ok(());
                         }

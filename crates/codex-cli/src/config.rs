@@ -127,7 +127,7 @@ impl Config {
                 };
                 self.feedback_prompt = Some(b);
             }
-            "read-roots" => {
+            "read-roots" | "read_roots" => {
                 let list: Vec<String> = value
                     .split(',')
                     .map(|x| x.trim().to_string())
@@ -135,8 +135,18 @@ impl Config {
                     .collect();
                 self.read_roots = Some(list);
             }
+            // D-201（2026-10-08, traecode）：补 `providers`（S9 降级链）——此前 CLI 既读不到
+            // 也设不了（`ResolvedConfig.providers` 已生效），用户可见面落后于结构体。
+            "providers" => {
+                let list: Vec<String> = value
+                    .split(',')
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect();
+                self.providers = Some(list);
+            }
             other => anyhow::bail!(
-                "未知字段: {other}——可用: provider / model / url / api-key / mode / feedback-prompt / egress-allowlist / read-roots"
+                "未知字段: {other}——可用: provider / model / url / api-key / mode / feedback-prompt / egress-allowlist / read-roots / providers"
             ),
         }
         self.save()?;
