@@ -18,6 +18,38 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 
+/// D-196（2026-10-08, traecode）：解析持久化 taskgoal 的 `constraints` / `acceptance_criteria`。
+///
+/// 病灶：恢复（resume）时用 `tg.get("constraints").and_then(|v| serde_json::from_value(v.clone())
+/// .ok()).unwrap_or_default()` ⇒ 形状不符（旧版本 / 部分写 / 损坏）时**静默置空**，而用户仍被
+/// 告知"任务目标已恢复" ⇒ 任务在**失去原约束/验收标准**下继续（D-164/D-177/D-184 同族）。
+/// 现改为**显式**解析并留痕：字段**缺失**（旧会话）→ 空列表（合法，无恢复语义）；字段**存在但
+/// 形状不符** → 空列表 **+ 一条 note**（由调用方并入 stale 留痕，与 revision mismatch 同通道）。
+/// 返回 `(constraints, acceptance_criteria, note)`。
+fn parse_taskgoal_lists(tg: &serde_json::Value) -> (Vec<String>, Vec<String>, Option<String>) {
+    let mut notes: Vec<String> = Vec::new();
+    let one = |key: &str, notes: &mut Vec<String>| -> Vec<String> {
+        match tg.get(key) {
+            None => Vec::new(),
+            Some(v) => match serde_json::from_value(v.clone()) {
+                Ok(list) => list,
+                Err(e) => {
+                    notes.push(format!("{key} 解析失败已置空: {e}"));
+                    Vec::new()
+                }
+            },
+        }
+    };
+    let constraints = one("constraints", &mut notes);
+    let criteria = one("acceptance_criteria", &mut notes);
+    let note = if notes.is_empty() {
+        None
+    } else {
+        Some(notes.join("; "))
+    };
+    (constraints, criteria, note)
+}
+
 #[derive(Parser)]
 #[command(
     name = "hearth",
@@ -1060,18 +1092,23 @@ pub async fn hearth_main() -> Result<()> {
                         stale_note = Some(format!("taskgoal rev={tg_rev} vs graph rev={g_rev}"));
                     }
                     if let Some(original) = tg.get("original_goal").and_then(|v| v.as_str()) {
+                        // D-196：显式解析 constraints/acceptance_criteria——形状不符**留痕**
+                        // （不静默置空），并与 revision mismatch 的 stale_note 合并后一并上报。
+                        let (constraints, criteria, parse_note) = parse_taskgoal_lists(tg);
+                        let merged_note = match (stale_note.take(), parse_note) {
+                            (None, None) => None,
+                            (a, b) => {
+                                Some([a, b].into_iter().flatten().collect::<Vec<_>>().join("; "))
+                            }
+                        };
                         agent.restore_taskgoal(
                             original.to_string(),
-                            tg.get("constraints")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                                .unwrap_or_default(),
-                            tg.get("acceptance_criteria")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                                .unwrap_or_default(),
+                            constraints,
+                            criteria,
                             tg.get("goal_revision")
                                 .and_then(|v| v.as_u64())
                                 .unwrap_or(0),
-                            stale_note,
+                            merged_note,
                         );
                         render::info(&format!(
                             "  🎯 任务目标已恢复: {}（revision {}）",
@@ -1989,5 +2026,58 @@ mod d6061_tests {
 
         // ③ 无重复/无效声明（同参数声明两套会让 clap 的 debug 断言炸）。
         Cli::command().debug_assert();
+    }
+}
+
+#[cfg(test)]
+mod d196_tests {
+    use super::*;
+
+    /// D-196（2026-10-08, traecode）：恢复路径的字段解析——**形状不符必须留痕**，不静默置空。
+    #[test]
+    fn test_d196_parse_taskgoal_lists_notes_shape_mismatch() {
+        // ① 正常形状：原样解析，无 note。
+        let ok = serde_json::json!({
+            "constraints": ["a", "b"],
+            "acceptance_criteria": ["file: out.txt nonempty"]
+        });
+        let (c, a, note) = parse_taskgoal_lists(&ok);
+        assert_eq!(c, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(a, vec!["file: out.txt nonempty".to_string()]);
+        assert!(note.is_none(), "正常形状不得有 note：{note:?}");
+
+        // ② 字段**缺失**（旧会话）→ 空列表、**无** note（合法，无恢复语义）。
+        let (c, a, note) = parse_taskgoal_lists(&serde_json::json!({}));
+        assert!(c.is_empty() && a.is_empty());
+        assert!(note.is_none(), "字段缺失是合法情形，不应报 note：{note:?}");
+
+        // ③ 字段**存在但形状不符** → 空列表 **+ note**（修复前：`.ok().unwrap_or_default()`
+        //    静默置空、无任何留痕，用户仍被告知"任务目标已恢复"）。
+        let bad = serde_json::json!({
+            "constraints": "should-be-an-array",
+            "acceptance_criteria": {"not": "an array"}
+        });
+        let (c, a, note) = parse_taskgoal_lists(&bad);
+        assert!(c.is_empty() && a.is_empty());
+        let note = note.expect("形状不符必须留痕（不得静默置空）");
+        assert!(note.contains("constraints"), "note 须点名字段：{note}");
+        assert!(
+            note.contains("acceptance_criteria"),
+            "note 须点名字段：{note}"
+        );
+
+        // ④ 一个字段好、一个字段坏 → 好的**保留**、坏的置空并留痕（不因一坏全丢）。
+        let half = serde_json::json!({
+            "constraints": ["keep"],
+            "acceptance_criteria": 42
+        });
+        let (c, a, note) = parse_taskgoal_lists(&half);
+        assert_eq!(c, vec!["keep".to_string()], "可用字段必须保留");
+        assert!(a.is_empty());
+        assert!(
+            note.expect("坏字段必须留痕")
+                .contains("acceptance_criteria"),
+            "note 须点名坏字段"
+        );
     }
 }
