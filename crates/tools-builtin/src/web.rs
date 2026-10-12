@@ -40,16 +40,15 @@ impl Default for WebTool {
 
 /// 出网白名单匹配：allowlist 项是域名或后缀（example.com 匹配 example.com/docs.example.com）。
 /// 空 allowlist = fail-closed（全部拒绝，须显式配置才放行）。
+///
+/// D-198（2026-10-08, traecode）：归一化收口到**唯一实现** `crate::egress_host_allowed`
+/// （此前本处与 `web_search`/`bash`/`webhook` 各写一份、口径**分叉**——同一份白名单
+/// `.example.com`/`Example.com`/`*.example.com` 在不同工具上判定不同）。
 fn egress_allowed(host: &str, allowlist: &[String]) -> bool {
     if allowlist.is_empty() {
         return false;
     }
-    let h = host.trim_end_matches('.');
-    allowlist.iter().any(|a| {
-        let a = a.trim().trim_start_matches('.').to_lowercase();
-        let a = a.trim_end_matches('.');
-        h.eq_ignore_ascii_case(a) || h.ends_with(&format!(".{a}"))
-    })
+    crate::egress_host_allowed(host, allowlist)
 }
 
 /// 极简 HTML→纯文本（去标签 + 解码实体；不引重依赖）。返回去标签后的文本。

@@ -516,7 +516,10 @@ async fn main() -> anyhow::Result<()> {
         let mut merged: Vec<String> = Vec::new();
         if let Ok(al) = std::env::var("HEARTH_EGRESS_ALLOWLIST") {
             for item in al.split(',') {
-                let t = item.trim().to_lowercase();
+                // D-198（2026-10-08, traecode）：与下方 config 分支及 CLI `merge_allowlist`
+                // **真正同构**——此前 env 分支**漏了** `trim_start_matches('.')`，
+                // RC13 自称"同构"实为分叉（`.example.com` 在 service 与 CLI 合并成不同字符串）。
+                let t = item.trim().trim_start_matches('.').to_lowercase();
                 if !t.is_empty() && !merged.contains(&t) {
                     merged.push(t);
                 }

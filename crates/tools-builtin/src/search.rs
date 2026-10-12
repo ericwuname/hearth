@@ -103,17 +103,16 @@ async fn fetch_html(client: &reqwest::Client, url: &str) -> Result<String> {
 
 /// S2 口径的出网判定：allowlist 为空 = 默认放开；非空 = 只放行命中项
 ///（相等或 `.条目` 后缀；认不出主机一律拒）。
+///
+/// D-198（2026-10-08, traecode）：归一化收口到**唯一实现** `crate::egress_host_allowed`。
 fn egress_allowed_open(host: Option<&str>, allowlist: &[String]) -> bool {
     if allowlist.is_empty() {
         return true; // S2 默认放开（用户拍板 2026-09-09）
     }
-    let Some(h) = host else { return false };
-    let h = h.trim_end_matches('.').to_lowercase();
-    allowlist.iter().any(|a| {
-        let a = a.trim().trim_start_matches('.').to_lowercase();
-        let a = a.trim_end_matches('.');
-        !a.is_empty() && (h == a || h.ends_with(&format!(".{a}")))
-    })
+    match host {
+        Some(h) => crate::egress_host_allowed(h, allowlist),
+        None => false,
+    }
 }
 
 fn allowlist_from_env(ctx: &ToolContext) -> Vec<String> {

@@ -271,20 +271,18 @@ fn validate_webhook_url(raw: &str, allowlist_csv: Option<&str>) -> anyhow::Resul
         anyhow::bail!("webhook url 无 host: {raw}");
     }
     // ② 仅当显式设置白名单时才收紧（默认全放，保持既有语义）
-    let allow: Vec<&str> = allowlist_csv
+    // D-198（2026-10-08, traecode）：归一化收口到**唯一实现** `tools_builtin::egress_host_allowed`
+    // ——此前本处只认 `*.` 前缀、不小写不去点，与工具层（web_fetch/web_search/bash）**分叉**。
+    let allow: Vec<String> = allowlist_csv
         .unwrap_or("")
         .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
         .collect();
     if !allow.is_empty() {
         let hostname = host.split(':').next().unwrap_or(host);
-        let ok = allow.iter().any(|a| {
-            let a = a.trim();
-            let base = a.strip_prefix("*.").unwrap_or(a);
-            hostname == base || hostname.ends_with(&format!(".{base}"))
-        });
-        if !ok {
+        if !tools_builtin::egress_host_allowed(hostname, &allow) {
             anyhow::bail!("webhook url 域名 {hostname} 不在 HEARTH_EGRESS_ALLOWLIST 白名单");
         }
     }
@@ -318,6 +316,29 @@ mod tests {
         // 通配写法 `*.example.com` 与其裸域等价
         assert!(validate_webhook_url("https://a.example.com/x", Some("*.example.com")).is_ok());
         assert!(validate_webhook_url("https://example.com/x", Some("*.example.com")).is_ok());
+    }
+
+    /// D-198（2026-10-08, traecode）：webhook 的出网白名单**归一化口径**必须与工具层
+    /// （`web_fetch`/`web_search`/`bash`）**一致**。此前 webhook 侧只认 `*.` 前缀、
+    /// **不小写也不去前导点** ⇒ 同一份 `HEARTH_EGRESS_ALLOWLIST`：`.example.com` /
+    /// `Example.com` 在工具层放行、在 webhook 注册被拒（"同一白名单"语义破裂）。
+    #[test]
+    fn test_d198_webhook_allowlist_normalization_consistent() {
+        for entry in [".example.com", "Example.com", "*.example.com"] {
+            assert!(
+                validate_webhook_url("https://example.com/hook", Some(entry)).is_ok(),
+                "白名单项 {entry:?} 必须放行 example.com（与工具层同口径）"
+            );
+            assert!(
+                validate_webhook_url("https://a.example.com/hook", Some(entry)).is_ok(),
+                "白名单项 {entry:?} 必须放行子域 a.example.com"
+            );
+        }
+        // 反向对照：非白名单域仍必须被拒。
+        assert!(
+            validate_webhook_url("https://evil.test/hook", Some(".example.com")).is_err(),
+            "非白名单域仍须拒绝"
+        );
     }
 
     /// D-172 回归锁（**先红后绿**）：hook 选择必须**按 owner 隔离**——修复前 `fire`

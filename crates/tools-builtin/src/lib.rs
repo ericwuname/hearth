@@ -49,6 +49,31 @@ pub fn is_rooted_path(p: &std::path::Path) -> bool {
     p.has_root() || matches!(p.components().next(), Some(std::path::Component::Prefix(_)))
 }
 
+/// D-198（2026-10-08, traecode）：**受控出网白名单的单一归一化口径**（唯一真相源）。
+///
+/// 病灶：同一份 `HEARTH_EGRESS_ALLOWLIST` 在**四处**出网闸各有*独立*匹配实现、归一化**分叉**：
+/// `web_fetch`（去前导点 + 条目小写；后缀匹配未小写主机）、`web_search`（两侧小写 + 去点）、
+/// `bash`（**既不小写也不去点**）、`webhook`（只认 `*.` 前缀；不小写不去点）。⇒
+/// 同一条目在不同工具上判定**不同**：`.example.com` / `Example.com` 在 `web_fetch` 放行、
+/// 在 `bash curl` 被拒；`*.example.com` 只在 webhook 生效——"同一白名单"语义破裂，
+/// 且用户/审计无法预测某域名到底放不放。
+///
+/// 本函数收口归一化（**唯一实现**，四处共用）：两侧 `trim` + 去首尾点 + 去 `*.` 前缀 +
+/// ASCII 小写；匹配＝**相等** 或 `.条目` 后缀。**空 allowlist 语义由调用方决定**
+/// （`web_fetch`=fail-closed 全拒；`bash`/`web_search`/`webhook`=S2 默认放开）。
+pub fn egress_host_allowed(host: &str, allowlist: &[String]) -> bool {
+    let h = host.trim().trim_matches('.').to_ascii_lowercase();
+    if h.is_empty() {
+        return false;
+    }
+    allowlist.iter().any(|a| {
+        let a = a.trim();
+        let a = a.strip_prefix("*.").unwrap_or(a);
+        let a = a.trim_matches('.').to_ascii_lowercase();
+        !a.is_empty() && (h == a || h.ends_with(&format!(".{a}")))
+    })
+}
+
 /// D-191（2026-10-08, traecode）：**相对**路径的逐段**链接检查**——拒绝经 workspace 内
 /// **软链/junction** 逃逸到 cwd 之外。
 ///

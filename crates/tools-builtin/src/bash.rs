@@ -150,10 +150,11 @@ pub fn check_egress(
         .get("HEARTH_EGRESS_ALLOWLIST")
         .cloned()
         .unwrap_or_default();
-    let allow: Vec<&str> = allow_csv
+    let allow: Vec<String> = allow_csv
         .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
         .collect();
 
     let hosts = extract_hosts(cmd);
@@ -173,11 +174,7 @@ pub fn check_egress(
     }
     let denied: Vec<String> = hosts
         .iter()
-        .filter(|h| {
-            !allow
-                .iter()
-                .any(|a| *a == h.as_str() || h.ends_with(&format!(".{a}")))
-        })
+        .filter(|h| !crate::egress_host_allowed(h.as_str(), &allow))
         .cloned()
         .collect();
     if denied.is_empty() {
@@ -788,6 +785,33 @@ mod tests {
         let e = check_egress("curl https://evil.test/", &env).unwrap_err();
         assert!(e.contains("不在 egress_allowlist"), "got: {e}");
         assert!(e.contains("evil.test"), "须点名被拒域名: {e}");
+    }
+
+    /// D-198（2026-10-08, traecode）：受控出网白名单**归一化口径**必须与 `web_fetch`/`web_search`
+    /// 一致——此前 bash 侧 `check_egress` 既**不小写**也**不去前导点**（webhook 侧只认 `*.`）
+    /// ⇒ **同一份** `HEARTH_EGRESS_ALLOWLIST`：`.example.com` / `Example.com` / `*.example.com`
+    /// 在 `web_fetch` 放行、在 `bash curl` 被拒——"同一白名单"语义破裂。
+    #[test]
+    fn test_d198_egress_entry_normalization_consistent() {
+        for entry in [".example.com", "Example.com", "*.example.com"] {
+            let env = env_with_allowlist(entry);
+            assert!(
+                check_egress("curl https://example.com/", &env).is_ok(),
+                "白名单项 {entry:?} 必须与 web_fetch/web_search 同口径放行 example.com"
+            );
+            // 子域同样放行（归一化后后缀匹配）
+            assert!(
+                check_egress("curl https://docs.example.com/", &env).is_ok(),
+                "白名单项 {entry:?} 必须放行子域 docs.example.com"
+            );
+        }
+        // 反向对照：非白名单域仍必须被拒（防加固矫枉过正）。
+        let e = check_egress(
+            "curl https://evil.test/",
+            &env_with_allowlist(".example.com"),
+        )
+        .unwrap_err();
+        assert!(e.contains("evil.test"), "非白名单域仍须拒绝: {e}");
     }
 
     // （旧测试 test_egress_empty_allowlist_denies_all 已随 S2 语义反转删除——
