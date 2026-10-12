@@ -134,46 +134,14 @@ fn strip_tags(s: &str) -> String {
             _ => {}
         }
     }
-    normalize_ws(&unescape_html(&out))
+    normalize_ws(&crate::web::decode_entities(&out))
 }
 
-/// 实体解码（搜索结果里的标题/摘要常见 `&amp;` `&#x27;` `&quot;` `&nbsp;`）。
-fn unescape_html(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(idx) = rest.find('&') {
-        out.push_str(&rest[..idx]);
-        let tail = &rest[idx..];
-        // 实体最长 &nbsp; = 6 字符 + ';'；取一小段窗口做前缀匹配。
-        let window: String = tail.chars().take(10).collect();
-        let mut consumed = 0usize;
-        for (ent, rep) in [
-            ("&amp;", "&"),
-            ("&quot;", "\""),
-            ("&#x27;", "'"),
-            ("&#39;", "'"),
-            ("&apos;", "'"),
-            ("&lt;", "<"),
-            ("&gt;", ">"),
-            ("&nbsp;", " "),
-            ("&#x2F;", "/"),
-            ("&hellip;", "…"),
-        ] {
-            if window.starts_with(ent) {
-                out.push_str(rep);
-                consumed = ent.len();
-                break;
-            }
-        }
-        if consumed == 0 {
-            out.push('&');
-            consumed = 1;
-        }
-        rest = &tail[consumed..];
-    }
-    out.push_str(rest);
-    out
-}
+// D-200（2026-10-08, traecode）：原本地 `unescape_html`（只认 10 个实体，如
+// `&amp;`/`&#x27;`/`&quot;`/`&nbsp;`）**已删除**——改用 `web_fetch` 的
+// `crate::web::decode_entities`（同源解码）。两份实体表**分叉**时，同一段 HTML 在两个
+// 出网工具里清洗结果不同（`&#8217;`/`&copy;` 在 `web_fetch` 解码、在此原样泄漏）。
+// 防复发：单测 `test_d200_search_html_decoding_matches_web_fetch`。
 
 /// percent 解码（DuckDuckGo 的 `uddg=` 参数是被转义的真实 URL）。
 fn percent_decode(s: &str) -> String {
@@ -210,7 +178,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
 /// DuckDuckGo 的跳转链接还原：`//duckduckgo.com/l/?uddg=<encoded>&rut=…` → 真实 URL。
 /// 已是绝对 URL 的原样返回；协议相对（`//host/…`）补 https。
 fn normalize_ddg_url(raw: &str) -> String {
-    let raw = unescape_html(raw);
+    let raw = crate::web::decode_entities(raw);
     if let Some(pos) = raw.find("uddg=") {
         let tail = &raw[pos + "uddg=".len()..];
         let enc = tail.split('&').next().unwrap_or("");
@@ -313,7 +281,7 @@ pub fn parse_bing_html(html: &str) -> Vec<SearchHit> {
                 let start = h + "href=\"".len();
                 let rest = &block[start..];
                 let end = rest.find('"').unwrap_or(0);
-                unescape_html(&rest[..end])
+                crate::web::decode_entities(&rest[..end])
             })
             .unwrap_or_default();
         let title = block
@@ -587,6 +555,19 @@ mod tests {
         // 认不出主机 → 收紧模式下拒绝（fail-closed）
         assert!(!egress_allowed_open(None, &wl));
         assert!(!egress_allowed_open(Some("notduckduckgo.com"), &wl));
+    }
+
+    /// D-200（2026-10-08, traecode）：`web_search` 的 HTML 清洗必须与 `web_fetch` **同源**解码实体。
+    /// 此前两处各写一份实体表：`web_search` 只认 **10** 个具名/数值实体，`web_fetch` 认
+    /// **任意数值引用**（`&#NN;`/`&#xHH;`）+ 15 个具名 ⇒ 同一段 HTML 在两个出网工具里清洗结果
+    /// **不同**（如 `&#8217;`/`&copy;` 在 `web_fetch` 解码、在 `web_search` 原样泄漏给模型）。
+    #[test]
+    fn test_d200_search_html_decoding_matches_web_fetch() {
+        let got = strip_tags("<b>It&#8217;s &copy; &#x2F;end</b>");
+        assert_eq!(
+            got, "It’s © /end",
+            "web_search 的实体解码必须与 web_fetch 同源（`&#8217;`/`&copy;` 此前未解码，泄漏给模型）"
+        );
     }
 
     /// S13⑥：出网被拒时给出可行动错误（不真发请求）；参数缺失走结构化报错。

@@ -76,7 +76,11 @@ fn strip_html(s: &str) -> String {
 
 /// 极简 HTML 实体解码（常用命名实体 + 数字引用）——补齐头注"去标签/实体"的**实体**一半。
 /// 未知实体**原样保留**（不猜测、不破坏原文）；无 `&` 时零成本直通。
-fn decode_entities(s: &str) -> String {
+///
+/// D-200（2026-10-08, traecode）：提为 `pub(crate)`——`web_search` 的 HTML 清洗改为**委托**本函数
+/// （此前 `search.rs` 另写一份只认 10 个实体的 `unescape_html`，两份**分叉**：同一段 HTML 在两个
+/// 出网工具里清洗结果不同）。
+pub(crate) fn decode_entities(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
     }
