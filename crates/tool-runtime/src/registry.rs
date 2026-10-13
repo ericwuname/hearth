@@ -110,27 +110,64 @@ impl ToolRegistry {
     }
 
     /// Load tools from a directory containing manifest.toml files.
+    ///
+    /// D-202（2026-10-08, traecode）：**失败不得静默吞掉**。此前对"目录读不了 / manifest
+    /// 读不了 / TOML 解析失败 / install 失败"**全部静默跳过**、函数仍 `Ok(count)` ⇒ service
+    /// 启动期（`TOOLS_DIR` 自动发现）放入的坏工具被**无声丢弃**（日志只在 `discovered>0` 时打印）。
+    /// 现每个失败分支 `tracing::warn!` 留痕（**容错跳过语义保留**：一个坏 manifest 不影响其余）；
+    /// 目录本身不可读则显式 `Err`（调用方 `service/main.rs` 已 warn 处理）。
     pub fn load_from_dir(&self, dir: &PathBuf) -> Result<usize, String> {
         if !dir.exists() {
             return Ok(0);
         }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(e) => {
+                return Err(format!(
+                    "读取工具目录 {} 失败（此前被静默吞成 0 个）: {e}",
+                    dir.display()
+                ));
+            }
+        };
         let mut count = 0;
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    let manifest_path = p.join("manifest.toml");
-                    if manifest_path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                            if let Ok(manifest) = toml::from_str::<ToolManifest>(&content) {
-                                let name = manifest.name.clone();
-                                if self.install(manifest).unwrap_or(false) {
-                                    tracing::info!(name, "tool auto-discovered from file system");
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let manifest_path = p.join("manifest.toml");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&manifest_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %manifest_path.display(),
+                        "工具 manifest 读取失败，已跳过: {e}"
+                    );
+                    continue;
+                }
+            };
+            let manifest = match toml::from_str::<ToolManifest>(&content) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %manifest_path.display(),
+                        "工具 manifest 解析失败（TOML 语法/字段），已跳过: {e}"
+                    );
+                    continue;
+                }
+            };
+            let name = manifest.name.clone();
+            match self.install(manifest) {
+                Ok(true) => {
+                    tracing::info!(name, "tool auto-discovered from file system");
+                    count += 1;
+                }
+                Ok(false) => {} // 已存在（重名），非失败
+                Err(e) => {
+                    tracing::warn!(name, "工具登记失败，已跳过: {e}");
                 }
             }
         }
