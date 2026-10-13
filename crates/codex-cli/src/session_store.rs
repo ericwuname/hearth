@@ -152,7 +152,8 @@ pub fn load_taskgoal(session_id: &str) -> Option<(u64, serde_json::Value)> {
     ))
 }
 
-/// 读取会话全部 Turn（按落盘顺序）。文件不存在/损坏行 → 跳过（不 panic）。
+/// 读取会话全部 Turn（按落盘顺序）。文件不存在/不可读 → 空（不 panic）；
+/// **损坏行 → `tracing::warn!` 留痕后跳过**（不静默丢历史）。
 pub fn load_turns(session_id: &str) -> Vec<Turn> {
     let path = sessions_dir().join(format!("{session_id}.jsonl"));
     // D-125：有界读入（会话档 64 MiB，与 D-51 同类档一致）——档随轮次只增，
@@ -160,10 +161,25 @@ pub fn load_turns(session_id: &str) -> Vec<Turn> {
     let Some(content) = read_optional_capped(&path, SESSION_FILE_CAP, "会话档") else {
         return Vec::new();
     };
-    content
-        .lines()
-        .filter_map(|l| serde_json::from_str::<Turn>(l).ok())
-        .collect()
+    // D-215（2026-10-08, traecode）：坏行 **warn + skip**——与**同文件上方**的"截断留痕"
+    // （D-125）**同一理由**：`resume` 用本函数重建上下文、`list_sessions` 用它报轮数，
+    // 坏行（旧版本 Turn 结构 / 外部写坏 / 半写）无声消失 ⇒ 历史缺条而用户**一无所知**
+    // （与 D-203/D-204/D-205 同口径：坏行不得静默丢弃）。
+    let mut turns: Vec<Turn> = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<Turn>(line) {
+            Ok(t) => turns.push(t),
+            Err(e) => tracing::warn!(
+                path = %path.display(),
+                line = i + 1,
+                "会话档损坏 Turn 行已跳过（resume 历史可能缺失）: {e}"
+            ),
+        }
+    }
+    turns
 }
 
 /// 列出本地会话（resume 提示用）。
