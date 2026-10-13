@@ -130,6 +130,36 @@ fn summarize_provider_error(msg: &str) -> String {
     agent_types::truncate_marked(&format!("[{kind}] {one}"), 200)
 }
 
+/// D-212（2026-10-08, traecode）：**命令/编译器输出**的单行摘要——与 provider 错误摘要
+/// **分职**（旧实现错误地复用 [`summarize_provider_error`]）。
+///
+/// 病灶：自检（`self_check_artifacts` / HTML 冒烟）把 `cargo check` / `py_compile` / `node --check`
+/// 的**输出**喂给 provider 错误摘要 ⇒ ① 只取**首行**、丢掉 rustc 的 `--> file:line:col` 定位行
+/// （模型据此修复时**不知改哪个文件哪一行**）；② 强加 provider 分类前缀（`[未分类]` 对编译错误
+/// **无意义**，还让模型误以为是网络类）。
+///
+/// 本函数：取**前若干非空行**（保留 `-->` 定位）、**不加 provider 标签**、行数与字符数**双有界**且
+/// 截断留痕（不静默丢信息）。
+fn summarize_cmd_output(out: &str) -> String {
+    const MAX_LINES: usize = 6;
+    const MAX_CHARS: usize = 400;
+    let lines: Vec<&str> = out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let mut head = lines
+        .iter()
+        .take(MAX_LINES)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if lines.len() > MAX_LINES {
+        head.push_str(&format!(" …（另有 {} 行未显示）", lines.len() - MAX_LINES));
+    }
+    agent_types::truncate_marked(&head, MAX_CHARS)
+}
+
 /// S12（手术包二）：交付前自检闸的判定——Proceed = 继续收尾；
 /// Replan = 注入失败事实回喂模型修复（≤2 轮，不静默交半成品）。
 enum SelfCheckGate {
@@ -4040,7 +4070,7 @@ impl AgentLoop {
                         failures.push(format!(
                             "{} 语法检查未过: {}",
                             wf.path,
-                            summarize_provider_error(&out)
+                            summarize_cmd_output(&out)
                         ));
                     }
                 }
@@ -4051,7 +4081,7 @@ impl AgentLoop {
                         failures.push(format!(
                             "{} 语法检查未过: {}",
                             wf.path,
-                            summarize_provider_error(&out)
+                            summarize_cmd_output(&out)
                         ));
                     }
                 }
@@ -4059,12 +4089,12 @@ impl AgentLoop {
                     if self.cwd.join("Cargo.toml").exists() {
                         let (ok, out) =
                             Self::run_check_cmd("cargo", &["check", "--quiet"], 180).await;
-                        checks.push(serde_json::json!({"path": wf.path, "kind": "cargo_check", "ok": ok, "detail": summarize_provider_error(&out)}));
+                        checks.push(serde_json::json!({"path": wf.path, "kind": "cargo_check", "ok": ok, "detail": summarize_cmd_output(&out)}));
                         if !ok {
                             failures.push(format!(
                                 "{} cargo check 未过: {}",
                                 wf.path,
-                                summarize_provider_error(&out)
+                                summarize_cmd_output(&out)
                             ));
                         }
                     } else {
@@ -4131,7 +4161,7 @@ impl AgentLoop {
                         .map(|d| d.to_string())
                         .or_else(|| Some(format!("{v}")))
                 })
-                .unwrap_or_else(|| summarize_provider_error(&out));
+                .unwrap_or_else(|| summarize_cmd_output(&out));
             return (ok, detail);
         }
         // 静态降级：非空 + 基本结构（如实标注降级原因，不谎报浏览器验证过）
@@ -6083,6 +6113,32 @@ mod tests {
         assert!(summarize_provider_error("HTTP 503 Service Unavailable").starts_with("[上游5xx]"));
         assert!(summarize_provider_error("HTTP 429 Too Many Requests").starts_with("[限流]"));
         assert!(summarize_provider_error("HTTP 401 Unauthorized").starts_with("[鉴权]"));
+    }
+
+    /// D-212（2026-10-08, traecode）：**命令/编译器输出**的摘要必须保留 `-->` 定位行。
+    ///
+    /// 病灶：自检（`self_check_artifacts` / HTML 冒烟）把**命令输出**喂给 provider 错误摘要
+    /// `summarize_provider_error`——该 helper ① 只取**首行** ⇒ 丢掉 rustc 的 `-->` 定位行；
+    /// ② 强加 provider 分类前缀（`[未分类]` 对编译错误**无意义**，还让模型误以为是网络类）。
+    /// 模型据此修复时**不知改哪个文件哪一行**。修复＝分职出 `summarize_cmd_output`。
+    #[test]
+    fn test_d212_cmd_output_summary_keeps_location_line() {
+        let cargo = "error[E0308]: mismatched types\n --> src/main.rs:12:5\n  |\n12 |     let x: i32 = \"s\";\n  |            ^^^ expected `i32`, found `&str`\n\nerror: could not compile `demo` due to 1 previous error\n";
+        let s = summarize_cmd_output(cargo);
+        assert!(
+            s.contains("--> src/main.rs:12:5"),
+            "D-212：命令/编译器输出摘要必须保留 `-->` 定位行（否则模型不知改哪个文件哪一行）；实得: {s}"
+        );
+        assert!(
+            !s.starts_with('['),
+            "D-212：命令输出摘要不得强加 provider 分类前缀（`[未分类]` 对编译错误无意义）；实得: {s}"
+        );
+        // 对照（证明病灶真实、并钉住"分职"）：provider 摘要**只取首行**——用于命令输出时
+        // 定位行必然丢失。不得为修 D-212 而把 provider 摘要也改成多行（那是职责混淆）。
+        assert!(
+            !summarize_provider_error(cargo).contains("-->"),
+            "对照：provider 摘要按设计只取首行（不得为 D-212 把它改成多行摘要）"
+        );
     }
 
     /// K-6（契约手术，2026-09-11）：审批语义 workspace 化——workspace 内绝对路径
