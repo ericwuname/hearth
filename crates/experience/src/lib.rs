@@ -92,9 +92,20 @@ impl ExperienceStore {
         match Self::read_file_bounded(&path, MAX_EXPERIENCE_FILE_BYTES).await {
             Ok((content, _)) => {
                 let mut loaded: Vec<Experience> = Vec::new();
-                for line in content.lines() {
-                    if let Ok(exp) = serde_json::from_str::<Experience>(line) {
-                        loaded.push(exp);
+                for (i, line) in content.lines().enumerate() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    // D-204（2026-10-08, traecode）：坏行 `warn + skip`（与本 crate 的截断留痕、
+                    // 以及 `memory`（D-203/MEM-4）同口径），**不静默丢弃**——否则 metrics()/
+                    // recent_failures()（会注入回 prompt）反映不完整语料而无从察觉。
+                    match serde_json::from_str::<Experience>(line) {
+                        Ok(exp) => loaded.push(exp),
+                        Err(e) => tracing::warn!(
+                            path = %path.display(),
+                            line = i + 1,
+                            "experience 损坏行已跳过: {e}"
+                        ),
                     }
                 }
                 let n = loaded.len();
@@ -135,9 +146,18 @@ impl ExperienceStore {
             // D-70：有界读入（此前为无界的 `tokio::fs::read_to_string`）。
             let (content, _) = Self::read_file_bounded(&path, MAX_EXPERIENCE_FILE_BYTES).await?;
             let mut loaded: Vec<Experience> = Vec::new();
-            for line in content.lines() {
-                if let Ok(exp) = serde_json::from_str::<Experience>(line) {
-                    loaded.push(exp);
+            for (i, line) in content.lines().enumerate() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                // D-204：坏行 warn + skip（同 ensure_loaded）。
+                match serde_json::from_str::<Experience>(line) {
+                    Ok(exp) => loaded.push(exp),
+                    Err(e) => tracing::warn!(
+                        path = %path.display(),
+                        line = i + 1,
+                        "experience 损坏行已跳过: {e}"
+                    ),
                 }
             }
             let mut entries = self.entries.write().await;
