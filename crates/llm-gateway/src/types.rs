@@ -95,7 +95,11 @@ impl LlmError {
 /// （`4000`）、请求 id…… 由于 5xx 规则**先于** 4xx(Param) 规则，`"…400…:5000/…"` 被判成
 /// **5xx → Transient**：**不该重试的 4xx 被重试**（最长 30 分钟重试窗口）；反向也可能把 5xx 拉成
 /// Param（不重试）。改为独立数字匹配后：`:5000` 的 `500` 因后随 `0` 被拒，`HTTP 500` 仍命中。
-fn has_code(low: &str, code: &str) -> bool {
+///
+/// D-211（2026-10-08, traecode）：本函数是状态码匹配的**唯一实现**（唯一真相源）——
+/// `agent-core` 的错误摘要 `summarize_provider_error`（同根因、同裸子串病灶）也复用它，
+/// 避免"同一份状态码判定在两处各写一份、口径分叉"（D-198/D-200 同纪律）。
+pub fn has_status_code(low: &str, code: &str) -> bool {
     let bytes = low.as_bytes();
     let mut from = 0;
     while let Some(pos) = low[from..].find(code) {
@@ -149,8 +153,8 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
         || low.contains("name or service not known")
         || low.contains("dns")
         || low.contains("temporarily down")
-        || has_code(&low, "429")
-        || has_code(&low, "1302")
+        || has_status_code(&low, "429")
+        || has_status_code(&low, "1302")
         || low.contains("eof")
     {
         return ErrorClass::Transient;
@@ -160,10 +164,10 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
     // 统一 Transient——旧规则只认 "500"/"internal server error"/"upstream"，
     // 非结构化的通道（如 llm-cn 的 anyhow 文本）返回 "502" 时落到 Fatal 兜底，
     // 与"5xx 统一 transient"口径不符（跨通道一致性）。
-    if has_code(&low, "500")
-        || has_code(&low, "502")
-        || has_code(&low, "503")
-        || has_code(&low, "504")
+    if has_status_code(&low, "500")
+        || has_status_code(&low, "502")
+        || has_status_code(&low, "503")
+        || has_status_code(&low, "504")
         || low.contains("internal server error")
         || low.contains("upstream")
         || low.contains("bad gateway")
@@ -175,9 +179,9 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
     // 参数：4xx 客户端错误——含 401/403（鉴权/越权：重试无意义，与 `llm-openai` 的结构化
     // 判定 `classify_http_status` **同口径**归 Param；D-210 前此处漏 401/403 ⇒ 落到 Fatal 兜底，
     // 与结构化路径"同一 401 两条路分到不同 class"不一致。两者 loop 层均零重试，行为等价）。
-    if has_code(&low, "400")
-        || has_code(&low, "401")
-        || has_code(&low, "403")
+    if has_status_code(&low, "400")
+        || has_status_code(&low, "401")
+        || has_status_code(&low, "403")
         || low.contains("missing")
         || low.contains("invalid")
         || low.contains("argument")

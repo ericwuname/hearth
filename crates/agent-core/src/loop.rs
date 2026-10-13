@@ -108,16 +108,22 @@ fn summarize_provider_error(msg: &str) -> String {
         "TLS"
     } else if lower.contains("timed out") || lower.contains("timeout") {
         "超时"
-    } else if lower.contains("429") || lower.contains("rate limit") {
+    } else if llm_gateway::has_status_code(&lower, "429") || lower.contains("rate limit") {
         "限流"
-    } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") {
+    } else if llm_gateway::has_status_code(&lower, "401")
+        || llm_gateway::has_status_code(&lower, "403")
+        || lower.contains("unauthorized")
+    {
         "鉴权"
-    } else if lower.contains("500")
-        || lower.contains("502")
-        || lower.contains("503")
-        || lower.contains("504")
+    } else if llm_gateway::has_status_code(&lower, "500")
+        || llm_gateway::has_status_code(&lower, "502")
+        || llm_gateway::has_status_code(&lower, "503")
+        || llm_gateway::has_status_code(&lower, "504")
     {
         "上游5xx"
+    } else if llm_gateway::has_status_code(&lower, "400") {
+        // D-211：补 4xx 标签（此前落到"未分类"，与 class taxonomy 的 Param 不对应）。
+        "参数"
     } else {
         "未分类"
     };
@@ -6054,6 +6060,27 @@ mod tests {
         assert!(summarize_provider_error("HTTP 502 Bad Gateway").starts_with("[上游5xx]"));
         assert!(summarize_provider_error("operation timed out after 30s").starts_with("[超时]"));
         assert!(summarize_provider_error("something odd").starts_with("[未分类]"));
+    }
+
+    /// D-211（2026-10-08, traecode）：错误摘要的状态码必须按**独立数字**匹配。
+    ///
+    /// 与 D-210 同根因（`classify_anyhow` 已修），但摘要是**另一处独立实现**：用
+    /// `lower.contains("500")` 等裸子串 ⇒ 端点 URL 的**端口** `:5000` 会把 4xx 标成
+    /// `[上游5xx]`（投影/日志里"环境问题 vs provider 抖动"一眼可辨的初衷被破坏）。
+    #[test]
+    fn test_d211_provider_error_label_code_boundary() {
+        let lbl = summarize_provider_error(
+            "HTTP 400 Bad Request: invalid request to http://127.0.0.1:5000/v1/chat/completions",
+        );
+        assert!(
+            lbl.starts_with("[参数]"),
+            "端口 :5000 的 '500' 不得把 400 标成 [上游5xx]；实得 {lbl}"
+        );
+        // 反向对照：真实状态码仍须正确标注（防矫枉过正）。
+        assert!(summarize_provider_error("HTTP 500 Internal Server Error").starts_with("[上游5xx]"));
+        assert!(summarize_provider_error("HTTP 503 Service Unavailable").starts_with("[上游5xx]"));
+        assert!(summarize_provider_error("HTTP 429 Too Many Requests").starts_with("[限流]"));
+        assert!(summarize_provider_error("HTTP 401 Unauthorized").starts_with("[鉴权]"));
     }
 
     /// K-6（契约手术，2026-09-11）：审批语义 workspace 化——workspace 内绝对路径

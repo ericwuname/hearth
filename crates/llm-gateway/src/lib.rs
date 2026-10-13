@@ -11,8 +11,8 @@ pub use provider::LlmProvider;
 pub use registry::ProviderRegistry;
 pub use stream_util::AbortOnDropStream;
 pub use types::{
-    classify_anyhow, Capabilities, ChatRequest, ChatResponse, Embedding, ErrorClass, LlmError,
-    StreamEvent, ToolSchema, Usage,
+    classify_anyhow, has_status_code, Capabilities, ChatRequest, ChatResponse, Embedding,
+    ErrorClass, LlmError, StreamEvent, ToolSchema, Usage,
 };
 
 pub mod cache_telemetry;
