@@ -120,16 +120,29 @@ pub fn recent_human_abnormal() -> bool {
                 "human 档超过上限，已截断扫描——后段的异常信号本轮可能未被计入"
             );
         }
-        for line in text.lines() {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                let mood = v.get("mood").and_then(|m| m.as_str()).unwrap_or("");
-                let verdict = v
-                    .get("observer_verdict")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
-                if matches!(mood, "angry" | "frustrated") || verdict == "n" {
-                    return true;
+        for (i, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            // D-205（2026-10-08, traecode）：坏行 `warn + skip`——与**同函数上方**"截断留痕"
+            // （D-125）**同一理由**：无法解析 ⇒ **无从判断**该行是否携带异常信号
+            // （`mood`/`observer_verdict`），静默跳过正是它自己警告过的那种**假阴性**（漏报 distress）。
+            match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(v) => {
+                    let mood = v.get("mood").and_then(|m| m.as_str()).unwrap_or("");
+                    let verdict = v
+                        .get("observer_verdict")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("");
+                    if matches!(mood, "angry" | "frustrated") || verdict == "n" {
+                        return true;
+                    }
                 }
+                Err(e) => tracing::warn!(
+                    path = %p.display(),
+                    line = i + 1,
+                    "human 档损坏行已跳过（可能漏掉异常信号）: {e}"
+                ),
             }
         }
     }
