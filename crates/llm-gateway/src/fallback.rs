@@ -10,6 +10,8 @@
 //! > 本模块头旧文曾写「主通道一出错即自动试链中下一通道」——那是 **S9 之前的语义，已作废**。
 //! > 维护者勿照旧文把"transient 不切"当作 bug 去"修"。D-147 据代码订正，行为锁见
 //! > `tests::test_s9_transient_does_not_switch_chain` / `tests::test_s9_fatal_switches_next_with_callback`。
+//! > D-216：`embed()` 亦**同守**本规则（修复前它不做分类、任何错误都切 ⇒ 主通道瞬时抖动即换
+//! > **嵌入模型**，向量空间不同会污染向量库）；行为锁 `tests::test_s9_embed_transient_does_not_switch_chain`。
 //!
 //! ## `stream()` **不参与**降级
 //!
@@ -181,14 +183,25 @@ impl LlmProvider for FallbackChain {
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>> {
         let mut last_err: Option<anyhow::Error> = None;
 
-        for (name, provider) in &self.providers {
+        for (idx, (name, provider)) in self.providers.iter().enumerate() {
             match provider.embed(inputs).await {
                 Ok(resp) => {
                     tracing::debug!(provider = %name, "fallback: embed succeeded via {}", name);
                     return Ok(resp);
                 }
                 Err(e) => {
-                    tracing::warn!(provider = %name, error = %e, "fallback: embed failed, trying next");
+                    // D-216（2026-10-08, traecode）：与 `chat()` **同守 S9 语义**——只有
+                    // fatal/param 才切下一通道；transient（网络抖动/超时/429/5xx）**不切**，
+                    // 原样上抛交回上层 S7 长退避。修复前此处**不做分类**、任何错误都切 ⇒
+                    // 主通道瞬时抖动即换**嵌入模型**（向量空间不同 ⇒ 混入同一向量库是正确性事故）。
+                    let class = classify_anyhow(&e);
+                    tracing::warn!(provider = %name, error = %e, class = ?class, "fallback: embed failed");
+                    let has_next = idx + 1 < self.providers.len();
+                    if matches!(class, ErrorClass::Transient) || !has_next {
+                        return Err(e);
+                    }
+                    let next = self.providers[idx + 1].0.clone();
+                    self.fire_switch(name, &next);
                     last_err = Some(e);
                 }
             }
@@ -416,6 +429,48 @@ mod tests {
             err.to_string().contains("timed out"),
             "transient 必须原样上抛（不切换通道）: {err:#}"
         );
+    }
+
+    /// D-216（2026-10-08, traecode）：`embed()` 必须与 `chat()` **同守 S9 语义**——
+    /// transient（超时/429/5xx）**不切**通道。
+    ///
+    /// 病灶：本模块头自称的 S9 规则（"以本节为准"）被 `embed()` **违反**——`embed()`
+    /// **完全不做 `classify_anyhow`**，任何错误都切下一通道 ⇒ 主通道瞬时抖动即换**嵌入模型**，
+    /// 而不同模型的向量空间不同，混入同一向量库是**正确性事故**（比 chat 换模型更危险）。
+    #[tokio::test]
+    async fn test_s9_embed_transient_does_not_switch_chain() {
+        let chain = FallbackChain::new(vec![
+            (
+                "agnes".into(),
+                Arc::new(MockProvider::with_message("agnes", "request timed out")),
+            ),
+            ("zhipu".into(), Arc::new(MockProvider::new("zhipu", false))),
+        ]);
+        let err = chain
+            .embed(&["x".into()])
+            .await
+            .expect_err("transient 必须原样上抛（不得切到另一嵌入模型）");
+        assert!(
+            err.to_string().contains("timed out"),
+            "transient 必须原样上抛（不切换通道）: {err:#}"
+        );
+    }
+
+    /// D-216 反向对照：fatal（如 401）仍须切到次通道完成（防矫枉过正）。
+    #[tokio::test]
+    async fn test_s9_embed_fatal_switches_next() {
+        let chain = FallbackChain::new(vec![
+            (
+                "agnes".into(),
+                Arc::new(MockProvider::with_message("agnes", "HTTP 401 unauthorized")),
+            ),
+            ("zhipu".into(), Arc::new(MockProvider::new("zhipu", false))),
+        ]);
+        let out = chain
+            .embed(&["x".into()])
+            .await
+            .expect("fatal 后必须切到次通道完成任务");
+        assert_eq!(out[0].values, vec![0.1, 0.2]);
     }
 
     #[test]
