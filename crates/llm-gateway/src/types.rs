@@ -88,6 +88,29 @@ impl LlmError {
     }
 }
 
+/// D-210（2026-10-08, traecode）：`code` 必须以**独立数字**出现（前/后一位都不是 ASCII 数字）。
+///
+/// 病灶：`classify_anyhow` 的兜底启发式原先用 `low.contains("500")` 等**裸子串**匹配状态码——
+/// 任何含该数字串的文本都会命中：端点 URL 的**端口**（`:5000`，Flask/多本地网关默认）、token 数
+/// （`4000`）、请求 id…… 由于 5xx 规则**先于** 4xx(Param) 规则，`"…400…:5000/…"` 被判成
+/// **5xx → Transient**：**不该重试的 4xx 被重试**（最长 30 分钟重试窗口）；反向也可能把 5xx 拉成
+/// Param（不重试）。改为独立数字匹配后：`:5000` 的 `500` 因后随 `0` 被拒，`HTTP 500` 仍命中。
+fn has_code(low: &str, code: &str) -> bool {
+    let bytes = low.as_bytes();
+    let mut from = 0;
+    while let Some(pos) = low[from..].find(code) {
+        let start = from + pos;
+        let end = start + code.len();
+        let before_ok = start == 0 || !bytes[start - 1].is_ascii_digit();
+        let after_ok = end >= bytes.len() || !bytes[end].is_ascii_digit();
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
+}
+
 /// 把 anyhow::Error 分类（loop 层消费）。
 /// ① 结构化优先：downcast LlmError 直接取 class；
 /// ② 兜底启发式：字符串特征匹配（旧 provider 或第三方错误未带 class 时也能正确分流）。
@@ -126,8 +149,8 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
         || low.contains("name or service not known")
         || low.contains("dns")
         || low.contains("temporarily down")
-        || low.contains("429")
-        || low.contains("1302")
+        || has_code(&low, "429")
+        || has_code(&low, "1302")
         || low.contains("eof")
     {
         return ErrorClass::Transient;
@@ -137,10 +160,10 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
     // 统一 Transient——旧规则只认 "500"/"internal server error"/"upstream"，
     // 非结构化的通道（如 llm-cn 的 anyhow 文本）返回 "502" 时落到 Fatal 兜底，
     // 与"5xx 统一 transient"口径不符（跨通道一致性）。
-    if low.contains("500")
-        || low.contains("502")
-        || low.contains("503")
-        || low.contains("504")
+    if has_code(&low, "500")
+        || has_code(&low, "502")
+        || has_code(&low, "503")
+        || has_code(&low, "504")
         || low.contains("internal server error")
         || low.contains("upstream")
         || low.contains("bad gateway")
@@ -149,8 +172,12 @@ pub fn classify_anyhow(e: &anyhow::Error) -> ErrorClass {
     {
         return ErrorClass::Transient;
     }
-    // 参数：4xx 客户端错误（401/403 由 loop 层单独特判，这里归 Param）
-    if low.contains("400")
+    // 参数：4xx 客户端错误——含 401/403（鉴权/越权：重试无意义，与 `llm-openai` 的结构化
+    // 判定 `classify_http_status` **同口径**归 Param；D-210 前此处漏 401/403 ⇒ 落到 Fatal 兜底，
+    // 与结构化路径"同一 401 两条路分到不同 class"不一致。两者 loop 层均零重试，行为等价）。
+    if has_code(&low, "400")
+        || has_code(&low, "401")
+        || has_code(&low, "403")
         || low.contains("missing")
         || low.contains("invalid")
         || low.contains("argument")

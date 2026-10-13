@@ -3043,8 +3043,8 @@ impl AgentLoop {
 
         // ── S7（手术包二）：provider 瞬时故障分级长退避重试 ──────────────
         // 分级（llm_gateway::classify_anyhow）：Transient（连接失败/读超时/429/
-        // 5xx/TLS/网络类）→ 长退避重试；Param（400/参数/解析）与 Fatal（401/403/
-        // 策略拒绝/畸形流）→ 立即终止零重试。
+        // 5xx/TLS/网络类）→ 长退避重试；Param（400/401/403/参数/解析）与 Fatal（策略拒绝/
+        // 畸形流）→ 立即终止零重试。（D-210：401/403 归 Param，与 llm-openai 结构化判定同口径。）
         // 退避序列 30s→1m→2m→5m→5m…（末值固定），累计窗口默认 30 分钟
         //（HEARTH_RETRY_WINDOW_MINS / _SECS）——用户拍板"等 1 分钟或者几分钟再试"。
         // 窗口耗尽 = **暂停语义**（ProviderRetryWindowExhausted → run 层 status=
