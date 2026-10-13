@@ -27,6 +27,27 @@ fn classify_vote(content: &str) -> Option<bool> {
     }
 }
 
+/// D-209（2026-10-08, traecode）：provider 回复的"无正文"必须**显式处理**，不得静默当一次发言。
+///
+/// 病灶：三处 `resp.content.unwrap_or_default()`——provider 返回 `None`/空白（tool-call-only、
+/// 内容策略拒绝、仅 reasoning）时静默得到 `""`：`run_round_robin` 把**空段**计入讨论与汇总
+/// （参与者看似发了言）；`run_debate` 更用空串**覆盖 `previous`** ⇒ 后续轮次
+/// "Previous argument:" 变空、讨论上下文被**静默清空**（连锁影响后面每个参与者）。
+///
+/// 处置：空正文 ⇒ `warn` 留痕并判为**本回合未发言**（调用方据此跳过：不落 Turn、不覆盖上下文）。
+fn nonempty_reply(provider: &str, content: Option<String>) -> Option<String> {
+    match content {
+        Some(c) if !c.trim().is_empty() => Some(c),
+        _ => {
+            tracing::warn!(
+                provider = %provider,
+                "bridge: provider 返回空正文（None/空白）——本回合计为**未发言**（不静默、不伪造发言）"
+            );
+            None
+        }
+    }
+}
+
 /// Helper: build a system/user message with text content.
 fn msg(role: Role, text: &str) -> Message {
     Message {
@@ -125,7 +146,10 @@ impl BridgeSession {
                     stream: false,
                 };
                 let resp = provider.chat(req).await?;
-                let content = resp.content.unwrap_or_default();
+                // D-209：空正文不计为一次发言（不伪造空段、不进汇总）。
+                let Some(content) = nonempty_reply(participant, resp.content) else {
+                    continue;
+                };
                 let turn = Turn {
                     index: self.turns.len() as u32,
                     provider_key: participant.clone(),
@@ -164,7 +188,12 @@ impl BridgeSession {
                     stream: false,
                 };
                 let resp = provider.chat(req).await?;
-                let content = resp.content.unwrap_or_default();
+                // D-209：空正文 = 本回合**未发言** ⇒ 不落 Turn，且**保守计反对**（与 D-103 的
+                // "无法判定"同口径，不把空回复当成有效票）。
+                let Some(content) = nonempty_reply(participant, resp.content) else {
+                    votes_against += 1;
+                    continue;
+                };
                 // D-103：原先单条件 `contains("agree")` 把 "disagree" 也算赞成
                 //（子串包含），多数票方向可能整个反过来；现按 classify_vote 判定，
                 // 无法判定者**保守计反对并留痕**（不静默、也不假装读懂了）。
@@ -211,7 +240,11 @@ impl BridgeSession {
                     stream: false,
                 };
                 let resp = provider.chat(req).await?;
-                let content = resp.content.unwrap_or_default();
+                // D-209：空正文**不得覆盖 `previous`**（否则讨论上下文被静默清空，连锁影响
+                // 后面每个参与者）；本回合亦不计入 turns。
+                let Some(content) = nonempty_reply(participant, resp.content) else {
+                    continue;
+                };
                 previous = content.clone();
                 let turn = Turn {
                     index: self.turns.len() as u32,
