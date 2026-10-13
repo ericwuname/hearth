@@ -3,14 +3,23 @@ use serde::Serialize;
 use sysinfo::{Pid, System};
 
 /// Point-in-time snapshot of system and process resources.
+///
+/// D-206（2026-10-08, traecode）：每个**未知**度量以 `None` 表达（JSON `null`），**不用 `0` 冒充**。
+/// `0` 是合法测量值（如"磁盘 0GB 可用"＝全满），拿它表示"探测失败"会把"未知"读成"告警"，
+/// 并污染下游聚合/均值（业界口径：未知度量应为 `null` 并从聚合中排除）。与 D-46/D-176 同族。
 #[derive(Debug, Clone, Serialize)]
 pub struct ResourceSnapshot {
     pub timestamp: String,
-    pub cpu_percent: f32,
-    pub memory_mb: f64,
-    pub memory_percent: f32,
-    pub disk_free_gb: f64,
-    pub disk_total_gb: f64,
+    /// 全核平均 CPU 占用；取不到 CPU 列表时为 `None`。
+    pub cpu_percent: Option<f32>,
+    /// 本进程 RSS（MB）；进程查不到时为 `None`。
+    pub memory_mb: Option<f64>,
+    /// 全机内存占用百分比；总内存不可得（`<= 0`）时为 `None`。
+    pub memory_percent: Option<f32>,
+    /// 根盘可用空间（GB）；找不到根盘时为 `None`（**不是 `0`**）。
+    pub disk_free_gb: Option<f64>,
+    /// 根盘总空间（GB）；找不到根盘时为 `None`（**不是 `0`**）。
+    pub disk_total_gb: Option<f64>,
     pub process_pid: u32,
 }
 
@@ -19,31 +28,44 @@ pub fn snapshot(pid: u32) -> ResourceSnapshot {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    let cpu = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32;
+    // D-206：无 CPU 列表 ⇒ 未知（`None`），而非 0/NaN。
+    let cpu = {
+        let cpus = sys.cpus();
+        if cpus.is_empty() {
+            None
+        } else {
+            Some(cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32)
+        }
+    };
 
     let mem_used = sys.used_memory() as f64 / 1_048_576.0;
     let mem_total = sys.total_memory() as f64 / 1_048_576.0;
+    // D-206：总内存不可得 ⇒ 百分比未知（`None`），而非 0。
     let mem_pct = if mem_total > 0.0 {
-        (mem_used / mem_total * 100.0) as f32
+        Some((mem_used / mem_total * 100.0) as f32)
     } else {
-        0.0
+        None
     };
 
     // Disk info from sysinfo Disks API
     let disks = sysinfo::Disks::new_with_refreshed_list();
-    let (df, dt) = if let Some(root) = disks.iter().find(|d| {
+    // D-206：找不到根盘 ⇒ 磁盘可用/总量**未知**（`None`），而非 `(0.0, 0.0)`
+    // （后者会被下游读成"磁盘 0GB 可用"并计入告警/均值）。
+    let root = disks.iter().find(|d| {
         d.mount_point().to_string_lossy() == "/" || d.mount_point().to_string_lossy() == "C:\\"
-    }) {
-        (
-            root.available_space() as f64 / 1_073_741_824.0,
-            root.total_space() as f64 / 1_073_741_824.0,
-        )
-    } else {
-        (0.0, 0.0)
+    });
+    let (df, dt) = match root {
+        Some(root) => (
+            Some(root.available_space() as f64 / 1_073_741_824.0),
+            Some(root.total_space() as f64 / 1_073_741_824.0),
+        ),
+        None => (None, None),
     };
 
-    let proc = sys.process(Pid::from_u32(pid));
-    let proc_mem = proc.map(|p| p.memory() as f64 / 1_048_576.0).unwrap_or(0.0);
+    // D-206：进程查不到 ⇒ 内存**未知**（`None`），而非 `.unwrap_or(0.0)`。
+    let proc_mem = sys
+        .process(Pid::from_u32(pid))
+        .map(|p| p.memory() as f64 / 1_048_576.0);
 
     ResourceSnapshot {
         timestamp: chrono::Utc::now().to_rfc3339(),
