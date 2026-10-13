@@ -2992,8 +2992,10 @@ impl AgentLoop {
                         });
                     }
                     subconscious::PhaseOverride::Simplify => {
-                        tracing::warn!(reason = %signal.reason, "subconscious: simplify");
-                        // Signal logged; execution continues with simplified approach
+                        // D-213：`Simplify` **未接线**——此处仅告警留痕，本步**照常继续**
+                        //（不跳过 LLM、不简化目标）。旧注释声称"继续以简化方式执行"，与事实不符，已订正。
+                        // 接线另立债 D-214。
+                        tracing::warn!(reason = %signal.reason, "subconscious: simplify（仅告警，未接线）");
                     }
                 }
             }
