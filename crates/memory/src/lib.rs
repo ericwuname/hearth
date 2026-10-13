@@ -417,9 +417,20 @@ impl CivilizationStore {
             );
         }
         let mut entries = Vec::new();
-        for line in text.lines() {
-            if let Ok(entry) = serde_json::from_str::<CivEntry>(line) {
-                entries.push(entry);
+        for (i, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            // D-203（2026-10-08, traecode）：与 `load_session`（MEM-4）**同口径**——坏行
+            // `warn + skip`（不静默吞、不丢整档）。此前用 `if let Ok(..)` **静默丢弃**
+            // ⇒ 同 crate 三种口径，坏行无声消失而 `recent()`/可见性输出缺条**无任何提示**。
+            match serde_json::from_str::<CivEntry>(line) {
+                Ok(entry) => entries.push(entry),
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    line = i + 1,
+                    "civilization store 损坏行已跳过（不丢弃整档）: {e}"
+                ),
             }
         }
         Ok(entries)
@@ -501,9 +512,18 @@ impl WorkLineStore {
             );
         }
         let mut nodes = Vec::new();
-        for line in text.lines() {
-            if let Ok(node) = serde_json::from_str::<WorkNode>(line) {
-                nodes.push(node);
+        for (i, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            // D-203：与 `load_session`（MEM-4）同口径——坏行 warn + skip。
+            match serde_json::from_str::<WorkNode>(line) {
+                Ok(node) => nodes.push(node),
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    line = i + 1,
+                    "workline store 损坏行已跳过（不丢弃整档）: {e}"
+                ),
             }
         }
         Ok(nodes)
