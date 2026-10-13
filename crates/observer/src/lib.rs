@@ -120,8 +120,12 @@ impl Finding {
     }
 }
 
-/// G0 红线熔断事件（WP-7）——Observer 只产出事件（表达事实），
-/// 停机动作由执行方（service）执行。可审计：原因 + 触发规则 + 时间戳。
+/// G0 红线熔断事件（WP-7）——Observer 只产出事件（表达事实）。
+/// 可审计：原因 + 触发规则 + 时间戳。
+///
+/// D-208（2026-10-08, traecode）：旧文案声称"红线触发即由 `service` 侧执行停机"——**与事实不符**：
+/// 全仓**无消费方**（`run_and_report` 的返回值在 `agent-runtime/src/session.rs` 被丢弃），
+/// breaks 仅随 `report.md/json` 落盘。⇒ 停机**未接线**，如实登记（接线另立债 D-208）。
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CircuitBreak {
     pub reason: String,

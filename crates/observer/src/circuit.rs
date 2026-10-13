@@ -1,6 +1,13 @@
-//! WP-7 (v23 phase4): G0 红线熔断——Observer 只产 `CircuitBreak` 事件（表达事实），
-//! 停机动作由执行方（service）执行。**只拉闸**：不改计划、不换工具、不尝试修复。
+//! WP-7 (v23 phase4): G0 红线熔断——Observer 只产 `CircuitBreak` 事件（表达事实）。
+//! **只拉闸**：不改计划、不换工具、不尝试修复。
 //! 可审计：原因 + 触发规则 + 时间戳全部入事件。
+//!
+//! D-208（2026-10-08, traecode）：旧文案声称"红线触发即由 `service` 侧执行停机"——**与事实不符**。
+//! 现状：`Observer::run_and_report` 返回的 `CircuitBreak` 在唯一调用点
+//! （`agent-runtime/src/session.rs`）**返回值被丢弃**，全仓**无任何消费方**执行停机；
+//! breaks 仅随 `report.md/json` 落盘（`CODEX_OBSERVER_DIR/reports/<sid>/`）供人/工具查阅。
+//! ⇒ **停机能力＝已设计未接线**（如实登记，不靠注释许诺——同 D-72 纪律；接线须**先接消费点**，
+//! 单独立卡 D-208，不得在注释里预支）。
 
 use crate::metrics::Metrics;
 use crate::CircuitBreak;
@@ -11,13 +18,27 @@ use api::{AgentEvent, EnvelopedEvent};
 pub fn evaluate(metrics: &Metrics, events: &[EnvelopedEvent]) -> Result<Vec<CircuitBreak>> {
     let mut breaks = Vec::new();
 
-    // 1. sandbox 违规（输出含 SANDBOX/DENIED 信号）——只拉闸，不尝试修复
+    // 1. sandbox / 路径越界违规 → 只拉闸，不尝试修复。
+    //
+    // D-207（2026-10-08, traecode）：原匹配串为 `SANDBOX`+`DENIED`（或 `PATH`+`OUTSIDE`+`SCOPE`），
+    // **无任何真实生产者会产出**——它只匹配本文件自造的单测串（"DENIED: path … outside sandbox
+    // scope"）⇒ G0 红线 `sandbox_violation` 在**生产里永不触发**，而单测却绿（"声称≠实现/假绿"族）。
+    //
+    // 真实事实源＝ agent 自身**确定性**的路径护栏拒绝串（`tools-builtin` 的 read/edit/patch/
+    // grep/glob 与 `agent-runtime::resolve_in_workspace` 产出，经 `ToolResult.output` 进事件流）。
+    // **有意不匹配** OS 级 `permission denied`/`operation not permitted`：那会出现在任意良性
+    // 命令输出里（如 `cat /root/x`），把良性失败误判成 G0 红线。
+    // 防复发：`tests/sandbox_violation_matcher_gate.rs`（正向：真实串必触发；反向：OS 拒绝不触发）。
+    const GUARD_DENIALS: [&str; 4] = [
+        "path traversal denied",
+        "path outside allowed roots",
+        "path outside workspace denied",
+        "path traversal via symlink/junction denied",
+    ];
     for ev in events {
         if let AgentEvent::ToolResult { output, .. } = &ev.event {
-            let up = output.to_uppercase();
-            if up.contains("SANDBOX") && up.contains("DENIED")
-                || (up.contains("PATH") && up.contains("OUTSIDE") && up.contains("SCOPE"))
-            {
+            let low = output.to_lowercase();
+            if GUARD_DENIALS.iter().any(|pat| low.contains(pat)) {
                 let reason = output.chars().take(120).collect::<String>();
                 breaks.push(CircuitBreak::new(
                     format!("sandbox violation: {reason}"),
@@ -73,12 +94,16 @@ mod tests {
 
     #[test]
     fn test_circuit_sandbox_violation() {
+        // D-207：用**真实生产者**串（tools-builtin 护栏）——旧测试自造
+        // "DENIED: path … outside sandbox scope" 恰好命中旧匹配串，掩盖了"生产里永不触发"。
         let events = vec![env(
             1,
             AgentEvent::ToolResult {
                 call_id: "c1".into(),
                 is_error: true,
-                output: "DENIED: path /etc/passwd outside sandbox scope".into(),
+                output: "path outside allowed roots (workspace/home) denied: /etc/passwd \
+                         (workspace: /tmp/ws)"
+                    .into(),
             },
         )];
         let m = Metrics::default();
