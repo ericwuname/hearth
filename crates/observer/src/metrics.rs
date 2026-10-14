@@ -5,8 +5,13 @@
 //! ② 人机交互 interrupt_count / wait_ratio / clarify_skip_rate（通用原语计数，
 //!    Z-16：wait 用 InteractionResponse.latency_ms 客户端采集回传——Observer 只聚合）
 //! ③ 技术质量 error_rate / retry_rate（span 内 Error 事件推断——SpanClose 无 status）
-//! ④ 资源效率 cost_per_step / token_efficiency（Done.report.usage——cost 不在事件流，
-//!    Observer 只读事件流，不得直读 CostMeter）
+//! ④ 资源效率 cost_per_step / token_efficiency ——**当前恒 0（结构性 0，无数据源；D-218）**：
+//!    `Done` **事件** payload **从不含 `usage`**（`usage` 只在返回的 `RunReport` 里）；
+//!    且本模块原先读的键 `cost`/`tokens` 在真实 `CostEntry` 中**不存在**（真实键
+//!    `prompt_tokens`/`completion_tokens`/`total_tokens`/`calls`）；而 `cost` 按设计
+//!    **不在事件流**（Observer 只读事件流、**不得**直读 CostMeter）⇒ 二者**无任何可达数据源**
+//!    ⇒ 依赖它的规则 `cost_per_step_high` 在生产中**永不触发**（属"已设计未接线"；
+//!    接线/退役方案另立债 **D-219**——须改事件契约或另设通道，属行为/契约变更）。
 
 use anyhow::Result;
 use api::{AgentEvent, EnvelopedEvent};
@@ -146,6 +151,9 @@ pub fn compute(events: &[EnvelopedEvent]) -> Result<Metrics> {
                 if let Some(steps) = report.get("steps").and_then(|v| v.as_u64()) {
                     steps_used = steps;
                 }
+                // D-218：下面的读取在生产中**永不命中**——`Done` 事件 payload 从不含 `usage`，
+                // 且键 `cost`/`tokens` 不在真实 `CostEntry` 里 ⇒ `cost_total`/`tokens_total`
+                // 恒 0 ⇒ ④ 两指标恒 0、`cost_per_step_high` 永不触发（见模块头 ④）。
                 if let Some(usage) = report.get("usage") {
                     cost_total = usage.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     tokens_total = usage.get("tokens").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -268,6 +276,9 @@ mod tests {
             env(
                 7,
                 AgentEvent::Done {
+                    // D-218：此 `usage` 是**自造（合成）输入**——生产里 `Done` 事件 payload
+                    // **从不含 `usage`**，故本断言只验**算法**（给定数据算得对），**不**证明
+                    // 生产可用（生产恒 0，见模块头 ④）。
                     report: serde_json::json!({"ok": true, "steps": 3, "usage": {"cost": 0.06, "tokens": 900}}),
                 },
                 "2026-08-03T00:00:06Z",

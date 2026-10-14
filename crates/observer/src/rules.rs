@@ -162,6 +162,11 @@ mod tests {
     #[test]
     fn test_finding_evidence_reproducible() {
         // 高成本事件流 → cost_per_step 超阈值 → Finding 带可复现 evidence
+        //
+        // D-218：此处的 `usage:{cost,tokens}` 是**自造（合成）payload**——生产里 `Done` 事件
+        // payload **从不含 `usage`**（且键名也不符）⇒ `cost_per_step` 生产恒 0、
+        // `cost_per_step_high` **永不触发**。本测仅验**引擎**（给定超标指标 → 产出带可复现
+        // evidence 的 Finding），**不**证明该规则在生产可达（见 `metrics.rs` 模块头 ④ / D-219）。
         let events = vec![EnvelopedEvent {
             schema_version: 1,
             ts: "2026-08-03T00:00:00Z".into(),
@@ -203,6 +208,11 @@ mod tests {
         // v24 季度体检：构造阈值越界事件流 → 5 条规则（observer-rules.toml）全触发
         // 事件流：高成本（cost=9.9/1步）→ cost_per_step_high；by=human → autonomy_low；
         // 工具错误 → error_rate_high + retry_storm_high；长等待 → wait_high
+        //
+        // D-218：`cost_per_step_high` 的触发**仅因**下方 Done 用了**自造（合成）payload**
+        // （`usage:{cost,tokens}`）——生产 `Done` payload 不含 `usage` ⇒ 该规则**生产永不触发**。
+        // 故本测证明的是"其余 4 条规则在真实事件流下可达 + 引擎对第 5 条亦能工作"，
+        // **不**等于"5 条规则在生产全可达"（旧注释"v24 维护合同：规则全触发"对第 5 条**不成立**）。
         let events = vec![
             EnvelopedEvent {
                 schema_version: 1,
