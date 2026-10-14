@@ -62,6 +62,28 @@ fn read_optional_capped(path: &std::path::Path, cap: u64, what: &str) -> Option<
     }
 }
 
+/// D-220（2026-10-08, traecode）：读 + 解析一个 JSON **状态档**。
+///
+/// - 文件不存在 / 不可读 → `None`（沿用旧口径，调用方不 panic、不炸）；
+/// - **文件存在但解析失败 → `tracing::warn!` 留痕 + `None`**——修复前三处读口用
+///   `serde_json::from_str(&s).ok()` **静默**吞掉解析失败 ⇒ 与"文件不存在"**不可区分**：
+///   `resume` 时用户以为执行位/任务目标已恢复，实则因档损坏**退化为仅历史恢复**
+///   且**毫无提示**。与**同一文件**的 `read_optional_capped`（截断留痕，D-125）及
+///   `load_turns`（D-215）**同口径**。
+fn read_state_json(path: &std::path::Path, cap: u64, what: &str) -> Option<serde_json::Value> {
+    let s = read_optional_capped(path, cap, what)?;
+    match serde_json::from_str::<serde_json::Value>(&s) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                "状态档解析失败（视为损坏，按缺失处理）: {e}"
+            );
+            None
+        }
+    }
+}
+
 /// 全量快照写——把完整历史 Turn 列表原子重写（tmp + rename，防半写损坏）。
 /// 连续对话历史累积，追加会重复，故每轮结束用快照覆盖。
 pub fn save_snapshot(session_id: &str, turns: &[Turn]) -> Result<()> {
@@ -100,12 +122,11 @@ pub fn save_graph_with_revision(
 }
 
 /// R2-D (批示 2): 读 graph + 其 state_revision（一致性校验用）。
-/// 返回 None = 文件不存在/损坏。
+/// 返回 None = 文件不存在/损坏（损坏时 warn 留痕，见 [`read_state_json`]）。
 pub fn load_graph_with_revision(session_id: &str) -> Option<(u64, serde_json::Value)> {
     let path = sessions_dir().join(format!("{session_id}.graph.json"));
-    // D-125：有界读入（小块状态档 8 MiB）。
-    let s = read_optional_capped(&path, STATE_FILE_CAP, "graph 状态档")?;
-    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    // D-125：有界读入（小块状态档 8 MiB）。D-220：解析失败 warn 留痕（不再静默当缺失）。
+    let v = read_state_json(&path, STATE_FILE_CAP, "graph 状态档")?;
     if let Some(rev) = v.get("state_revision").and_then(|r| r.as_u64()) {
         Some((
             rev,
@@ -134,12 +155,11 @@ pub fn save_taskgoal(
     Ok(())
 }
 
-/// R2-D: 读 taskgoal + state_revision。None = 文件不存在（首会话）。
+/// R2-D: 读 taskgoal + state_revision。None = 文件不存在（首会话）/损坏（损坏时 warn 留痕）。
 pub fn load_taskgoal(session_id: &str) -> Option<(u64, serde_json::Value)> {
     let path = sessions_dir().join(format!("{session_id}.taskgoal.json"));
-    // D-125：有界读入（小块状态档 8 MiB）。
-    let s = read_optional_capped(&path, STATE_FILE_CAP, "taskgoal 状态档")?;
-    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    // D-125：有界读入（小块状态档 8 MiB）。D-220：解析失败 warn 留痕（不再静默当缺失）。
+    let v = read_state_json(&path, STATE_FILE_CAP, "taskgoal 状态档")?;
     let rev = v
         .get("state_revision")
         .and_then(|r| r.as_u64())
@@ -222,12 +242,11 @@ pub fn save_run_state(run_id: &str, state: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// S8：读 run 断点状态。None = 无断点/损坏 → resume 退化为仅历史恢复（不炸）。
+/// S8：读 run 断点状态。None = 无断点/损坏 → resume 退化为仅历史恢复（不炸；损坏时 warn 留痕）。
 pub fn load_run_state(run_id: &str) -> Option<serde_json::Value> {
     let path = runs_dir().join(format!("{run_id}.json"));
-    // D-125：有界读入（小块状态档 8 MiB）。
-    let s = read_optional_capped(&path, STATE_FILE_CAP, "run 断点状态档")?;
-    serde_json::from_str(&s).ok()
+    // D-125：有界读入（小块状态档 8 MiB）。D-220：解析失败 warn 留痕（不再静默当缺失）。
+    read_state_json(&path, STATE_FILE_CAP, "run 断点状态档")
 }
 
 /// PC-2 修复（P0/P1 修复任务书 v1.0）：断点文件 **workspace 镜像**——
@@ -291,6 +310,30 @@ mod tests {
             read_optional_capped(&dir.path().join("nope.txt"), 4096, "测试档").is_none(),
             "缺失档必须 None 而不是 panic"
         );
+    }
+
+    /// D-220：状态档**存在但损坏** → 仍返回 `None`（容错语义保留），但**不再静默**
+    /// （`read_state_json` 内 `tracing::warn!` 留痕）；**有效档**正常读回。
+    /// （无 subscriber ⇒ warn 输出不可观测，此测只钉"容错不变 + 有效可读"。）
+    #[test]
+    fn test_d220_state_file_corrupt_still_tolerant_and_valid_readable() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("hearth_d220_{}", uuid::Uuid::new_v4()));
+        std::env::set_var("HEARTH_SESSIONS_DIR", &dir);
+        std::fs::create_dir_all(runs_dir()).unwrap();
+
+        // 存在但损坏 → None（不 panic、不炸）
+        std::fs::write(runs_dir().join("bad.json"), b"{ this is not json").unwrap();
+        assert!(
+            load_run_state("bad").is_none(),
+            "损坏档必须容错返回 None（修复前亦然）"
+        );
+        // 有效 → 正常读回
+        save_run_state("ok", &serde_json::json!({"steps_used": 3})).unwrap();
+        assert_eq!(load_run_state("ok").unwrap()["steps_used"], 3);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("HEARTH_SESSIONS_DIR");
     }
 
     // 环境变量 HEARTH_SESSIONS_DIR 是进程全局——并行测试会互相覆盖 env 致
