@@ -599,7 +599,7 @@ pub async fn hearth_main() -> Result<()> {
                 )
                 .await
                 {
-                    Ok((sid, report)) => {
+                    Ok((sid, _report)) => {
                         // K-2（契约手术）：headless（-p）——stdout 只出答案。
                         // 答案 = 会话最后一条 assistant 文本（render 进度已全走 stderr）。
                         if crate::render::headless() {
@@ -607,21 +607,9 @@ pub async fn hearth_main() -> Result<()> {
                                 println!("{ans}");
                             }
                         }
-                        // 成本护栏 (v0.2): 本地 chat 完成后显示 token 用量（跑完知道烧了多少）
-                        if let Some(u) = report.get("usage").and_then(|u| u.as_object()) {
-                            let prompt =
-                                u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let comp = u
-                                .get("completion_tokens")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            let calls = u.get("calls").and_then(|v| v.as_u64()).unwrap_or(0);
-                            if prompt + comp > 0 {
-                                render::info(&format!(
-                                    "  📊 tokens: ↑{prompt} ↓{comp} (calls={calls})"
-                                ));
-                            }
-                        }
+                        // D-217：原此处"成本护栏（token 用量）"块**已删除**——用量行现由
+                        // **共享路径** `run_local_continue` 末尾打印一次（fresh 与 resume/REPL
+                        // 续跑同口径），在此再打会**重复**一次。
                     }
                     Err(e) => {
                         // R5: 错误可行动——具体原因 + 下一步（不抛裸 panic/backtrace）

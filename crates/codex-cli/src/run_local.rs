@@ -741,7 +741,11 @@ pub async fn run_local_continue(
                         tracing::warn!(error = %e, "taskgoal 落盘失败（不阻断）");
                     }
                 }
-                // RunReport 无 Serialize——手动转 Value（与 run() 的 Done 事件同构）
+                // RunReport 无 Serialize——手动转 Value。
+                // D-217：旧注释称此处"与 run() 的 Done 事件同构"——**不实**：`Done` 事件
+                // payload **不含 `usage`**（见 agent-core 各 `emit(Event::Done(…))`），而本 Value
+                // 含 `usage`。两者**不同构**；`usage` 的唯一出口就是本 Value（终端用量行与报告
+                // 文件用量行都从这里取，见 `report::usage_counts`）。
                 // G1 (v0.2.5): 终态规范化——loop 层 reason（deadline_exceeded/
                 // budget_exhausted/verify_failed/...）不再被压成二值 completed/failed，
                 // 统一走 terminal::normalize（九态封闭集），CLI/报告/Observer 同源。
@@ -843,19 +847,11 @@ pub async fn run_local_continue(
     // （.hearth/reports/<sid>/run-NNN.md；失败不阻断）。
     {
         let (approvals, reflections) = crate::report::collect_approvals_and_reflections(&enveloped);
-        let usage_line = report
-            .get("usage")
-            .and_then(|u| u.as_object())
-            .map(|u| {
-                let p = u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let c = u
-                    .get("completion_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let calls = u.get("calls").and_then(|v| v.as_u64()).unwrap_or(0);
-                format!("tokens: ↑{p} ↓{c} (calls={calls})")
-            })
-            .unwrap_or_else(|| "tokens: n/a".into());
+        // D-217：改用 `report::usage_counts`（唯一提取实现——修复前此处与 lib.rs/渲染器各写一份）。
+        let usage_line = match crate::report::usage_counts(&report) {
+            Some((p, c, calls)) => format!("tokens: ↑{p} ↓{c} (calls={calls})"),
+            None => "tokens: n/a".into(),
+        };
         let input = crate::report::RunReportInput {
             session_id,
             goal: goal_text,
@@ -1190,6 +1186,14 @@ pub async fn run_local_continue(
             }
         }
     }
+    // D-217：token 用量行**在共享路径打印一次**——本函数是 fresh(`run_local`)、`resume`
+    // (`lib.rs`)、REPL(`repl.rs`) 三处的**同一**执行路径，故三条路**同口径**显示。
+    // 修复前只有 fresh 路径的调用点从返回 report 里取；`resume`/REPL 续跑**丢弃 report**
+    // ⇒ 那一轮烧了多少 token 看不到；而渲染器里本应负责的那处又是**死代码**（Done payload
+    // 无 usage）。现统一在此打印（唯一格式化点 `report::usage_terminal_line`）。
+    if let Some(line) = crate::report::usage_terminal_line(&report) {
+        render::info(&line);
+    }
     Ok((agent_back, report))
 }
 
@@ -1289,18 +1293,11 @@ async fn render_agent_event(
                     }
                 ));
             }
-            // 成本护栏 (v0.2): token 用量可见——跑完知道烧了多少（用户"缺钱"关切）
-            if let Some(u) = report.get("usage").and_then(|u| u.as_object()) {
-                let prompt = u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let comp = u
-                    .get("completion_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let calls = u.get("calls").and_then(|v| v.as_u64()).unwrap_or(0);
-                if prompt + comp > 0 {
-                    render::info(&format!("  📊 tokens: ↑{prompt} ↓{comp} (calls={calls})"));
-                }
-            }
+            // D-217：此处原有"token 用量可见"块（读 `report.get("usage")`）**已删除**——
+            // 它读的是 `Done` **事件** payload，而 agent-core 的 Done payload **从不含 `usage`**
+            // （`usage` 只在返回的 `RunReport` 里）⇒ 该块**永不触发**（死代码）。用量现由
+            // **共享路径** `run_local_continue` 末尾经 [`crate::report::usage_terminal_line`]
+            // 打印一次（fresh 与 resume/REPL 续跑**同口径**）。
             // R7 (v0.1.4): 失败不伪装 Done——失败时若带 error，给出可行动提示
             // （provider 故障请重试/切通道；其余失败提示看日志）。
             if !ok {

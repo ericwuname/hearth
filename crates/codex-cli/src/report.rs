@@ -18,6 +18,35 @@ pub fn reports_dir(cwd: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|_| cwd.join(".hearth").join("reports"))
 }
 
+/// D-217（2026-10-08, traecode）：从 report 提取 `(prompt_tokens, completion_tokens, calls)`。
+///
+/// **唯一实现**（"同能力多处各写一份"收口，同 D-198/D-200/D-210）：修复前该提取在**三处**
+/// 各写一份——终端两处（`lib.rs` 一次性 `chat` 路径、`run_local.rs` 的 `Done` 事件渲染器），
+/// 外加报告文件一处（`run_local.rs` 的 `usage_line`）。其中**渲染器那处永不触发**：它读的是
+/// `Done` **事件** payload，而 agent-core 的 Done payload **从不含 `usage`**（`usage` 只在
+/// 返回的 `RunReport` 里）⇒ 那行"token 用量可见"是**死代码**；而 `resume`/REPL 续跑路径
+/// **丢弃了返回 report** ⇒ 既不打渲染器（死）也不打调用点 ⇒ **这一轮烧了多少 token 完全看不到**
+/// （与一次性 `chat` 口径不一致）。
+///
+/// 返回 `None` = 无 `usage` 或无计数（调用方据此**不显示**，不打印 `0/0` 噪声）。
+pub fn usage_counts(report: &serde_json::Value) -> Option<(u64, u64, u64)> {
+    let u = report.get("usage")?.as_object()?;
+    Some((
+        u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+        u.get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        u.get("calls").and_then(|v| v.as_u64()).unwrap_or(0),
+    ))
+}
+
+/// D-217：**终端** token 用量行（统一前缀/格式；唯一格式化点）。
+/// 无用量，或 prompt+completion 皆为 0 → `None`（不打印噪声）。
+pub fn usage_terminal_line(report: &serde_json::Value) -> Option<String> {
+    let (p, c, calls) = usage_counts(report)?;
+    (p + c > 0).then(|| format!("  📊 tokens: ↑{p} ↓{c} (calls={calls})"))
+}
+
 /// 单轮执行报告素材（从 run_local 事件流与 report 汇总）。
 pub struct RunReportInput<'a> {
     pub session_id: &'a str,
@@ -339,6 +368,37 @@ pub fn write_run_report(cwd: &std::path::Path, input: &RunReportInput) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D-217：token 用量提取/终端行的唯一实现——语义锁（fresh 与 resume 同口径的依据）。
+    #[test]
+    fn test_d217_usage_counts_and_terminal_line() {
+        let with = serde_json::json!({
+            "usage": {"prompt_tokens": 3000, "completion_tokens": 500, "calls": 6}
+        });
+        assert_eq!(usage_counts(&with), Some((3000, 500, 6)));
+        assert_eq!(
+            usage_terminal_line(&with).as_deref(),
+            Some("  📊 tokens: ↑3000 ↓500 (calls=6)")
+        );
+
+        // 无 usage → None（不显示噪声）
+        assert_eq!(usage_counts(&serde_json::json!({"ok": true})), None);
+        assert_eq!(usage_terminal_line(&serde_json::json!({"ok": true})), None);
+
+        // 全 0（无真实消耗）→ 不显示
+        let zero = serde_json::json!({
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
+        });
+        assert_eq!(usage_terminal_line(&zero), None);
+
+        // 缺 calls 段（旧报告形状）→ 计 0，仍显示
+        let partial = serde_json::json!({"usage": {"prompt_tokens": 7, "completion_tokens": 3}});
+        assert_eq!(usage_counts(&partial), Some((7, 3, 0)));
+        assert_eq!(
+            usage_terminal_line(&partial).as_deref(),
+            Some("  📊 tokens: ↑7 ↓3 (calls=0)")
+        );
+    }
 
     #[test]
     fn test_report_written_and_complete() {
