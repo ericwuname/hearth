@@ -102,14 +102,12 @@ pub fn render_md(
     ));
     out.push_str(&format!("| error_rate | {:.4} |\n", metrics.error_rate));
     out.push_str(&format!("| retry_rate | {:.4} |\n", metrics.retry_rate));
-    out.push_str(&format!(
-        "| cost_per_step | {:.4} |\n",
-        metrics.cost_per_step
-    ));
-    out.push_str(&format!(
-        "| token_efficiency | {:.4} |\n",
-        metrics.token_efficiency
-    ));
+    // D-221（2026-10-08, traecode）：④ 两指标**无任何可达数据源**（生产恒 0，见
+    // `metrics.rs` 模块头 ④ / D-218）——在**给人看**的 report.md 里**不得**渲染成
+    // `0.0000`（会被读成"成本/步 = 0"这种**真实测值**，同 D-176"未知 ≠ 0"）。
+    // 如实标 `n/a`。report.json 仍保留数值字段（机器契约不变）。
+    out.push_str("| cost_per_step | n/a（无数据源；见 metrics ④） |\n");
+    out.push_str("| token_efficiency | n/a（无数据源；见 metrics ④） |\n");
     out.push_str("\n## Findings\n\n");
     if findings.is_empty() {
         out.push_str("_none_\n");
@@ -201,6 +199,27 @@ mod tests {
         assert!(md.contains("# Observer Report"));
         assert!(json.contains("\"metrics\""));
         eprintln!("WP-6 PASS: 双重报告（md + json）");
+    }
+
+    /// D-221（2026-10-08, traecode）：**给人看**的报告不得把"无数据源的结构性 0"
+    /// 渲染成 `0.0000`——那会被读者读成"成本/步 = 0"（D-176/D-218 同族：未知 ≠ 0）。
+    /// ④ 两指标当前**无任何可达数据源**（生产恒 0，见 `metrics.rs` 模块头 ④），
+    /// 报告应如实标 `n/a`。
+    #[test]
+    fn test_d221_unavailable_metrics_render_as_na_not_zero() {
+        let md = render_md(&Metrics::default(), &[], &[]);
+        assert!(
+            !md.contains("| cost_per_step | 0.0000 |"),
+            "D-221：无数据源的 cost_per_step 不得渲染成 0.0000（会被读成真实测值）: {md}"
+        );
+        assert!(
+            !md.contains("| token_efficiency | 0.0000 |"),
+            "D-221：无数据源的 token_efficiency 不得渲染成 0.0000: {md}"
+        );
+        assert!(
+            md.contains("cost_per_step | n/a") && md.contains("token_efficiency | n/a"),
+            "D-221：无数据源指标须如实标 n/a: {md}"
+        );
     }
 
     #[test]
