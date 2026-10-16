@@ -15,6 +15,32 @@ fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
+/// D-208（2026-10-08, traecode）：G0 红线 → 会话**终态**处置（**执行方侧**）。
+///
+/// **铁律**（`observer` 模块头）：Observer 是**零执行权**的事实生产者——"拉闸 / 置态"由
+/// **执行方**（本模块 / service）落；本次把此前被**丢弃**的 `CircuitBreak` 接上消费点
+/// （此前 `run_and_report` 的返回值在唯一调用点被丢，见 D-208 负债）。
+///
+/// 口径（与 D-45 边界一致）：
+/// - Observer **评估失败** → **fail-open**（调用点只 `warn`，不中止、不改态）；
+/// - **安全级红线事实**（`sandbox_violation`：模型/工具试图越出允许根）→ **fail-closed**：
+///   会话终态置 `blocked`——**不得对外呈现为"正常完成"**；
+/// - **技术/经济类熔断**（`retry_storm` / `budget_exhausted`）**不翻终态**：其终态已由
+///   loop 层表达（`paused`/`failed`），此处再翻只会制造**假告警**；
+/// - 仅拦截"正常完成"（`done`）：已是 `error`/`cancelled` 等终态的**保持不变**
+///   （红线不改写失败原因，同 D-159「终态不可变」）。
+///
+/// 注：observer 在 run **结束之后**运行，故"终止 run"退化为"**置终态 + 阻止继续**"
+/// （前者由本函数表达；后者已由 `finished_at` 落定——见 `send_message` 的终态守卫）。
+pub fn red_line_terminal_phase(current_phase: &str, breaks: &[observer::CircuitBreak]) -> String {
+    let security_red_line = breaks.iter().any(|b| b.rule == "sandbox_violation");
+    if security_red_line && current_phase == "done" {
+        "blocked".to_string()
+    } else {
+        current_phase.to_string()
+    }
+}
+
 // P0-08 / D-33：产物预览的**字节**上限与有界读取。
 //
 // 病灶（D-31）：`open_artifact` 原用 `tokio::fs::read_to_string` —— 把文件**整份**
@@ -853,6 +879,71 @@ impl SessionManager {
                             );
                         }
 
+                        // Q3 (v24-post) / D-208（2026-10-08, traecode）：Observer 评估 →
+                        // ① 报告落盘（report.md/json）；② **消费 `CircuitBreak`**——此前
+                        // `run_and_report` 的返回值在此被**丢弃** ⇒ "红线即停机"从未生效（D-208 负债）。
+                        // Observer 仍守**零执行权**铁律（只产事实），**置态由执行方（本处）落**。
+                        //
+                        // 口径（与 D-45 边界一致）：**评估失败 → fail-open**（只 warn，不中止不改态）；
+                        // **安全级红线事实 → fail-closed 置终态 `blocked`**（`red_line_terminal_phase`）。
+                        // 必须排在持久化块**之前**：让红线事实进 `done_summary`（审计面可查）。
+                        let circuit_breaks: Vec<observer::CircuitBreak> =
+                            if let Some(ref obs) = observer {
+                                let evts: Vec<AgentEvent> = s.events.clone();
+                                let mut env = crate::envelope::EnvelopeState::new();
+                                env.seq = s.events_base_seq; // D-101：保持绝对编号
+                                let enveloped: Vec<api::EnvelopedEvent> = evts
+                                    .into_iter()
+                                    .map(|mut e| {
+                                        env.wrap(&mut e);
+                                        api::EnvelopedEvent {
+                                            schema_version: 1,
+                                            ts: chrono::Utc::now().to_rfc3339(),
+                                            seq: env.seq,
+                                            span_id: env
+                                                .span_stack
+                                                .last()
+                                                .map(|(sid, _)| sid.clone())
+                                                .unwrap_or_default(),
+                                            parent_id: env
+                                                .span_stack
+                                                .last()
+                                                .and_then(|(_, p)| p.clone()),
+                                            event: e,
+                                        }
+                                    })
+                                    .collect();
+                                let dir = std::env::var("CODEX_OBSERVER_DIR")
+                                    .unwrap_or_else(|_| "./observer".into());
+                                match obs
+                                    .run_and_report(std::path::Path::new(&dir), &s.id, &enveloped)
+                                    .await
+                                {
+                                    Ok((_findings, breaks)) => breaks,
+                                    Err(e) => {
+                                        // D-45：**审计失败 = fail-open**——只留痕，不中止、不改态。
+                                        tracing::warn!(
+                                            "Q3: observer report failed for {}: {e:#}",
+                                            s.id
+                                        );
+                                        Vec::new()
+                                    }
+                                }
+                            } else {
+                                Vec::new()
+                            };
+                        // D-208：**消费**红线事实 → fail-closed 置终态（`done` → `blocked`）。
+                        let phase_before = s.phase.clone();
+                        s.phase = red_line_terminal_phase(&s.phase, &circuit_breaks);
+                        if s.phase != phase_before {
+                            tracing::error!(
+                                session = %s.id,
+                                phase = %s.phase,
+                                rules = ?circuit_breaks.iter().map(|b| b.rule.as_str()).collect::<Vec<_>>(),
+                                "D-208: G0 红线事实 → 会话终态置 blocked（fail-closed：不得视为正常完成）"
+                            );
+                        }
+
                         // P5: Persist completed session to MemoryStore
                         //
                         // D-174（2026-10-08, traecode）：此前只落**一条** `done` 摘要
@@ -885,6 +976,9 @@ impl SessionManager {
                                     "steps": steps_used,
                                     "phase": s.phase,
                                     "usage": report.usage,
+                                    // D-208：红线事实入**审计面**（此前只进 observer 报告文件，
+                                    // 事件导出里看不到）。空数组 = 无熔断。
+                                    "circuit_breaks": &circuit_breaks,
                                 }),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             });
@@ -893,44 +987,6 @@ impl SessionManager {
                                     "P5: failed to persist completed session {}: {e:#}",
                                     s.id
                                 );
-                            }
-                        }
-
-                        // Q3 (v24-post): Observer 报告落盘——会话结束后评估事件流
-                        // （信封化）→ report.md/json 写 CODEX_OBSERVER_DIR/reports/{sid}/。
-                        // 与旧 v10 daily-*.jsonl（资源快照）分目录，零执行权不变。
-                        if let Some(ref obs) = observer {
-                            let evts: Vec<AgentEvent> = s.events.clone();
-                            let mut env = crate::envelope::EnvelopeState::new();
-                            env.seq = s.events_base_seq; // D-101：保持绝对编号
-                            let enveloped: Vec<api::EnvelopedEvent> = evts
-                                .into_iter()
-                                .map(|mut e| {
-                                    env.wrap(&mut e);
-                                    api::EnvelopedEvent {
-                                        schema_version: 1,
-                                        ts: chrono::Utc::now().to_rfc3339(),
-                                        seq: env.seq,
-                                        span_id: env
-                                            .span_stack
-                                            .last()
-                                            .map(|(sid, _)| sid.clone())
-                                            .unwrap_or_default(),
-                                        parent_id: env
-                                            .span_stack
-                                            .last()
-                                            .and_then(|(_, p)| p.clone()),
-                                        event: e,
-                                    }
-                                })
-                                .collect();
-                            let dir = std::env::var("CODEX_OBSERVER_DIR")
-                                .unwrap_or_else(|_| "./observer".into());
-                            if let Err(e) = obs
-                                .run_and_report(std::path::Path::new(&dir), &s.id, &enveloped)
-                                .await
-                            {
-                                tracing::warn!("Q3: observer report failed for {}: {e:#}", s.id);
                             }
                         }
                     }
@@ -1387,6 +1443,42 @@ async fn resolve_in_workspace(
 mod tests {
     use super::*;
     use memory::{JsonlMemoryStore, SessionRecord, StoredEvent};
+
+    /// D-208：红线 → 终态的**语义锁**（端到端行为门禁见
+    /// `crates/service/tests/circuit_break_fail_closed_gate.rs`）。
+    ///
+    /// 口径：**只有安全级红线**（`sandbox_violation`）才把"正常完成"翻成 `blocked`；
+    /// 技术/经济类熔断**不翻**（避免假告警）；非 `done` 终态**保持原值**（同 D-159）。
+    #[test]
+    fn test_d208_red_line_terminal_phase_semantics() {
+        let brk = |rule: &str| observer::CircuitBreak::new(format!("{rule}: test"), rule);
+
+        // 安全级红线 ⇒ 正常完成被拦下
+        assert_eq!(
+            red_line_terminal_phase("done", &[brk("sandbox_violation")]),
+            "blocked"
+        );
+        // 技术/经济类 ⇒ **不翻终态**（其终态已由 loop 层表达）
+        assert_eq!(
+            red_line_terminal_phase("done", &[brk("retry_storm")]),
+            "done"
+        );
+        assert_eq!(
+            red_line_terminal_phase("done", &[brk("budget_exhausted")]),
+            "done"
+        );
+        // 非 done 终态保持原值（红线不改写失败/取消原因）
+        assert_eq!(
+            red_line_terminal_phase("error", &[brk("sandbox_violation")]),
+            "error"
+        );
+        assert_eq!(
+            red_line_terminal_phase("cancelled", &[brk("sandbox_violation")]),
+            "cancelled"
+        );
+        // 无熔断 ⇒ 不变
+        assert_eq!(red_line_terminal_phase("done", &[]), "done");
+    }
 
     #[tokio::test]
     async fn test_create_and_get_session() {

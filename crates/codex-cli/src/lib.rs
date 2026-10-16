@@ -1142,12 +1142,16 @@ pub async fn hearth_main() -> Result<()> {
             match client.get_status(&id).await {
                 Ok(st) => {
                     let status = st["status"].as_str().unwrap_or("?");
-                    if status == "done" || status == "cancelled" {
-                        render::error_structured(
-                            "会话已结束",
-                            &format!("status = {status}"),
-                            "重新发起：codex chat \"新目标\"",
-                        );
+                    // D-208（2026-10-08, traecode）：`blocked`（G0 红线 fail-closed 置态，见
+                    // agent-runtime `red_line_terminal_phase`）**也是终态**——CLI 必须与
+                    // done/cancelled 同处理，否则会去 resume 一个已被红线拦下的会话。
+                    if status == "done" || status == "cancelled" || status == "blocked" {
+                        let hint = if status == "blocked" {
+                            "该会话触发 G0 红线（越权/安全事实）已被拦下，不可续跑；详情见 observer 报告与事件导出"
+                        } else {
+                            "重新发起：codex chat \"新目标\""
+                        };
+                        render::error_structured("会话已结束", &format!("status = {status}"), hint);
                         return Ok(());
                     }
                     render::info(&format!("resume session {id} (status = {status})"));

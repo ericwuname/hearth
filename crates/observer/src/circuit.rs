@@ -2,12 +2,15 @@
 //! **只拉闸**：不改计划、不换工具、不尝试修复。
 //! 可审计：原因 + 触发规则 + 时间戳全部入事件。
 //!
-//! D-208（2026-10-08, traecode）：旧文案声称"红线触发即由 `service` 侧执行停机"——**与事实不符**。
-//! 现状：`Observer::run_and_report` 返回的 `CircuitBreak` 在唯一调用点
-//! （`agent-runtime/src/session.rs`）**返回值被丢弃**，全仓**无任何消费方**执行停机；
-//! breaks 仅随 `report.md/json` 落盘（`CODEX_OBSERVER_DIR/reports/<sid>/`）供人/工具查阅。
-//! ⇒ **停机能力＝已设计未接线**（如实登记，不靠注释许诺——同 D-72 纪律；接线须**先接消费点**，
-//! 单独立卡 D-208，不得在注释里预支）。
+//! D-208（2026-10-08, traecode）：**已接线（同轮收口该债）**。
+//! Observer **仍只产事实**（`CircuitBreak`）——**置态由执行方落**：唯一调用点
+//! `agent-runtime/src/session.rs`（会话收尾）**消费** `run_and_report` 的返回值，经
+//! `red_line_terminal_phase` 做 **fail-closed 置终态**——安全级红线（`sandbox_violation`：
+//! 越权/安全事实）把 `done` 翻成 `blocked`；`retry_storm`/`budget_exhausted` **不翻**
+//! （技术/经济类，其终态已由 loop 层表达，再翻只会制造假告警）。breaks 同时写进持久化
+//! `done_summary`（审计面，`GET /events` 可查）。
+//! 边界（与 D-45 一致）：Observer **评估失败**恒 **fail-open**（调用点只 warn、不改态）。
+//! 行为门禁：`crates/service/tests/circuit_break_fail_closed_gate.rs`（越权读 → 终态 `blocked`）。
 
 use crate::metrics::Metrics;
 use crate::CircuitBreak;
