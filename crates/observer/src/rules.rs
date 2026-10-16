@@ -36,6 +36,8 @@ pub fn evaluate(metrics: &Metrics, _events: &[EnvelopedEvent]) -> Result<Vec<Fin
     let config = RulesConfig::load()?;
     let mut findings = Vec::new();
     for rule in &config.rules {
+        // D-219：④ 两指标可为**未知**（`None` = 无用量 / 成本未定价）——未知**不参与**
+        // 阈值判定（不得把"未知"当 0 判，同 D-176「未知 ≠ 0」）。
         let value = match rule.metric.as_str() {
             "autonomy_rate" => metrics.autonomy_rate,
             "interrupt_count" => metrics.interrupt_count as f64,
@@ -43,8 +45,14 @@ pub fn evaluate(metrics: &Metrics, _events: &[EnvelopedEvent]) -> Result<Vec<Fin
             "clarify_skip_rate" => metrics.clarify_skip_rate,
             "error_rate" => metrics.error_rate,
             "retry_rate" => metrics.retry_rate,
-            "cost_per_step" => metrics.cost_per_step,
-            "token_efficiency" => metrics.token_efficiency,
+            "cost_per_step" => match metrics.cost_per_step {
+                Some(v) => v,
+                None => continue,
+            },
+            "token_efficiency" => match metrics.token_efficiency {
+                Some(v) => v,
+                None => continue,
+            },
             other => {
                 return Err(anyhow::anyhow!("unknown metric in rule: {other}"));
             }
@@ -102,12 +110,20 @@ pub fn render_md(
     ));
     out.push_str(&format!("| error_rate | {:.4} |\n", metrics.error_rate));
     out.push_str(&format!("| retry_rate | {:.4} |\n", metrics.retry_rate));
-    // D-221（2026-10-08, traecode）：④ 两指标**无任何可达数据源**（生产恒 0，见
-    // `metrics.rs` 模块头 ④ / D-218）——在**给人看**的 report.md 里**不得**渲染成
-    // `0.0000`（会被读成"成本/步 = 0"这种**真实测值**，同 D-176"未知 ≠ 0"）。
-    // 如实标 `n/a`。report.json 仍保留数值字段（机器契约不变）。
-    out.push_str("| cost_per_step | n/a（无数据源；见 metrics ④） |\n");
-    out.push_str("| token_efficiency | n/a（无数据源；见 metrics ④） |\n");
+    // D-221/D-219（2026-10-08, traecode）：④ 两指标**可为未知**（`None` = 无用量 /
+    // 成本未定价）——**给人看**的报告**不得**把"未知"渲染成数值（会被读成真实测值，
+    // 同 D-176「未知 ≠ 0」）；已知时如实出数。report.json 保留 `null`（机器契约）。
+    for (name, v) in [
+        ("cost_per_step", metrics.cost_per_step),
+        ("token_efficiency", metrics.token_efficiency),
+    ] {
+        match v {
+            Some(x) => out.push_str(&format!("| {name} | {x:.4} |\n")),
+            None => out.push_str(&format!(
+                "| {name} | n/a（未知：无用量或成本未定价；见 metrics ④） |\n"
+            )),
+        }
+    }
     out.push_str("\n## Findings\n\n");
     if findings.is_empty() {
         out.push_str("_none_\n");
@@ -159,12 +175,11 @@ mod tests {
 
     #[test]
     fn test_finding_evidence_reproducible() {
-        // 高成本事件流 → cost_per_step 超阈值 → Finding 带可复现 evidence
+        // 高成本事件流 → cost_per_step 超阈值 → Finding 带可复现 evidence。
         //
-        // D-218：此处的 `usage:{cost,tokens}` 是**自造（合成）payload**——生产里 `Done` 事件
-        // payload **从不含 `usage`**（且键名也不符）⇒ `cost_per_step` 生产恒 0、
-        // `cost_per_step_high` **永不触发**。本测仅验**引擎**（给定超标指标 → 产出带可复现
-        // evidence 的 Finding），**不**证明该规则在生产可达（见 `metrics.rs` 模块头 ④ / D-219）。
+        // D-219：此处已改用**内核真实形状**（`usage` = `CostEntry` 键 + `cost_usd`）——
+        // 不再是"自造 payload 掩盖生产不可达"（D-218 旧态）；该规则现**生产可达**
+        // （内核 `Done` 统一携带资源事实）。
         let events = vec![EnvelopedEvent {
             schema_version: 1,
             ts: "2026-08-03T00:00:00Z".into(),
@@ -174,7 +189,8 @@ mod tests {
             event: api::AgentEvent::Done {
                 report: serde_json::json!({
                     "ok": true, "steps": 1,
-                    "usage": {"cost": 9.9, "tokens": 1000}
+                    "usage": {"prompt_tokens": 400, "completion_tokens": 600, "total_tokens": 1000, "calls": 1},
+                    "cost_usd": 9.9
                 }),
             },
         }];
@@ -189,6 +205,30 @@ mod tests {
             f.evidence
         );
         eprintln!("WP-6 PASS: Finding 带可复现 evidence");
+
+        // D-219 对照：**成本未定价**（`cost_usd: null`）⇒ 成本**未知**，规则**不得**触发
+        // （不得把"未知"当 0 之外的任何阈值判定；同 D-176）。
+        let unknown = vec![EnvelopedEvent {
+            schema_version: 1,
+            ts: "2026-08-03T00:00:00Z".into(),
+            seq: 1,
+            span_id: String::new(),
+            parent_id: None,
+            event: api::AgentEvent::Done {
+                report: serde_json::json!({
+                    "ok": true, "steps": 1,
+                    "usage": {"total_tokens": 1000, "calls": 1},
+                    "cost_usd": null
+                }),
+            },
+        }];
+        let mu = metrics::compute(&unknown).unwrap();
+        assert_eq!(mu.cost_per_step, None, "未定价 ⇒ 成本未知");
+        let fu = evaluate(&mu, &unknown).unwrap();
+        assert!(
+            !fu.iter().any(|f| f.rule == "cost_per_step_high"),
+            "成本未知时 `cost_per_step_high` 不得触发（不能拿未知当数值判）"
+        );
     }
 
     #[test]
@@ -314,7 +354,9 @@ mod tests {
                 event: api::AgentEvent::Done {
                     report: serde_json::json!({
                         "ok": true, "steps": 1,
-                        "usage": {"cost": 9.9, "tokens": 100}
+                        // D-219：内核真实形状（usage 用 CostEntry 键；cost_usd 为可空 USD）
+                        "usage": {"prompt_tokens": 40, "completion_tokens": 60, "total_tokens": 100, "calls": 1},
+                        "cost_usd": 9.9
                     }),
                 },
             },

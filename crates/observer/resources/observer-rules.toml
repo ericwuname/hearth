@@ -1,10 +1,11 @@
 # WP-6 (v23 phase4): Observer 规则表——阈值配置（Metrics → Finding）
 # 确定性：规则按数组顺序遍历；evidence 由引擎格式化（凭值可复现）。
 
-# D-218（2026-10-08, traecode）：本规则 metric=`cost_per_step` 在生产中**恒 0 ⇒ 永不触发**——
-# `Done` **事件** payload 从不含 `usage`（`usage` 只在返回的 `RunReport` 里），且键名不符，
-# 而 `cost` 按设计不在事件流（Observer 禁读 CostMeter）⇒ 无任何可达数据源。
-# 保留规则定义（属"已设计未接线"，遵"不擅自删除/接线"）；接线/退役方案另立债 D-219。
+# D-219（2026-10-08, traecode）：本规则**已接线、生产可达**——内核 `Done` 事件现统一携带
+# 资源事实（`usage` = 真实 `CostEntry`；`cost_usd` = 可空 USD，未定价 = `null`）。
+# `cost_per_step` 为 `None`（**未知**：无用量或成本未定价）时本规则**不参与判定**
+# （不得拿未知当数值判，同 D-176）。
+# 沿革：D-218 曾如实登记"无数据源 ⇒ 恒 0 ⇒ 永不触发"；D-219 收口接线。
 # 见 `metrics.rs` 模块头 ④。
 [[rules]]
 name = "cost_per_step_high"

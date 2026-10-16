@@ -5,13 +5,13 @@
 //! ② 人机交互 interrupt_count / wait_ratio / clarify_skip_rate（通用原语计数，
 //!    Z-16：wait 用 InteractionResponse.latency_ms 客户端采集回传——Observer 只聚合）
 //! ③ 技术质量 error_rate / retry_rate（span 内 Error 事件推断——SpanClose 无 status）
-//! ④ 资源效率 cost_per_step / token_efficiency ——**当前恒 0（结构性 0，无数据源；D-218）**：
-//!    `Done` **事件** payload **从不含 `usage`**（`usage` 只在返回的 `RunReport` 里）；
-//!    且本模块原先读的键 `cost`/`tokens` 在真实 `CostEntry` 中**不存在**（真实键
-//!    `prompt_tokens`/`completion_tokens`/`total_tokens`/`calls`）；而 `cost` 按设计
-//!    **不在事件流**（Observer 只读事件流、**不得**直读 CostMeter）⇒ 二者**无任何可达数据源**
-//!    ⇒ 依赖它的规则 `cost_per_step_high` 在生产中**永不触发**（属"已设计未接线"；
-//!    接线/退役方案另立债 **D-219**——须改事件契约或另设通道，属行为/契约变更）。
+//! ④ 资源效率 cost_per_step / token_efficiency ——**已接线（D-219）**：
+//!    `Done` **事件** payload 由内核统一携带资源事实（`usage` = 真实 `CostEntry`；
+//!    `cost_usd` = 可空 USD——未定价 = `null`，**不按 0 冒充**，见
+//!    `agent-core` 的 `AgentLoop::emit`/`refresh_usage_snapshot` 与 D-46）。
+//!    本模块据此算出两指标；**未知**（payload 无 `usage`／`cost_usd` 为 `null`）时为
+//!    `None`——`None` 表示"**未知**"，**不参与**阈值判定（同 D-176「未知 ≠ 0」）。
+//!    D-218 曾登记"无数据源 ⇒ 恒 0、规则永不触发"，本卡收口接线。
 
 use anyhow::Result;
 use api::{AgentEvent, EnvelopedEvent};
@@ -30,9 +30,10 @@ pub struct Metrics {
     // ③ 技术质量
     pub error_rate: f64,
     pub retry_rate: f64,
-    // ④ 资源效率
-    pub cost_per_step: f64,
-    pub token_efficiency: f64,
+    // ④ 资源效率——`None` = **未知**（无用量／成本未定价）；`Some` = 实测值。
+    // D-219：不再用 `0.0` 冒充"未知"（同 D-176/D-206）。
+    pub cost_per_step: Option<f64>,
+    pub token_efficiency: Option<f64>,
 }
 
 impl Default for Metrics {
@@ -45,8 +46,8 @@ impl Default for Metrics {
             clarify_skip_rate: 0.0,
             error_rate: 0.0,
             retry_rate: 0.0,
-            cost_per_step: 0.0,
-            token_efficiency: 0.0,
+            cost_per_step: None,
+            token_efficiency: None,
         }
     }
 }
@@ -76,10 +77,10 @@ pub fn compute(events: &[EnvelopedEvent]) -> Result<Metrics> {
     let mut tool_calls: u64 = 0;
     let mut tool_errors: u64 = 0;
 
-    // ④ 资源
+    // ④ 资源（D-219：`Ok` = 已知；`None` = **未知**——不用 0 冒充）
     let mut steps_used: u64 = 0;
-    let mut cost_total: f64 = 0.0;
-    let mut tokens_total: u64 = 0;
+    let mut cost_usd: Option<f64> = None;
+    let mut tokens_total: Option<u64> = None;
 
     for ev in events {
         match &ev.event {
@@ -151,12 +152,14 @@ pub fn compute(events: &[EnvelopedEvent]) -> Result<Metrics> {
                 if let Some(steps) = report.get("steps").and_then(|v| v.as_u64()) {
                     steps_used = steps;
                 }
-                // D-218：下面的读取在生产中**永不命中**——`Done` 事件 payload 从不含 `usage`，
-                // 且键 `cost`/`tokens` 不在真实 `CostEntry` 里 ⇒ `cost_total`/`tokens_total`
-                // 恒 0 ⇒ ④ 两指标恒 0、`cost_per_step_high` 永不触发（见模块头 ④）。
+                // D-219：内核 `Done` payload 现**统一携带**资源事实——`usage`（真实 `CostEntry`，
+                // 键 `total_tokens`）与 `cost_usd`（可空——未定价 = `null` ⇒ **成本未知**）。
+                // 未知时保持 `None`（**不按 0 冒充**，同 D-176）。
                 if let Some(usage) = report.get("usage") {
-                    cost_total = usage.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    tokens_total = usage.get("tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    tokens_total = usage.get("total_tokens").and_then(|v| v.as_u64());
+                }
+                if let Some(c) = report.get("cost_usd").and_then(|v| v.as_f64()) {
+                    cost_usd = Some(c);
                 }
             }
             _ => {}
@@ -182,10 +185,10 @@ pub fn compute(events: &[EnvelopedEvent]) -> Result<Metrics> {
     if tool_calls > 0 {
         m.retry_rate = tool_errors as f64 / tool_calls as f64;
     }
-    // ④
+    // ④ D-219：`None` = 未知（无用量／成本未定价）——**不按 0 冒充**。
     if steps_used > 0 {
-        m.cost_per_step = cost_total / steps_used as f64;
-        m.token_efficiency = tokens_total as f64 / steps_used as f64;
+        m.cost_per_step = cost_usd.map(|c| c / steps_used as f64);
+        m.token_efficiency = tokens_total.map(|t| t as f64 / steps_used as f64);
     }
 
     Ok(m)
@@ -276,10 +279,9 @@ mod tests {
             env(
                 7,
                 AgentEvent::Done {
-                    // D-218：此 `usage` 是**自造（合成）输入**——生产里 `Done` 事件 payload
-                    // **从不含 `usage`**，故本断言只验**算法**（给定数据算得对），**不**证明
-                    // 生产可用（生产恒 0，见模块头 ④）。
-                    report: serde_json::json!({"ok": true, "steps": 3, "usage": {"cost": 0.06, "tokens": 900}}),
+                    // D-219：**内核真实形状**——`usage` = `CostEntry`（键 `total_tokens`）；
+                    // `cost_usd` 可空（未定价 = null）。
+                    report: serde_json::json!({"ok": true, "steps": 3, "usage": {"prompt_tokens": 300, "completion_tokens": 600, "total_tokens": 900, "calls": 3}, "cost_usd": 0.06}),
                 },
                 "2026-08-03T00:00:06Z",
             ),
@@ -294,8 +296,38 @@ mod tests {
         assert_eq!(a.autonomy_rate, 0.0, "by=human 非 Policy");
         assert_eq!(a.interrupt_count, 1, "1 次 blocking 交互");
         assert_eq!(a.retry_rate, 1.0, "1 错 / 1 调用");
-        assert_eq!(a.cost_per_step, 0.02, "0.06 / 3 步");
+        assert_eq!(a.cost_per_step, Some(0.02), "0.06 / 3 步");
+        assert_eq!(a.token_efficiency, Some(300.0), "900 / 3 步");
         eprintln!("WP-5 PASS: 确定性（两次字节一致）+ 语义正确");
+    }
+
+    /// D-219：④ 两指标的**未知语义**——无用量 / 成本未定价 ⇒ `None`（**不按 0 冒充**）。
+    ///
+    /// 红侧（修复前）：字段是 `f64` 且默认 `0.0` ⇒ "无数据源"与"真的为 0"**不可区分**。
+    /// 绿侧：`usage` 缺失 ⇒ `token_efficiency = None`；`cost_usd = null`（未定价）⇒
+    /// `cost_per_step = None`；`usage` 有但 `cost_usd` 有值 ⇒ 各自 `Some`。
+    #[test]
+    fn test_d219_resource_metrics_unknown_is_none_not_zero() {
+        let done = |payload: serde_json::Value| {
+            vec![env(
+                1,
+                AgentEvent::Done { report: payload },
+                "2026-08-03T00:00:00Z",
+            )]
+        };
+        // ① 完全没有资源事实（如 replay/旧录制）⇒ 双未知
+        let m = compute(&done(serde_json::json!({"ok": true, "steps": 2}))).unwrap();
+        assert_eq!(m.token_efficiency, None, "无 usage ⇒ token 效率未知");
+        assert_eq!(m.cost_per_step, None, "无 cost ⇒ 每步成本未知");
+        // ② 有 usage 但成本未定价（cost_usd = null）⇒ 成本未知、token 已知
+        let m = compute(&done(
+            serde_json::json!({"ok": true, "steps": 2, "usage": {"total_tokens": 800, "calls": 2}, "cost_usd": null}),
+        ))
+        .unwrap();
+        assert_eq!(m.cost_per_step, None, "未定价 ⇒ 成本未知（不得当 0）");
+        assert_eq!(m.token_efficiency, Some(400.0), "800 / 2 步");
+        // ③ 未知 ≠ 0：`None` 与 `Some(0.0)` 是两回事
+        assert_ne!(m.cost_per_step, Some(0.0), "未知不得等价于 0");
     }
 
     #[test]

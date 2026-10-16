@@ -1078,6 +1078,16 @@ pub struct AgentLoop {
     run_abort: Option<(&'static str, String)>,
     /// RC24-C: 本轮委托放行的破坏性命令（审计——落 run report）。
     delegated_approvals: Vec<String>,
+    /// D-219（2026-10-08, traecode）：**`Done` 事件的资源事实快照**——`(usage, cost_usd)`。
+    ///
+    /// 病灶：`Done` 事件 payload **从不含用量**（用量只在返回的 `RunReport` 里）⇒ Observer ④
+    /// 资源指标（`cost_per_step`/`token_efficiency`）**无任何可达数据源**、生产恒 0、
+    /// 规则 `cost_per_step_high` 永不触发（D-218 登记）。
+    /// 处置：在每次 `CostMeter::record` 之后（async、已持锁处）同步刷新本快照，
+    /// 由 [`AgentLoop::emit`] 在同步路径上把 `usage`（真实 `CostEntry`）与 `cost_usd`
+    /// （可空——未定价 = `None`，**不按 0 冒充**，同 D-46）注入 `Done` payload。
+    /// 契约只增不改（新增键，旧消费者宽容）。
+    usage_snapshot: std::sync::Mutex<Option<(Option<llm_gateway::CostEntry>, Option<f64>)>>,
 }
 
 impl AgentLoop {
@@ -1670,6 +1680,8 @@ impl AgentLoop {
             approval_policy: ApprovalPolicy::Interactive,
             run_abort: None,
             delegated_approvals: Vec::new(),
+            // D-219：`Done` 资源事实快照（由 `refresh_usage_snapshot` 刷新）。
+            usage_snapshot: std::sync::Mutex::new(None),
             force_param_gap: false,
             steps_without_progress: 0,
             search_streak: 0,
@@ -2269,9 +2281,50 @@ impl AgentLoop {
 
     /// Emit an event if a sender is configured.
     fn emit(&self, event: Event) {
+        // D-219（2026-10-08, traecode）：`Done` **统一携带资源事实**（`usage` + 可空 `cost_usd`）
+        // ——Observer ④ 资源指标的唯一数据源（此前 payload 无用量 ⇒ 该象限恒 0）。
+        // 快照在每次 `CostMeter::record` 之后刷新（`refresh_usage_snapshot`）；`emit` 是**同步**
+        // 路径，故只读快照、不锁 async 计费表。契约只增不改（新增键）。
+        let event = match event {
+            Event::Done(mut payload) => {
+                if let Some(obj) = payload.as_object_mut() {
+                    let snap = self
+                        .usage_snapshot
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let (usage, cost_usd) = snap.unwrap_or((None, None));
+                    obj.insert(
+                        "usage".into(),
+                        serde_json::to_value(usage).unwrap_or(serde_json::Value::Null),
+                    );
+                    // 未定价 = null（**不按 0 冒充**，同 D-46）；Observer 据此判"成本未知"。
+                    obj.insert(
+                        "cost_usd".into(),
+                        serde_json::to_value(cost_usd).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                Event::Done(payload)
+            }
+            other => other,
+        };
         if let Some(ref tx) = self.events_tx {
             let _ = tx.send(event);
         }
+    }
+
+    /// D-219：刷新 `Done` 事件用的资源快照（token 累计 + 可空 USD 成本）。
+    ///
+    /// **须在 `CostMeter` 已持锁的 async 上下文中调用**（见各 `record` 之后）——
+    /// 避免 `emit`（同步）反向依赖 async 计费表。未定价 ⇒ `total_usd` = `None`，
+    /// 如实保留 `None`（不按 0 冒充）。
+    fn refresh_usage_snapshot(&self, cm: &llm_gateway::CostMeter) {
+        let entry = cm.get(self.provider.name(), self.provider.model()).cloned();
+        let usd = cm.total_usd(&self.price_table);
+        *self
+            .usage_snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((entry, usd));
     }
 
     /// WP-9 (v23 phase5): 思考摘要——相位完成时的人类可读描述。
@@ -3253,10 +3306,10 @@ impl AgentLoop {
         if let Some(ref usage) = resp.usage {
             let provider_name = self.provider.name().to_string();
             let model = self.provider.model().to_string();
-            self.cost_meter
-                .lock()
-                .await
-                .record(&provider_name, &model, usage);
+            let mut cm = self.cost_meter.lock().await;
+            cm.record(&provider_name, &model, usage);
+            // D-219：刷新 `Done` 资源快照（本函数是 loop 内唯一 provider.chat 出口）
+            self.refresh_usage_snapshot(&cm);
         }
         // R2-A (v0.2.6): cache 证据采集——每请求一条 jsonl（env 开关）。
         // 单点接线：本函数是 loop 内唯一 provider.chat 出口，全部 LLM 请求必经。
@@ -3296,10 +3349,10 @@ impl AgentLoop {
                     if let Some(ref usage) = r2.usage {
                         let provider_name = self.provider.name().to_string();
                         let model = self.provider.model().to_string();
-                        self.cost_meter
-                            .lock()
-                            .await
-                            .record(&provider_name, &model, usage);
+                        let mut cm = self.cost_meter.lock().await;
+                        cm.record(&provider_name, &model, usage);
+                        // D-219：同上，刷新 `Done` 资源快照。
+                        self.refresh_usage_snapshot(&cm);
                     }
                     resp = r2;
                 }
@@ -4948,10 +5001,10 @@ impl AgentLoop {
                     if let Some(ref usage) = resp.usage {
                         let provider_name = self.provider.name().to_string();
                         let model = self.provider.model().to_string();
-                        self.cost_meter
-                            .lock()
-                            .await
-                            .record(&provider_name, &model, usage);
+                        let mut cm = self.cost_meter.lock().await;
+                        cm.record(&provider_name, &model, usage);
+                        // D-219：同上，刷新 `Done` 资源快照。
+                        self.refresh_usage_snapshot(&cm);
                     }
                     let text = resp.content.unwrap_or_default();
                     // 校验六段齐全（缺段 = 不合格 → 降级，不静默交付半成品总结）。
