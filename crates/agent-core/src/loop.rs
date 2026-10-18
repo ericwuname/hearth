@@ -478,6 +478,22 @@ fn path_escapes_workspace(workspace: &std::path::Path, p: &std::path::Path) -> b
 /// K-6（契约手术，2026-09-11）：edit 分支语义修正——原 `p.has_root()` 让
 /// **workspace 内的绝对路径**也需审批（EMBER M1 实测病灶：写自己工作目录下的
 /// 绝对路径 → 非交互拒绝 → 续跑中断）。新语义：判"**是否逃逸 workspace**"。
+/// D-214（2026-10-08, traecode）：**简化步**的输出上限。
+///
+/// 语义（可验证）：默认取常规上限（`agent_types::max_output_tokens()`）的 **1/4**，
+/// 下限 **256**（防退化成不可用）；`HEARTH_SIMPLIFY_MAX_TOKENS`（>0）可显式覆盖。
+/// 调用点：`do_plan_inner` 的简化步（`PhaseOverride::Simplify` 命中后本步生效）。
+fn simplify_max_output_tokens() -> u32 {
+    if let Ok(v) = std::env::var("HEARTH_SIMPLIFY_MAX_TOKENS") {
+        if let Ok(n) = v.trim().parse::<u32>() {
+            if n > 0 {
+                return n;
+            }
+        }
+    }
+    (agent_types::max_output_tokens() / 4).max(256)
+}
+
 fn tool_call_needs_approval(tc: &ToolCall, workspace: &std::path::Path) -> bool {
     match tc.name.as_str() {
         "bash" => {
@@ -3056,6 +3072,18 @@ impl AgentLoop {
             }
         }
 
+        // D-214（2026-10-08, traecode）：`PhaseOverride::Simplify` 的**本步落地语义**（接线）。
+        //
+        // 命中即进入"**简化步**"（**步作用域**——下一次 plan 重新评估；成本不回退，
+        // 故仍超阈会持续简化，这正是期望的收敛行为）：
+        //   ① **关闭工具**（请求 `tools: []`）——不再开启**新的**工具动作，先把已有事实说清楚；
+        //   ② **降输出上限**（[`simplify_max_output_tokens`]）；
+        //   ③ `warn` 留痕（可审计）。
+        // **边界（防职责重叠）**：不改目标、不改计划、不动预算、不写验收——budget-gate 管
+        //   "**还能不能继续花**"，简化只管"**本步怎么说**"；审批门管"这条命令能不能跑"。
+        //   若因无法调工具而推不动，**完成判定仍由既有验收门（acceptance/verify）把关**，
+        //   不允许据此假完成（G1-01：completed 只能来自最终验证成功）。
+        let mut simplify_step = false;
         // v11.4: Subconscious gate — check before building prompt
         // D-98：构造点同步收窄为两个**真被守卫读取**的字段（`last_action` /
         // `cost_ratio`）；原 goal/step_count/last_success/constitution_summary
@@ -3075,10 +3103,13 @@ impl AgentLoop {
                         });
                     }
                     subconscious::PhaseOverride::Simplify => {
-                        // D-213：`Simplify` **未接线**——此处仅告警留痕，本步**照常继续**
-                        //（不跳过 LLM、不简化目标）。旧注释声称"继续以简化方式执行"，与事实不符，已订正。
-                        // 接线另立债 D-214。
-                        tracing::warn!(reason = %signal.reason, "subconscious: simplify（仅告警，未接线）");
+                        // D-214：**已接线**——置本步简化标志（关闭工具 + 降输出上限，
+                        // 见上方 `simplify_step` 说明）；不跳过 LLM、不改目标。
+                        simplify_step = true;
+                        tracing::warn!(
+                            reason = %signal.reason,
+                            "subconscious: simplify（已接线——本步关闭工具 + 降输出上限）"
+                        );
                     }
                 }
             }
@@ -3158,12 +3189,22 @@ impl AgentLoop {
             }
             let attempt_req = ChatRequest {
                 messages: messages.clone(),
-                tools: schemas.clone(),
+                // D-214：简化步 ⇒ **关闭工具**（不再开启新动作）。
+                tools: if simplify_step {
+                    Vec::new()
+                } else {
+                    schemas.clone()
+                },
                 // R5-7：Plan+Act 合一决策调用，temperature 0.2（Plan 档与 Act 档交点）。
                 temperature: Some(0.2),
                 // R1/R5-7：8192（12004 字符截断病理的收敛值）→ 修复4：env 化
                 // （HEARTH_MAX_TOKENS，默认 65536——3.0-flash thinking 与正文共享预算）。
-                max_tokens: Some(agent_types::max_output_tokens()),
+                // D-214：简化步 ⇒ 降输出上限（[`simplify_max_output_tokens`]）。
+                max_tokens: Some(if simplify_step {
+                    simplify_max_output_tokens()
+                } else {
+                    agent_types::max_output_tokens()
+                }),
                 stream: false,
             };
             // S10（手术包二）：流式优先（打字机渲染）；provider 不支持或流
@@ -3337,9 +3378,18 @@ impl AgentLoop {
                 .provider
                 .chat(ChatRequest {
                     messages: retry_messages,
-                    tools: schemas.clone(),
+                    // D-214：空轮重试与首选同口径（简化步仍关闭工具 / 降上限）。
+                    tools: if simplify_step {
+                        Vec::new()
+                    } else {
+                        schemas.clone()
+                    },
                     temperature: Some(0.2),
-                    max_tokens: Some(agent_types::max_output_tokens()),
+                    max_tokens: Some(if simplify_step {
+                        simplify_max_output_tokens()
+                    } else {
+                        agent_types::max_output_tokens()
+                    }),
                     stream: false,
                 })
                 .await

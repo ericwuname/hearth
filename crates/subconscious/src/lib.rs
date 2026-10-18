@@ -24,13 +24,15 @@ pub enum IntuitionKind {
 ///
 /// D-213（2026-10-08, traecode）：旧文案声称"覆盖下一阶段——**完全跳过 LLM**"，与事实不符——
 /// 只有 `Abandon` 会真正终止本步（调用点返回 `StepNext::Error`，不再调用 LLM）；
-/// `Simplify` **不跳过 LLM**（调用点仅 `tracing::warn!`，见 [`PhaseOverride::Simplify`]）。
+/// `Simplify` **不跳过 LLM**（见 [`PhaseOverride::Simplify`]）。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PhaseOverride {
     /// Abandon current action — it violates rules.
     Abandon,
-    /// 资源压力信号。**当前仅 `tracing::warn!` 留痕，不改变执行**（"简化目标"**未接线**——
-    /// 见债 D-214；调用点 `agent-core/src/loop.rs` 命中后照常继续）。
+    /// 资源压力信号。**已接线（D-214）**：调用点 `agent-core/src/loop.rs` 命中后本步进入
+    /// "**简化步**"——**关闭工具**（`tools: []`，不再开启新动作）+ **降输出上限**
+    /// （`simplify_max_output_tokens`，默认常规 1/4、下限 256）。不改目标/计划/预算；
+    /// 推不动时完成判定仍由既有验收门把关。
     Simplify,
 }
 
