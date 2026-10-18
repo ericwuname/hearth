@@ -55,6 +55,35 @@ pub fn wrap_with_cwd(
     )
 }
 
+/// D-155（2026-10-08, traecode）：`bash` 工具的**执行契约**——恒以 `<bin> -c <脚本>` 调用。
+///
+/// `-c` 是 **sh/bash 约定**，而包装脚本（[`wrap_with_cwd`]）用的是 **sh 语法**
+/// （`cd … 2>/dev/null`、`{ …; }`、`$?`、`printf`、`$PWD`）。⇒ `HEARTH_BASH_BIN` 必须指向
+/// **真 sh/bash**（Windows 上通常 = Git Bash）。指向 `cmd`/`cmd.exe` 时二者**都无意义**
+/// （实测为"无声失败/一堆乱码"），故 `execute` **明确拒绝**（fail-loud + 可行动指引）。
+#[derive(Debug, PartialEq, Eq)]
+pub enum BashBinKind {
+    /// 真 sh/bash（或未知——按既往行为放行，交由 spawn 报错）。
+    Sh,
+    /// `cmd` / `cmd.exe` —— 与 `-c` + sh 语法不兼容，必须拒绝。
+    CmdShim,
+}
+
+/// D-155：按**可执行文件名**判定（纯函数，可单测；不解析路径真实性）。
+pub fn bash_bin_kind(bin: &str) -> BashBinKind {
+    let file = std::path::Path::new(bin)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(bin)
+        .to_ascii_lowercase();
+    let stem = file.strip_suffix(".exe").unwrap_or(file.as_str());
+    if stem == "cmd" {
+        BashBinKind::CmdShim
+    } else {
+        BashBinKind::Sh
+    }
+}
+
 /// S15: 从输出中剥离 cwd 标记并返回（新 cwd, 干净输出）。
 /// 标记形如 `__HEARTH_CWD__={/path}`（花括号防路径含空格歧义）。
 /// **只采纳最后一个标记行**（包装注入必然在输出末尾；命令回显的早期标记行保留，
@@ -531,6 +560,18 @@ impl Tool for BashTool {
             .get("HEARTH_BASH_BIN")
             .cloned()
             .unwrap_or_else(|| "bash".to_string());
+        // D-155：**执行契约**（把"Windows 上 sh 语法无意义"+实测的无声失败**显式化**）——
+        // 本工具恒以 `<bin> -c <sh 脚本>` 调用，包装脚本是 **sh 语法**；指向 cmd/cmd.exe
+        // 时 `-c` 与 sh 语法**都无意义** ⇒ **fail-loud**（给出可行动指引），
+        // 不再"best-effort"跑出一堆乱码/无声失败。
+        if matches!(bash_bin_kind(&bash_bin), BashBinKind::CmdShim) {
+            return Err(anyhow!(
+                "D-155：`HEARTH_BASH_BIN`（{bash_bin}）指向 cmd/cmd.exe——本工具**恒以 \
+                 `<bin> -c <sh 脚本>` 调用**（`-c` 与 sh 语法在 cmd 下都无意义）。\
+                 请改为指向真 sh/bash（Windows 上通常填 Git Bash 的 bash.exe 路径，\
+                 如 `C:\\Program Files\\Git\\bin\\bash.exe`）。"
+            ));
+        }
         // S15: 会话 cwd 持久化——包装命令（cd 会话 cwd → 执行 → 尾部回写标记）。
         let wrapped = if persist_enabled() {
             wrap_with_cwd(cmd, &ctx.cwd, get_session_cwd().as_deref())
@@ -1243,6 +1284,53 @@ mod s15_tests {
         // 有会话 cwd → 会话优先（base 是首次起点，会话是当前）
         let w2 = wrap_with_cwd("pwd", base, Some(sess));
         assert!(w2.contains("cd '/deep/dir'"), "会话 cwd 优先：{w2}");
+    }
+
+    /// D-155：`bash` 工具的**执行契约**判定（纯函数）。
+    #[test]
+    fn test_d155_bash_bin_kind_detects_cmd_shim() {
+        assert_eq!(bash_bin_kind("cmd"), BashBinKind::CmdShim);
+        assert_eq!(bash_bin_kind("cmd.exe"), BashBinKind::CmdShim);
+        assert_eq!(
+            bash_bin_kind("C:\\Windows\\System32\\CMD.EXE"),
+            BashBinKind::CmdShim
+        );
+        // 反向对照：真 sh/bash（含 Windows 上带空格路径的 Git Bash）不得被误判。
+        assert_eq!(bash_bin_kind("bash"), BashBinKind::Sh);
+        assert_eq!(
+            bash_bin_kind("C:\\Program Files\\Git\\bin\\bash.exe"),
+            BashBinKind::Sh
+        );
+        assert_eq!(bash_bin_kind("sh"), BashBinKind::Sh);
+    }
+
+    /// D-155 **先红后绿**：`HEARTH_BASH_BIN` 指向 `cmd.exe` 时必须**明确拒绝**（可行动错误），
+    /// 而不是"best-effort 跑出乱码/无声失败"。
+    ///
+    /// 红侧（修复前）：直接以 `cmd.exe -c <sh 脚本>` spawn ⇒ 既不是本错误、
+    /// 也不产生可用结果（该断言失败）。绿侧：返回含"无意义 / Git Bash"的错误。
+    #[tokio::test]
+    async fn test_d155_cmd_shim_bin_is_rejected_loudly() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("HEARTH_BASH_BIN".to_string(), "cmd.exe".to_string());
+        let ctx = ToolContext {
+            cwd: std::path::PathBuf::from("."),
+            env,
+            ..Default::default()
+        };
+        let tool = BashTool::new();
+        let err = tool
+            .execute(
+                serde_json::json!({"cmd": "echo hi", "timeout_secs": 5}),
+                &ctx,
+            )
+            .await
+            .expect_err("D-155：cmd.exe 与 `-c`+sh 语法不兼容，必须 fail-loud");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("无意义") && msg.contains("Git Bash"),
+            "错误须可行动（点名 `-c`/sh 语法无意义 + 指向 Git Bash）: {msg}"
+        );
     }
 
     #[test]

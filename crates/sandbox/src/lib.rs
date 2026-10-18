@@ -168,6 +168,30 @@ use bounded_io::{drain_capped_async, kill_process_tree, MAX_CAPTURED_BYTES};
 #[cfg(target_os = "linux")]
 use bounded_io::drain_capped_std;
 
+/// D-155（2026-10-08, traecode）：子进程输出解码——**确定性**（不依赖运行环境控制台代码页）。
+///
+/// 语义：先按 **UTF-8 严格**解码；含非法字节则退回 `from_utf8_lossy`（U+FFFD 替换）并
+/// **标记 `had_invalid = true`**，由 `spawn` 在输出上**显式附注**。
+///
+/// 病灶（负债 D-155）：修复前是**静默** `from_utf8_lossy`——Windows 上子进程按非 UTF-8
+/// 代码页（如 CP936/GBK）输出时，**用户可见输出**与**回喂给模型的工具结果**同时变成乱码，
+/// 且无任何线索解释"为什么乱"。P1-119 曾试图复现却因本机控制台恰为 UTF-8 而**未获红侧证据**
+/// （"无红不修"）——本卡改为**与代码页无关**的确定性口径：不解码未知编码（不猜），
+/// 但**如实标注**"此处含非 UTF-8 字节"，使问题可定位、可行动（指向 `HEARTH_BASH_BIN`
+/// / 让命令输出 UTF-8）。
+fn decode_child_output(bytes: &[u8]) -> (String, bool) {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => (s.to_string(), false),
+        Err(_) => (String::from_utf8_lossy(bytes).to_string(), true),
+    }
+}
+
+/// D-155：非 UTF-8 字节的**显式附注**（附到 stderr——与既有"截断不静默"同约定，
+/// 两者都会被调用方原样回喂给模型）。
+const NON_UTF8_NOTE: &str = "\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示\
+（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。\
+若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n";
+
 #[cfg(test)]
 mod p0_06_tests {
     use super::*;
@@ -246,6 +270,66 @@ mod p0_06_tests {
         assert!(
             out.stderr.contains("上限"),
             "超限必须留痕（不静默）：{:?}",
+            out.stderr
+        );
+    }
+}
+
+#[cfg(test)]
+mod d155_tests {
+    use super::*;
+
+    /// D-155：解码纯函数语义（跨平台，确定性——与运行环境控制台代码页无关）。
+    #[test]
+    fn test_d155_decode_child_output_is_deterministic() {
+        let (s, bad) = decode_child_output("中文 ok".as_bytes());
+        assert_eq!(s, "中文 ok", "合法 UTF-8 必须原样");
+        assert!(!bad, "合法 UTF-8 不得被标记");
+
+        let (s, bad) = decode_child_output(&[0x41, 0xFF, 0x42]);
+        assert!(bad, "非法字节必须被标记（修复前无此信息，静默 lossy）");
+        assert!(
+            s.starts_with('A') && s.ends_with('B') && s.contains('\u{FFFD}'),
+            "替换文本须保留两侧可读字符: {s:?}"
+        );
+    }
+
+    /// D-155 **先红后绿**：子进程输出含**非 UTF-8 字节**时，`SandboxOutput.stderr` 必须
+    /// **显式标注**（不再静默 `from_utf8_lossy`）。
+    ///
+    /// 红侧（修复前）：stderr **无任何提示**——用户/模型只看到 U+FFFD 乱码、无从判断"为什么乱"。
+    /// 绿侧：出现「非 UTF-8 字节」附注。
+    ///
+    /// 用 `cmd /C type raw.bin`（**字节原样拷贝**）把含 `0xFF` 的原始字节送到 stdout
+    /// → 与"运行环境控制台代码页"**无关**（这正是 P1-119"代码页相关"负结果被绕开的地方；
+    /// 也刻意不用 PowerShell——本机 system32 的 PowerShell 自身有加载故障，不是可靠载体）。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_d155_non_utf8_child_output_is_explicitly_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        // 原始字节：0xFF 在任何编码下都不是合法 UTF-8 起始字节。
+        std::fs::write(dir.path().join("raw.bin"), [0x41u8, 0xFF, 0x42]).unwrap();
+
+        let sandbox = NoopSandbox::new(SandboxConfig::default());
+        let out = sandbox
+            .spawn(
+                "cmd",
+                &["/C", "type raw.bin"],
+                dir.path(),
+                &[],
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("spawn 应当成功");
+        assert_eq!(out.exit_code, 0, "stderr={:?}", out.stderr);
+        assert!(
+            out.stdout.contains('\u{FFFD}'),
+            "非法字节须按 U+FFFD 替换以保留可读性: {:?}",
+            out.stdout
+        );
+        assert!(
+            out.stderr.contains("非 UTF-8 字节"),
+            "D-155：非 UTF-8 输出必须**显式标注**（修复前静默，用户/模型无从解释乱码）: {:?}",
             out.stderr
         );
     }
@@ -445,7 +529,15 @@ impl Sandbox for NoopSandbox {
         };
 
         // P0-06：截断**不静默**——把"输出被截"如实写进 stderr，调用方/模型可见。
-        let mut stderr = String::from_utf8_lossy(&stderr).to_string();
+        // D-155：解码**确定性**——非 UTF-8 ⇒ `NON_UTF8_NOTE` 显式附注（不再静默 lossy）。
+        let (mut stderr, err_invalid) = decode_child_output(&stderr);
+        let (stdout, out_invalid) = decode_child_output(&stdout);
+        if out_invalid {
+            stderr.push_str(NON_UTF8_NOTE);
+        }
+        if err_invalid {
+            stderr.push_str(NON_UTF8_NOTE);
+        }
         if out_trunc {
             stderr.push_str(&format!(
                 "\n[hearth sandbox] stdout 超过 {} MiB 上限，仅保留前 {} MiB。\n",
@@ -461,7 +553,7 @@ impl Sandbox for NoopSandbox {
             ));
         }
         Ok(SandboxOutput {
-            stdout: String::from_utf8_lossy(&stdout).to_string(),
+            stdout,
             stderr,
             exit_code: status.code().unwrap_or(-1),
             timed_out: false,
