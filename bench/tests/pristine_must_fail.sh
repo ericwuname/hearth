@@ -1,10 +1,16 @@
 #!/bin/bash
 # ============================================================================
-# bench/tests/pristine_must_fail.sh —— 「判据不得恒真」门禁（M0 / D-222）
+# bench/tests/pristine_must_fail.sh —— 判据双向门禁（M0 / D-222 + D-225）
 #
-# 判据只有两种作弊方式，本门禁两个方向都堵：
-#   ① 恒真：未做任何修复（fixture 原样）却判通过  → 必须 FAIL（主检查，覆盖全部任务）
-#   ② 恒假：做对了却判失败                        → 用 T03 的**已知正解**做反向对照
+# 判据只有两种作弊方式，两个方向都堵：
+#   ① 恒真：未做任何修复（fixture 原样）却判通过   → 必须 FAIL（覆盖**全部**任务）
+#   ② 恒假：做对了却判失败                        → 用 bench/solutions/<task>.sh 施加
+#                                                   参考解，必须判通过
+#
+# 为什么必须有 ②：只证"没做会判失败"，无法排除"判据过严导致正确解也失败"——那样
+# 通过率会被系统性低估，且 M1 的"稳定产出基线"就分不清"agent 不行"与"判据有问题"。
+#
+# **覆盖率是如实登记的**：没有参考解的任务会在最后**逐条列出**，不静默跳过。
 #
 # 复刻 runner 的真实协议：把 fixture 内容**摊平**到工作区，verify.sh 写成
 # `__verify.sh` 放进工作区（因为每个 verify.sh 都 `cd "$(dirname "$0")"`），
@@ -12,13 +18,14 @@
 #
 # 退出码：全部期望满足 => 0；任一不满足 => 1。
 #
-# 已知局限（如实登记，不掩盖）：本门禁只证明「未修复必判失败」，**不证明**
-# 「判据充分覆盖目标」——完整覆盖仍需 held-out 套件与参考解（任务书 M0-4 / M1）。
+# 已知局限：① 本门禁不证明"判据充分覆盖目标"（仍需 held-out 套件与参考解全集）；
+# ② T17 竞态类单次 cargo test 绿不等于无竞态。
 # ============================================================================
 set -uo pipefail
 
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
 TASKS="$BENCH/tasks"
+SOLUTIONS="$BENCH/solutions"
 LIB="$BENCH/verify_lib.sh"
 : "${CARGO_TARGET_DIR:=${TMPDIR:-/tmp}/hearth-bench-verify-target}"
 export CARGO_TARGET_DIR
@@ -47,16 +54,30 @@ run_verify() {
   ( cd "$w" && bash __verify.sh 2>&1 )
 }
 
+# 判据输出里是否出现**独立成行**的通过标记。
+has_pass_marker() {
+  printf '%s\n' "$1" | grep -qE '^[[:space:]]*VERIFY_PASS'
+}
+
+task_list() {
+  for taskdir in "$TASKS"/T*/; do
+    [ -f "$taskdir/goal.txt" ] || continue
+    local tid
+    tid="$(basename "$taskdir")"
+    if [ -n "$ONLY" ] && [[ "$tid" != *"$ONLY"* ]]; then
+      continue
+    fi
+    printf '%s\n' "$taskdir"
+  done
+}
+
 failures=0
 checked=0
 
 echo "=== ① 恒真检查：未修复的 fixture 必须判失败 ==="
-for taskdir in "$TASKS"/T*/; do
-  [ -f "$taskdir/goal.txt" ] || continue
+while IFS= read -r taskdir; do
+  [ -n "$taskdir" ] || continue
   tid="$(basename "$taskdir")"
-  if [ -n "$ONLY" ] && [[ "$tid" != *"$ONLY"* ]]; then
-    continue
-  fi
   w="$(mktemp -d)"
   prepare "$taskdir" "$w"
 
@@ -65,13 +86,8 @@ for taskdir in "$TASKS"/T*/; do
   out="$(run_verify "$w")" || rc=$?
   checked=$((checked + 1))
 
-  has_pass=0
-  if printf '%s\n' "$out" | grep -qE '^[[:space:]]*VERIFY_PASS'; then
-    has_pass=1
-  fi
-
-  if [ "$rc" -eq 0 ] || [ "$has_pass" -eq 1 ]; then
-    echo "GATE-FAIL $tid：未修复的 fixture 竟判通过（rc=$rc，输出含 VERIFY_PASS=$has_pass）"
+  if [ "$rc" -eq 0 ] || has_pass_marker "$out"; then
+    echo "GATE-FAIL $tid：未修复的 fixture 竟判通过（rc=$rc）"
     echo "---- $tid 输出尾部 ----"
     printf '%s\n' "$out" | tail -5
     echo "-----------------------"
@@ -80,42 +96,55 @@ for taskdir in "$TASKS"/T*/; do
     echo "ok  $tid：未修复 ⇒ 判失败（rc=$rc）"
   fi
 
-  # 只保留尾部便于排查，同时避免临时目录堆积
   rm -rf "$w"
-done
+done < <(task_list)
 
 echo
-echo "=== ② 恒假检查（反向对照）：T03 的已知正解必须判通过 ==="
-T03="$TASKS/T03-fix-off-by-one"
-if [ -f "$T03/goal.txt" ]; then
-  w="$(mktemp -d)"
-  prepare "$T03" "$w"
-  # 已知正解：把 off-by-one 的循环上界从 `1..n`（n-1 次）改为 `1..=n`（n 次）。
-  if ! grep -q 'for _ in 1\.\.n {' "$w/src/lib.rs"; then
-    echo "GATE-FAIL T03 反向对照：fixture 形状已变，正解补丁无法施加（需人工更新门禁）"
-    failures=$((failures + 1))
-  else
-    sed -i 's/for _ in 1\.\.n {/for _ in 1..=n {/' "$w/src/lib.rs"
-    out=""
-    rc=0
-    out="$(run_verify "$w")" || rc=$?
-    if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qE '^[[:space:]]*VERIFY_PASS'; then
-      echo "ok  T03：已知正解 ⇒ 判通过（rc=0）"
-    else
-      echo "GATE-FAIL T03 反向对照：已知正解却判失败（rc=$rc）"
-      printf '%s\n' "$out" | tail -8
-      failures=$((failures + 1))
-    fi
+echo "=== ② 恒假检查：有参考解的任务，施加参考解后必须判通过 ==="
+covered=0
+uncovered=()
+while IFS= read -r taskdir; do
+  [ -n "$taskdir" ] || continue
+  tid="$(basename "$taskdir")"
+  sol="$SOLUTIONS/$tid.sh"
+  if [ ! -f "$sol" ]; then
+    uncovered+=("$tid")
+    continue
   fi
+  covered=$((covered + 1))
+  w="$(mktemp -d)"
+  prepare "$taskdir" "$w"
+
+  if ! ( cd "$w" && bash "$sol" >/dev/null 2>&1 ); then
+    echo "GATE-FAIL $tid：参考解施加失败（fixture 形状可能已变；见 bench/solutions/$tid.sh）"
+    failures=$((failures + 1))
+    rm -rf "$w"
+    continue
+  fi
+
+  out=""
+  rc=0
+  out="$(run_verify "$w")" || rc=$?
+  if [ "$rc" -eq 0 ] && has_pass_marker "$out"; then
+    echo "ok  $tid：参考解 ⇒ 判通过（rc=0）"
+  else
+    echo "GATE-FAIL $tid：参考解却判失败（rc=$rc）"
+    printf '%s\n' "$out" | tail -8
+    failures=$((failures + 1))
+  fi
+
   rm -rf "$w"
-else
-  echo "GATE-FAIL：找不到 T03-fix-off-by-one（反向对照缺失）"
-  failures=$((failures + 1))
+done < <(task_list)
+
+echo
+echo "正向覆盖：$covered 个任务有参考解；未覆盖 ${#uncovered[@]} 个（如实登记，不静默跳过）"
+if [ "${#uncovered[@]}" -gt 0 ]; then
+  echo "  未覆盖：${uncovered[*]}"
 fi
 
 echo
 if [ "$failures" -eq 0 ]; then
-  echo "GATE-PASS：共检查 $checked 个任务；无恒真判据，且 T03 反向对照成立"
+  echo "GATE-PASS：① 检查 $checked 个任务均未修复必判失败；② 参考解 $covered 个均判通过"
   exit 0
 fi
 echo "GATE-FAIL：共 $failures 项不满足" >&2
