@@ -16,6 +16,14 @@ PROVIDER = os.environ.get("BENCH_PROVIDER", "doubao")
 
 import paramiko
 
+# D-222：判据判定口径抽到 bench/judge.py（纯函数、可单测，见 bench/tests/test_judge.py）。
+# 修复前是 `success = "VERIFY_PASS" in verify_out` —— 忽略退出码 ⇒ fail-open。
+import judge
+
+# D-222：判据库（verify_lib.sh）必须随每个任务的 verify.sh 一起送达远端工作区，
+# 因为 verify.sh 里是 `. "$(dirname "$0")/verify_lib.sh"`。
+VERIFY_LIB = Path(__file__).parent / "verify_lib.sh"
+
 def ssh():
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -123,6 +131,7 @@ def run_one(task_name, run_idx):
     # 5. Verify
     success = False
     verify_out = ""
+    verify_rc = None
     if verify_file.exists():
         try:
             c = ssh()
@@ -134,13 +143,20 @@ def run_one(task_name, run_idx):
             vm_verify = f"{ws}/__verify.sh"
             with ftp.file(vm_verify, "wb") as fh:
                 fh.write(verify_file.read_bytes())
+            # D-222: 判据库随判据一起送达（缺它则判据在远端直接判失败，不会静默放行）。
+            with ftp.file(f"{ws}/verify_lib.sh", "wb") as fh:
+                fh.write(VERIFY_LIB.read_bytes())
             ftp.close()
+            # D-222: `exec_command` 拿不到远端进程退出码 ⇒ 让它自己回传一行。
             _, stdout, _ = c.exec_command(
-                f"cd {ws} && source ~/.cargo/env 2>/dev/null; bash __verify.sh 2>&1"
+                f"cd {ws} && source ~/.cargo/env 2>/dev/null; "
+                f'bash __verify.sh 2>&1; echo "{judge.RC_MARKER}$?"'
             )
-            verify_out = stdout.read().decode(errors="replace")
-            success = "VERIFY_PASS" in verify_out
+            raw_out = stdout.read().decode(errors="replace")
             c.close()
+            # D-222: 判定 = 退出码为 0 **且** 有独立 VERIFY_PASS 行。
+            verify_out, verify_rc = judge.split_rc(raw_out)
+            success = judge.judge_verify(verify_out, verify_rc)
         except Exception as e:
             verify_out = f"verify exec error: {e}"
 
@@ -170,6 +186,7 @@ def run_one(task_name, run_idx):
         "session_id": sid,
         "transcript": str(transcript_path) if transcript_path else "",
         "level": meta.get("level", "?"),
+        "verify_rc": verify_rc,
         "verify_tail": verify_out.strip()[-400:],
     }
     return record

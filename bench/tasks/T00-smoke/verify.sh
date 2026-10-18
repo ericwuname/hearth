@@ -1,8 +1,10 @@
 #!/bin/bash
-# T00-smoke verify: check cargo build + test + grep multiply
-set -e
-cd "$(dirname "$0")"
-cargo build --offline 2>&1 || cargo build 2>&1
-cargo test 2>&1
-grep -q "multiply" src/lib.rs && echo "VERIFY_PASS: multiply function found" || { echo "VERIFY_FAIL: multiply not in src/lib.rs"; exit 1; }
-echo "== T00-smoke PASS =="
+# T00-smoke 判据（M0/D-222 统一强判据模板；判据库见 bench/verify_lib.sh）
+set -euo pipefail
+LIB="$(dirname "$0")/verify_lib.sh"
+[ -f "$LIB" ] || { echo "VERIFY_FAIL: 缺少 verify_lib.sh（判据库）" >&2; exit 1; }
+. "$LIB"
+vh_require_cargo_test
+vh_assert_src src/lib.rs 'fn multiply'
+vh_assert_src src/lib.rs 'test_multiply'
+vh_pass T00

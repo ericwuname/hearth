@@ -79,3 +79,36 @@ jobs:
 
       - name: xray scan
         run: cargo run --locked -p project-xray --bin codex-xray -- scan --root . --out xray-out/facts.json
+
+  # M0 / D-222（2026-10-18, traecode）：**判据不得恒真**。
+  # 背景（实测）：修复前 20 个任务的 verify.sh 里，T02 两个分支都打印 VERIFY_PASS、T03
+  # 无条件打印，退出码恒 0；而 runner 的判定是「输出含 VERIFY_PASS」——忽略退出码。
+  # 后果：T03 在 `test result: FAILED. 0 passed; 2 failed` 的情况下仍被记为「成功」。
+  # 本 job 复刻 runner 的真实执行协议（fixture 摊平到工作区 + verify.sh 落为 __verify.sh），
+  # 断言「未做任何修复的 fixture 必须判失败」（20/20），并用 T03 的**已知正解**做反向对照
+  # （做对了必须判通过）——两个方向都堵，防止有人把判据改成「永远失败」来蒙混过关。
+  #
+  # 独立成 job（而非并入 check）的理由：它需要 `bash` + 真实 `cargo build` 20 个 fixture，
+  # 与工作区门禁的 cgroup/超时口径不同，混在一起会互相拖累。
+  bench-judge:
+    name: bench judge (no fail-open)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # 刻意清空 RUSTFLAGS：fixture 不属于本工作区，不应继承 `-D warnings`
+    # （否则 fixture 里的普通 warning 会被升格为构建失败，污染判据口径）。
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 判据不得恒真（pristine 必判失败 + T03 正解反向对照）
+        run: bash bench/tests/pristine_must_fail.sh
+
+      - name: 判定口径单测（退出码 / 独立标记 / 未知即失败）
+        run: python3 -m unittest discover -s bench/tests -p "test_judge.py" -v

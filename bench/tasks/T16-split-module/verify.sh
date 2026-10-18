@@ -1,6 +1,10 @@
 #!/bin/bash
-cd "$(dirname "$0")"
-test -f src/math.rs || { echo "NO_MATH_RS"; exit 1; }
-test -f src/string_utils.rs || { echo "NO_STRING_UTILS_RS"; exit 1; }
-source ~/.cargo/env 2>/dev/null
-cargo test 2>&1 | grep -q "test result: ok" && echo VERIFY_PASS || { echo TEST_FAIL; exit 1; }
+# T16-split-module 判据（M0/D-222 统一强判据模板；判据库见 bench/verify_lib.sh）
+set -euo pipefail
+LIB="$(dirname "$0")/verify_lib.sh"
+[ -f "$LIB" ] || { echo "VERIFY_FAIL: 缺少 verify_lib.sh（判据库）" >&2; exit 1; }
+. "$LIB"
+vh_assert_file src/math.rs
+vh_assert_file src/string_utils.rs
+vh_require_cargo_test
+vh_pass T16

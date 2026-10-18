@@ -1,5 +1,9 @@
 #!/bin/bash
-cd "$(dirname "$0")"
-grep -q "PAGE_SIZE: usize = 20" src/lib.rs || { echo NOT_CHANGED; exit 1; }
-source ~/.cargo/env 2>/dev/null
-cargo test 2>&1 | grep -q "test result: ok" && echo VERIFY_PASS || { echo TEST_FAIL; exit 1; }
+# T12-change-default 判据（M0/D-222 统一强判据模板；判据库见 bench/verify_lib.sh）
+set -euo pipefail
+LIB="$(dirname "$0")/verify_lib.sh"
+[ -f "$LIB" ] || { echo "VERIFY_FAIL: 缺少 verify_lib.sh（判据库）" >&2; exit 1; }
+. "$LIB"
+vh_assert_src src/lib.rs 'PAGE_SIZE: usize = 20'
+vh_require_cargo_test
+vh_pass T12
