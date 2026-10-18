@@ -32,6 +32,9 @@ export CARGO_TARGET_DIR
 export CARGO_TERM_COLOR=never
 # ONLY=<子串>：只跑名字含该子串的任务（本地快速自查用；CI 不设则跑全部）。
 : "${ONLY:=}"
+# REQUIRE_FULL_COVERAGE=1：要求**每个**任务都有参考解（CI 用；本地默认关，便于
+# 新任务的作者先只跑 ① 方向）。没有这条，覆盖率会在新增任务时被**静默**摊薄。
+: "${REQUIRE_FULL_COVERAGE:=0}"
 
 if [ ! -f "$LIB" ]; then
   echo "GATE-ERROR: 缺少判据库 $LIB" >&2
@@ -140,6 +143,11 @@ echo
 echo "正向覆盖：$covered 个任务有参考解；未覆盖 ${#uncovered[@]} 个（如实登记，不静默跳过）"
 if [ "${#uncovered[@]}" -gt 0 ]; then
   echo "  未覆盖：${uncovered[*]}"
+  if [ "$REQUIRE_FULL_COVERAGE" = "1" ]; then
+    echo "GATE-FAIL：REQUIRE_FULL_COVERAGE=1 要求每个任务都有参考解（缺参考解 = 该任务" >&2
+    echo "           \"判据是否过严\"未被证明，正向方向对它仍无防护）" >&2
+    failures=$((failures + 1))
+  fi
 fi
 
 echo

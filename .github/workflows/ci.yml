@@ -107,8 +107,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: 判据不得恒真（pristine 必判失败 + T03 正解反向对照）
-        run: bash bench/tests/pristine_must_fail.sh
+      - name: 判据双向门禁（未修复必判失败 + 参考解必判通过 + 覆盖率不得回退）
+        run: REQUIRE_FULL_COVERAGE=1 bash bench/tests/pristine_must_fail.sh
 
       - name: 判定口径与元数据 schema 单测
         run: python3 -m unittest discover -s bench/tests -p "test_*.py" -v
