@@ -16,13 +16,10 @@ PROVIDER = os.environ.get("BENCH_PROVIDER", "doubao")
 
 import paramiko
 
-# D-222：判据判定口径抽到 bench/judge.py（纯函数、可单测，见 bench/tests/test_judge.py）。
-# 修复前是 `success = "VERIFY_PASS" in verify_out` —— 忽略退出码 ⇒ fail-open。
-import judge
-
-# D-222：判据库（verify_lib.sh）必须随每个任务的 verify.sh 一起送达远端工作区，
-# 因为 verify.sh 里是 `. "$(dirname "$0")/verify_lib.sh"`。
-VERIFY_LIB = Path(__file__).parent / "verify_lib.sh"
+# D-222/D-224：判据的「送达 + 执行 + 判定」收口到 bench/verify_exec.py（唯一实现）。
+# 不要再在这里内联 `"VERIFY_PASS" in verify_out` 这类「只看输出、忽略退出码」的判定
+# （fail-open）——`bench/tests/test_verify_judgment_single_source.py` 会拦。
+import verify_exec
 
 def ssh():
     c = paramiko.SSHClient()
@@ -128,7 +125,7 @@ def run_one(task_name, run_idx):
 
     wall_s = round(time.time() - t0, 1)
 
-    # 5. Verify
+    # 5. Verify —— 送达/执行/判定统一走 bench/verify_exec.py（唯一实现，D-224）。
     success = False
     verify_out = ""
     verify_rc = None
@@ -139,24 +136,17 @@ def run_one(task_name, run_idx):
             # because every verify.sh does `cd "$(dirname "$0")"`. Previously it
             # was written to /tmp, so the script cd'd into /tmp and every task
             # failed regardless of what the agent produced (0% pass rate bug).
+            # D-224: 判据库随判据一起送达 + 退出码回传 + 判定，全部收口到 verify_exec。
             ftp = c.open_sftp()
-            vm_verify = f"{ws}/__verify.sh"
-            with ftp.file(vm_verify, "wb") as fh:
-                fh.write(verify_file.read_bytes())
-            # D-222: 判据库随判据一起送达（缺它则判据在远端直接判失败，不会静默放行）。
-            with ftp.file(f"{ws}/verify_lib.sh", "wb") as fh:
-                fh.write(VERIFY_LIB.read_bytes())
-            ftp.close()
-            # D-222: `exec_command` 拿不到远端进程退出码 ⇒ 让它自己回传一行。
-            _, stdout, _ = c.exec_command(
-                f"cd {ws} && source ~/.cargo/env 2>/dev/null; "
-                f'bash __verify.sh 2>&1; echo "{judge.RC_MARKER}$?"'
-            )
-            raw_out = stdout.read().decode(errors="replace")
-            c.close()
-            # D-222: 判定 = 退出码为 0 **且** 有独立 VERIFY_PASS 行。
-            verify_out, verify_rc = judge.split_rc(raw_out)
-            success = judge.judge_verify(verify_out, verify_rc)
+            try:
+                success, verify_out, verify_rc = verify_exec.verify_task(
+                    verify_exec.sftp_put(ftp, ws),
+                    verify_exec.ssh_exec(c, ws),
+                    verify_file,
+                )
+            finally:
+                ftp.close()
+                c.close()
         except Exception as e:
             verify_out = f"verify exec error: {e}"
 

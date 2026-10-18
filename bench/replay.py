@@ -29,6 +29,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import runner  # noqa: E402  (reuse api/ssh/upload_fixture/verify plumbing)
+# D-224：判据的送达/执行/判定走**唯一实现**（同 runner）。
+# 修复前这里各写了一份 `"VERIFY_PASS" in verify_out` 且**不送判据库** —— D-222 换了新
+# verify.sh（`. "$(dirname "$0")/verify_lib.sh"`）后，回放路径会一律判失败。
+import verify_exec  # noqa: E402
 
 FIXTURES = HERE / "replay" / "fixtures"
 OUT = HERE / "results" / "raw" / "replay-v15.jsonl"
@@ -94,21 +98,22 @@ def replay_one(fx_path: Path):
             pass
     wall_s = round(time.time() - t0, 1)
 
-    # 4. verify with the task's own script
+    # 4. verify with the task's own script（D-224：与 runner 共用唯一实现 verify_exec）
     verify_file = runner.TASKS_DIR / task / "verify.sh"
-    success, verify_out = False, ""
+    success, verify_out, verify_rc = False, "", None
     if verify_file.exists():
         try:
             c = runner.ssh()
             ftp = c.open_sftp()
-            with ftp.file(f"{ws}/__verify.sh", "wb") as fh:
-                fh.write(verify_file.read_bytes())
-            ftp.close()
-            _, stdout, _ = c.exec_command(
-                f"cd {ws} && source ~/.cargo/env 2>/dev/null; bash __verify.sh 2>&1")
-            verify_out = stdout.read().decode(errors="replace")
-            success = "VERIFY_PASS" in verify_out
-            c.close()
+            try:
+                success, verify_out, verify_rc = verify_exec.verify_task(
+                    verify_exec.sftp_put(ftp, ws),
+                    verify_exec.ssh_exec(c, ws),
+                    verify_file,
+                )
+            finally:
+                ftp.close()
+                c.close()
         except Exception as e:
             verify_out = f"verify exec error: {e}"
 
@@ -122,6 +127,7 @@ def replay_one(fx_path: Path):
         "wall_s": wall_s,
         "recorded_wall_s": meta.get("wall_s"),
         "session_id": sid,
+        "verify_rc": verify_rc,
         "verify_tail": verify_out.strip()[-300:],
     }
 
