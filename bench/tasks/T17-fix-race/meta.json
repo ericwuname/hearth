@@ -1,1 +1,1 @@
-{"level": "L3", "expect_files_changed": 1, "timeout_min": 10}
+{"level":"L3","expect_files_changed":1,"timeout_min":10,"suite":"public","acceptance":"Counter::inc 数据竞争修复（行为级）"}

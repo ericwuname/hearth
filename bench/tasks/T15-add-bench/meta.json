@@ -1,1 +1,1 @@
-{"level": "L4", "expect_files_changed": 1, "timeout_min": 10, "max_steps": 20, "fixture_version": 2}
+{"level":"L4","expect_files_changed":1,"timeout_min":10,"max_steps":20,"fixture_version":2,"suite":"public","acceptance":"benches/bench.rs 含 sum_range/sum_formula + Cargo.toml 有 [[bench]] 且 cargo test 全绿"}

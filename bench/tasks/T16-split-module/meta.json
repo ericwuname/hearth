@@ -1,1 +1,1 @@
-{"level": "L5", "expect_files_changed": 1, "timeout_min": 12, "max_steps": 20}
+{"level":"L5","expect_files_changed":1,"timeout_min":12,"max_steps":20,"suite":"public","acceptance":"src/math.rs 与 src/string_utils.rs 存在且 cargo test 全绿"}

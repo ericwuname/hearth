@@ -1,1 +1,1 @@
-{"level": "L2", "expect_files_changed": 1, "timeout_min": 8}
+{"level":"L2","expect_files_changed":1,"timeout_min":8,"suite":"public","acceptance":"calc_sum/calc_avg 重命名为 fn sum/fn average 且 cargo test 全绿"}

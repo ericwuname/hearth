@@ -1,1 +1,1 @@
-{"level": "L3", "expect_files_changed": 1, "timeout_min": 10}
+{"level":"L3","expect_files_changed":1,"timeout_min":10,"suite":"public","acceptance":"is_valid_age 条件改为 >= 0 且 cargo test 全绿"}

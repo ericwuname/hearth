@@ -110,5 +110,5 @@ jobs:
       - name: 判据不得恒真（pristine 必判失败 + T03 正解反向对照）
         run: bash bench/tests/pristine_must_fail.sh
 
-      - name: 判定口径单测（退出码 / 独立标记 / 未知即失败）
-        run: python3 -m unittest discover -s bench/tests -p "test_judge.py" -v
+      - name: 判定口径与元数据 schema 单测
+        run: python3 -m unittest discover -s bench/tests -p "test_*.py" -v

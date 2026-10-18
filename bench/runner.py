@@ -186,6 +186,10 @@ def run_one(task_name, run_idx):
         "session_id": sid,
         "transcript": str(transcript_path) if transcript_path else "",
         "level": meta.get("level", "?"),
+        # D-223: suite 决定任务是「开发可见集」还是「held-out 判定集」，必须落进报表
+        # （否则无法证明 held-out 没被混进开发集）；acceptance 是判据的可读契约。
+        "suite": meta.get("suite", "?"),
+        "acceptance": meta.get("acceptance", ""),
         "verify_rc": verify_rc,
         "verify_tail": verify_out.strip()[-400:],
     }

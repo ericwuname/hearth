@@ -1,1 +1,1 @@
-{"level":"L1","expect_files_changed":1,"timeout_min":5}
+{"level":"L1","expect_files_changed":1,"timeout_min":5,"suite":"public","acceptance":"ANSWER.md 列出 sum_positive/factorial/is_palindrome/max_element"}

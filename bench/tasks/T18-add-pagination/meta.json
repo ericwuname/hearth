@@ -1,1 +1,1 @@
-{"level": "L4", "expect_files_changed": 1, "timeout_min": 10, "max_steps": 20}
+{"level":"L4","expect_files_changed":1,"timeout_min":10,"max_steps":20,"suite":"public","acceptance":"新增 struct Pagination 且 cargo test 全绿"}
