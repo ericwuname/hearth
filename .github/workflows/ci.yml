@@ -107,8 +107,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: 判据双向门禁（未修复必判失败 + 参考解必判通过 + 覆盖率不得回退）
+      # D-227：held-out 实例**不入库**（公开仓放上去就等于公开），按种子现场生成；
+      # 生成器与种子约定入库 ⇒ 可复现、可审计（GENESIS.json 记录 seed/count/家族）。
+      - name: 生成 held-out 实例（种子 20261018 × 8）
+        run: python3 bench/gen_heldout.py --seed 20261018 --count 8
+
+      - name: 判据双向门禁 · 公开集（未修复必判失败 + 参考解必判通过 + 覆盖率不得回退）
         run: REQUIRE_FULL_COVERAGE=1 bash bench/tests/pristine_must_fail.sh
+
+      # 同一套判据、换根复用：held-out 集也必须满足"未修复必判失败 + 参考解必判通过"。
+      - name: 判据双向门禁 · held-out 集
+        env:
+          BENCH_TASKS_ROOT: ${{ github.workspace }}/bench/tasks-heldout
+          BENCH_SOLUTIONS_ROOT: ${{ github.workspace }}/bench/solutions-heldout
+          REQUIRE_FULL_COVERAGE: "1"
+        run: bash bench/tests/pristine_must_fail.sh
 
       - name: 判定口径与元数据 schema 单测
         run: python3 -m unittest discover -s bench/tests -p "test_*.py" -v

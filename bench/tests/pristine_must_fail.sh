@@ -24,8 +24,10 @@
 set -uo pipefail
 
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
-TASKS="$BENCH/tasks"
-SOLUTIONS="$BENCH/solutions"
+# 根可被环境变量覆盖：held-out 实例生成在别处（D-227），同一套双向门禁直接复用。
+# 见 bench/gen_heldout.py。
+TASKS="${BENCH_TASKS_ROOT:-$BENCH/tasks}"
+SOLUTIONS="${BENCH_SOLUTIONS_ROOT:-$BENCH/solutions}"
 LIB="$BENCH/verify_lib.sh"
 : "${CARGO_TARGET_DIR:=${TMPDIR:-/tmp}/hearth-bench-verify-target}"
 export CARGO_TARGET_DIR
@@ -63,8 +65,12 @@ has_pass_marker() {
 }
 
 task_list() {
-  for taskdir in "$TASKS"/T*/; do
+  # 任务目录 = 同时具备 `fixture/` + `goal.txt` + `verify.sh` 的直接子目录。
+  # 不用 `T*/` 这类命名 glob：held-out 实例叫 `H01-…`（D-227），名字前缀不该被门禁绑死。
+  for taskdir in "$TASKS"/*/; do
+    [ -d "$taskdir/fixture" ] || continue
     [ -f "$taskdir/goal.txt" ] || continue
+    [ -f "$taskdir/verify.sh" ] || continue
     local tid
     tid="$(basename "$taskdir")"
     if [ -n "$ONLY" ] && [[ "$tid" != *"$ONLY"* ]]; then

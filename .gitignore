@@ -68,3 +68,11 @@ release/*.tar.gz
 
 # 损坏 git 目录副本（事故残留，2026-09-12 清理）
 .git.broken-*/
+
+# D-227（2026-10-18, traecode）：**held-out 评测实例不入库**。
+# 缘由：本仓是**公开仓**——把 held-out 任务提交上去就等于公开，那就不再"held out"。
+# 故只入库**生成器**（`bench/gen_heldout.py`）与种子约定；实例由生成器按种子在
+# 本地/CI 现场产出（可复现、可审计，见 GENESIS.json），不进版本历史。
+# 诚实局限：生成器公开 ⇒ 不是密码学意义的保密（挡"无意把它当开发集"，不挡"蓄意枚举"）。
+bench/tasks-heldout/
+bench/solutions-heldout/
