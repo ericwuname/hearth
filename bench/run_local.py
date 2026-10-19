@@ -168,7 +168,7 @@ class LocalService:
 
 
 # ---------------------------------------------------------------- 单个 fixture
-def run_one(base, work, fx, tasks_dir):
+def run_one(base, work, fx, tasks_dir, control_substr=None):
     stem = fx.stem
     try:
         d = json.loads(fx.read_text(encoding="utf-8"))
@@ -234,11 +234,19 @@ def run_one(base, work, fx, tasks_dir):
             pass
     wall_s = round(time.time() - t0, 1)
 
+    # D-229 **已知正例对照**：把工作区**打回原样**（撤销 agent 的改动），模拟"自报完成、
+    # 其实没改对"。没有这条对照，"假完成率 = 0"就只是**结构性 0**（因为录制语料全是 PASS），
+    # 等于没测——本仓对此有专门口径（"只用手造数据自证"/"结构性 0"）。
+    control_applied = bool(control_substr) and control_substr in stem
+    if control_applied:
+        shutil.copytree(task_dir / "fixture", ws, dirs_exist_ok=True)
+        log(f"    [对照] 已把 {stem} 的工作区打回原始 fixture（模拟假完成）")
+
     # 判据：与远端同一条契约（verify_exec.verify_task + 本地传输层）
     put, exec_ = verify_exec.local_shell_adapter(ws)
     ok, out, rc = verify_exec.verify_task(put, exec_, verify_file)
 
-    return {
+    rec = {
         "fixture": stem,
         "task": task,
         "ok": ok,
@@ -249,7 +257,11 @@ def run_one(base, work, fx, tasks_dir):
         "session_id": sid,
         "verify_rc": rc,
         "verify_tail": out.strip()[-300:],
+        "control_applied": control_applied,
     }
+    # 自报终态 × 外部判据（跨进程比对）——一等指标"假完成率"的原料
+    rec.update(judge.classify_run(phase, ok))
+    return rec
 
 
 def main(argv=None):
@@ -264,6 +276,12 @@ def main(argv=None):
     ap.add_argument("--fixtures", default=str(DEFAULT_FIXTURES))
     ap.add_argument("--tasks-dir", default=str(HERE / "tasks"))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument(
+        "--false-completion-control",
+        default=None,
+        help="**仅用于自测指标**：名字含该子串的 fixture，在会话结束后把工作区打回原始 "
+        "fixture（模拟『自报完成但没改对』），用来证明假完成率能报出正例",
+    )
     a = ap.parse_args(argv)
 
     fixtures = sorted(pathlib.Path(a.fixtures).glob("*.json"))
@@ -289,7 +307,7 @@ def main(argv=None):
     try:
         log(f"=== 本地驱动：{len(fixtures)} 个 fixture，provider={a.provider} ===")
         for i, fx in enumerate(fixtures, 1):
-            rec = run_one(base, a.work, fx, a.tasks_dir)
+            rec = run_one(base, a.work, fx, a.tasks_dir, a.false_completion_control)
             rec["openai_key_injected"] = svc.openai_key_injected
             results.append(rec)
             log(
@@ -300,6 +318,25 @@ def main(argv=None):
             )
     finally:
         svc.stop()
+
+    # ---- 一等指标（M1）：自报完成 × 外部判据 -------------------------------------------------
+    s = judge.summarize_runs(results)
+    rate = s["false_completion_rate"]
+    rate_s = (
+        "n/a（没有自报完成的会话 ⇒ **未知**，不按 0 冒充）"
+        if rate is None
+        else f"{rate:.1%}"
+    )
+    log("--- 一等指标 ---")
+    log(
+        f"runs={s['runs']}  自报完成={s['self_reported_done']}  "
+        f"外部判通过={s['external_ok']}"
+    )
+    log(
+        f"**假完成率 = {s['false_completion']}/{s['self_reported_done']} = {rate_s}**"
+        "（分子：自报完成但外部判失败；分母：自报完成数）"
+    )
+    log(f"反向不一致（未自报完成却判通过）={s['verdict_conflict']}")
 
     out = pathlib.Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)

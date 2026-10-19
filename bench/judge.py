@@ -68,3 +68,62 @@ def judge_verify(verify_out: str, rc):
         if line.strip().startswith(VERIFY_PASS_TOKEN):
             return True
     return False
+
+
+# ============================================================================
+# 会话终态 × 外部判据 —— 交叉分类（M1 / D-229）
+#
+# **为什么要单独做这个**：本仓最该防的病是"**自报成功**与**实际成功**不一致"。
+# 内部审计口径里它叫"假完成"（session 报 done，外部判据判失败）。业界同源：
+# 有研究显示 agent 在没读完文件的情况下 67.9% 的运行会发出误导性陈述，其中 80.4%
+# 是可证伪的过度声称。要让这个数字可测，必须由**两个互不可见的系统**分别判定，
+# 再**跨进程比对**——这就是下面这个纯函数在做的事。
+#
+# **归因限制（必须记住）**：`false_completion` 为真只说明"两者不一致"，**不区分**
+#   ① agent 过度声称（真问题）；② 判据过严（harness 问题）。
+# 要压住 ② 得靠 M0 建立的反向证据（`bench/solutions/` 证明"正确解必判通过"）。
+# ============================================================================
+
+# 会话自报"完成"的终态（其余终态见 `agent-core/src/terminal.rs` 的九态封闭集）
+SELF_REPORTED_DONE_PHASES = ("done", "completed")
+
+
+def classify_run(phase, external_ok):
+    """把「会话自报终态」与「外部判据结论」交叉分类。
+
+    Returns:
+        dict，四个布尔：
+          self_reported_done —— 会话自报完成
+          external_ok        —— 外部判据判通过
+          false_completion   —— **自报完成 + 外部判失败**（本仓头号病灶）
+          verdict_conflict   —— 未自报完成 + 外部判通过（反向不一致，也要看得见）
+    """
+    self_done = phase in SELF_REPORTED_DONE_PHASES
+    ok = bool(external_ok)
+    return {
+        "self_reported_done": self_done,
+        "external_ok": ok,
+        "false_completion": bool(self_done and not ok),
+        "verdict_conflict": bool((not self_done) and ok),
+    }
+
+
+def summarize_runs(records):
+    """从逐条记录汇总一等指标。`false_completion_rate` 的分母是**自报完成数**
+    （不是总数）：我们要问的是"自报成功里有多少是假的"。
+
+    分母为 0 时**不返回 0.0**，而是 `None`——本仓口径：未知 ≠ 0（同 D-176/D-219）。
+    """
+    total = len(records)
+    done = sum(1 for r in records if r.get("self_reported_done"))
+    ext_ok = sum(1 for r in records if r.get("external_ok"))
+    fc = sum(1 for r in records if r.get("false_completion"))
+    vc = sum(1 for r in records if r.get("verdict_conflict"))
+    return {
+        "runs": total,
+        "self_reported_done": done,
+        "external_ok": ext_ok,
+        "false_completion": fc,
+        "false_completion_rate": (fc / done) if done else None,
+        "verdict_conflict": vc,
+    }

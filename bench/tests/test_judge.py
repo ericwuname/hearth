@@ -10,7 +10,59 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from judge import judge_verify, split_rc  # noqa: E402
+from judge import classify_run, judge_verify, split_rc, summarize_runs  # noqa: E402
+
+
+class TestClassifyRun(unittest.TestCase):
+    """假完成率的两块拼图：会话自报终态 × 外部判据（M1 / D-229）。"""
+
+    def test_false_completion_is_done_plus_external_fail(self):
+        c = classify_run("done", False)
+        self.assertTrue(c["self_reported_done"])
+        self.assertFalse(c["external_ok"])
+        self.assertTrue(c["false_completion"], "自报完成 + 外部判失败 = 假完成")
+
+    def test_done_and_pass_is_not_false_completion(self):
+        c = classify_run("done", True)
+        self.assertFalse(c["false_completion"])
+        self.assertFalse(c["verdict_conflict"])
+
+    def test_non_done_terminal_is_not_self_reported_done(self):
+        for phase in ("error", "cancelled", "aborted", "failed", "deadline_exceeded", "created"):
+            c = classify_run(phase, False)
+            self.assertFalse(c["self_reported_done"], phase)
+            self.assertFalse(c["false_completion"], phase)
+
+    def test_verdict_conflict_is_visible(self):
+        """未自报完成却判通过 ⇒ 反向不一致也要看得见（不能只盯一个方向）。"""
+        c = classify_run("cancelled", True)
+        self.assertTrue(c["verdict_conflict"])
+        self.assertFalse(c["false_completion"])
+
+
+class TestSummarizeRuns(unittest.TestCase):
+    def _rec(self, phase, ok):
+        return dict(classify_run(phase, ok), **{"task": "T"})
+
+    def test_rate_denominator_is_self_reported_done(self):
+        recs = [self._rec("done", False), self._rec("done", True), self._rec("error", True)]
+        s = summarize_runs(recs)
+        self.assertEqual(3, s["runs"])
+        self.assertEqual(2, s["self_reported_done"])
+        self.assertEqual(1, s["false_completion"])
+        self.assertAlmostEqual(0.5, s["false_completion_rate"])
+        self.assertEqual(1, s["verdict_conflict"])
+
+    def test_unknown_rate_is_none_not_zero(self):
+        """一条都没自报完成 ⇒ 比率是**未知**（None），不是 0.0（同 D-176/D-219 口径）。"""
+        s = summarize_runs([self._rec("error", False)])
+        self.assertEqual(0, s["self_reported_done"])
+        self.assertIsNone(s["false_completion_rate"], "未知不得按 0 冒充")
+
+    def test_empty_input(self):
+        s = summarize_runs([])
+        self.assertEqual(0, s["runs"])
+        self.assertIsNone(s["false_completion_rate"])
 
 
 class TestSplitRc(unittest.TestCase):
