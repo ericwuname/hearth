@@ -11,6 +11,7 @@
 """
 import pathlib
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -80,6 +81,43 @@ class TestVerifyExecContract(unittest.TestCase):
         body, rc = verify_exec.run(t.exec_)
         self.assertFalse(judge.judge_verify(body, rc))
         self.assertIn("verify_lib.sh", body)
+
+
+class TestLocalShellAdapter(unittest.TestCase):
+    """本地传输层（M0-6）：与远端同一条 `verify_task` 契约，只是换成文件系统 + bash。"""
+
+    def test_put_writes_into_ws(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            put, _ = verify_exec.local_shell_adapter(tmp)
+            put("x.txt", b"hello")
+            self.assertEqual("hello", (pathlib.Path(tmp) / "x.txt").read_text(encoding="utf-8"))
+
+    def test_exec_runs_in_ws_and_reports_zero_rc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            put, exec_ = verify_exec.local_shell_adapter(tmp)
+            put(verify_exec.VERIFY_SCRIPT_NAME, b"#!/bin/bash\necho HELLO_FROM_WS\n")
+            body, rc = verify_exec.run(exec_)
+            self.assertIn("HELLO_FROM_WS", body)
+            self.assertEqual(0, rc)
+            # 契约：`run` 返回的是**去掉 rc 行之后**的输出（标记已被 split_rc 消费）。
+            self.assertNotIn(judge.RC_MARKER, body)
+
+    def test_nonzero_rc_propagates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            put, exec_ = verify_exec.local_shell_adapter(tmp)
+            put(verify_exec.VERIFY_SCRIPT_NAME, b"#!/bin/bash\nexit 3\n")
+            body, rc = verify_exec.run(exec_)
+            self.assertEqual(3, rc)
+            self.assertFalse(judge.judge_verify(body, rc))
+
+    def test_missing_lib_is_a_failure_locally_too(self):
+        """与远端同一现象：只放判据、不放判据库 ⇒ 判据 fail-loud（且这里的判据是**真实**那份）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            put, exec_ = verify_exec.local_shell_adapter(tmp)
+            put(verify_exec.VERIFY_SCRIPT_NAME, T03_VERIFY.read_bytes())
+            body, rc = verify_exec.run(exec_)
+            self.assertFalse(judge.judge_verify(body, rc))
+            self.assertIn(verify_exec.VERIFY_LIB_NAME, body)
 
 
 if __name__ == "__main__":

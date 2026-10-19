@@ -18,7 +18,7 @@ import unittest
 BENCH = pathlib.Path(__file__).resolve().parents[1]
 
 # 会执行任务判据的全部入口（新增入口时必须登记在此，否则门禁覆盖不到）。
-JUDGMENT_ENTRYPOINTS = ("runner.py", "replay.py")
+JUDGMENT_ENTRYPOINTS = ("runner.py", "replay.py", "run_local.py")
 
 
 def code_lines(name: str):

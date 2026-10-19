@@ -14,7 +14,9 @@
 
 约定：**判据与判据库必须一起送达**（缺库不会静默放行，但会把「环境缺件」误报成「任务失败」）。
 """
+import os
 import pathlib
+import subprocess
 
 import judge
 
@@ -64,3 +66,62 @@ def ssh_exec(client, ws):
         )
         return stdout.read().decode(errors="replace")
     return _exec
+
+
+# ---------------------------------------------------------------- 本地传输层
+# 供"不依赖 VM 的本地驱动"使用（`bench/run_local.py`）。同一份 `verify_task` 契约，
+# 只是把 SFTP/SSH 换成本地文件系统 + 一个 bash。
+
+def _posix_path(p) -> str:
+    """Windows 路径 → Git Bash 认识的形式（`C:\\a\\b` → `/c/a/b`）。"""
+    s = str(p)
+    if os.name == "nt":
+        s = s.replace("\\", "/")
+        if len(s) > 1 and s[1] == ":":
+            s = "/" + s[0].lower() + s[2:]
+    return s
+
+
+def find_bash() -> str:
+    """定位一个可用的 bash（可用 HEARTH_BENCH_BASH 覆盖）。"""
+    override = os.environ.get("HEARTH_BENCH_BASH")
+    if override:
+        return override
+    if os.name == "nt":
+        for cand in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ):
+            if pathlib.Path(cand).is_file():
+                return cand
+        raise RuntimeError(
+            "找不到 bash：Windows 上请安装 Git for Windows，"
+            "或用 HEARTH_BENCH_BASH 指向 bash.exe"
+        )
+    return "bash"
+
+
+def local_shell_adapter(ws):
+    """把 (put, exec_) 适配到**本地**文件系统 + bash。
+
+    注意：`__verify.sh` 里是 `cd "$(dirname "$0")"`，所以只要文件落在 `ws` 里、
+    且 bash 的 cwd 是 `ws`，判据就能找到 `src/` 与 `verify_lib.sh`。
+    """
+    ws = pathlib.Path(ws).resolve()
+    bash = find_bash()
+
+    def _put(name, data):
+        (ws / name).write_bytes(data)
+
+    def _exec(cmd):
+        full = f"cd {_posix_path(ws)} && {cmd}"
+        r = subprocess.run(
+            [bash, "-c", full],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return (r.stdout or "") + (r.stderr or "")
+
+    return _put, _exec
