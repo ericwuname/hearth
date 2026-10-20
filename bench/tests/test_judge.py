@@ -14,50 +14,70 @@ from judge import classify_run, judge_verify, split_rc, summarize_runs  # noqa: 
 
 
 class TestClassifyRun(unittest.TestCase):
-    """假完成率的两块拼图：会话自报终态 × 外部判据（M1 / D-229）。"""
+    """假完成率的两块拼图：**agent 自报的结论** × 外部判据（M1 / D-229，口径 D-230 订正）。
 
-    def test_false_completion_is_done_plus_external_fail(self):
-        c = classify_run("done", False)
-        self.assertTrue(c["self_reported_done"])
+    注意 `claim` 是 agent 自己的判断（`done.report.ok`），**不是** HTTP `phase`：
+    `phase=="done"` 只表示循环终止，不表示它声称做成了。
+    """
+
+    def test_false_completion_is_claim_yes_plus_external_fail(self):
+        c = classify_run(True, False)
+        self.assertTrue(c["claim_ok"])
         self.assertFalse(c["external_ok"])
-        self.assertTrue(c["false_completion"], "自报完成 + 外部判失败 = 假完成")
+        self.assertTrue(c["false_completion"], "自称做成 + 外部判失败 = 假完成")
 
-    def test_done_and_pass_is_not_false_completion(self):
-        c = classify_run("done", True)
+    def test_claim_yes_and_pass_is_not_false_completion(self):
+        c = classify_run(True, True)
         self.assertFalse(c["false_completion"])
         self.assertFalse(c["verdict_conflict"])
 
-    def test_non_done_terminal_is_not_self_reported_done(self):
-        for phase in ("error", "cancelled", "aborted", "failed", "deadline_exceeded", "created"):
-            c = classify_run(phase, False)
-            self.assertFalse(c["self_reported_done"], phase)
-            self.assertFalse(c["false_completion"], phase)
+    def test_claim_no_plus_pass_is_verdict_conflict(self):
+        """D-230 的核心场景：agent 自报没做完（如预算耗尽），但外部判据说成了。
 
-    def test_verdict_conflict_is_visible(self):
-        """未自报完成却判通过 ⇒ 反向不一致也要看得见（不能只盯一个方向）。"""
-        c = classify_run("cancelled", True)
+        这正是 31 条录制语料里的 30 条。旧口径（用 `phase`）会把它们**算进分母**
+        并**吞掉**这条反向信息。
+        """
+        c = classify_run(False, True)
+        self.assertFalse(c["claim_ok"])
         self.assertTrue(c["verdict_conflict"])
         self.assertFalse(c["false_completion"])
 
+    def test_claim_no_and_fail_is_consistent(self):
+        c = classify_run(False, False)
+        self.assertFalse(c["false_completion"])
+        self.assertFalse(c["verdict_conflict"])
+
+    def test_unknown_claim_is_not_claimed(self):
+        c = classify_run(None, True)
+        self.assertFalse(c["claim_ok"])
+        self.assertTrue(c["unknown_claim"])
+        self.assertFalse(c["claim_known"])
+        self.assertTrue(c["verdict_conflict"] is False, "未知不得当作'自称没做成'")
+
 
 class TestSummarizeRuns(unittest.TestCase):
-    def _rec(self, phase, ok):
-        return dict(classify_run(phase, ok), **{"task": "T"})
+    def _rec(self, claim, ok):
+        return dict(classify_run(claim, ok), **{"task": "T"})
 
-    def test_rate_denominator_is_self_reported_done(self):
-        recs = [self._rec("done", False), self._rec("done", True), self._rec("error", True)]
+    def test_rate_denominator_is_claimed_count(self):
+        recs = [self._rec(True, False), self._rec(True, True), self._rec(False, True)]
         s = summarize_runs(recs)
         self.assertEqual(3, s["runs"])
-        self.assertEqual(2, s["self_reported_done"])
+        self.assertEqual(2, s["claim_ok"], "分母只数'自称做成'的会话")
         self.assertEqual(1, s["false_completion"])
         self.assertAlmostEqual(0.5, s["false_completion_rate"])
         self.assertEqual(1, s["verdict_conflict"])
 
     def test_unknown_rate_is_none_not_zero(self):
-        """一条都没自报完成 ⇒ 比率是**未知**（None），不是 0.0（同 D-176/D-219 口径）。"""
-        s = summarize_runs([self._rec("error", False)])
-        self.assertEqual(0, s["self_reported_done"])
+        """一条都没自称做成 ⇒ 比率是**未知**（None），不是 0.0（同 D-176/D-219 口径）。"""
+        s = summarize_runs([self._rec(False, False)])
+        self.assertEqual(0, s["claim_ok"])
         self.assertIsNone(s["false_completion_rate"], "未知不得按 0 冒充")
+
+    def test_unknown_claim_counted(self):
+        s = summarize_runs([self._rec(None, True)])
+        self.assertEqual(1, s["unknown_claim"])
+        self.assertEqual(0, s["claim_ok"])
 
     def test_empty_input(self):
         s = summarize_runs([])

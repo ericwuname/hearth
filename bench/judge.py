@@ -88,42 +88,56 @@ def judge_verify(verify_out: str, rc):
 SELF_REPORTED_DONE_PHASES = ("done", "completed")
 
 
-def classify_run(phase, external_ok):
-    """把「会话自报终态」与「外部判据结论」交叉分类。
+def classify_run(claim, external_ok):
+    """把「**agent 自报的结论**」与「外部判据的结论」交叉分类。
+
+    **D-230 订正（重要）**：初版这里用的是 HTTP `/status` 的 `phase`。那是**错的**口径：
+    `phase == "done"` 只表示"循环正常终止"，**不表示** agent 声称自己做成了。
+    实测证据：31 条录制语料里 `done.report.ok == true` 的只有 **1** 条，另 30 条自报
+    `status="budget_exhausted"`；而 `phase` 全部是 `done` ⇒ 旧口径会把 30 条"agent 自己
+    承认没做完"的会话算成"自报完成"，把反向不一致也一起吞掉。
+
+    Args:
+        claim: **agent 自报**——`True`=说做成了；`False`=说没做成（如 `budget_exhausted`）；
+               `None`=未知（没有 done 事件 / 取不到）。
+        external_ok: 外部判据是否判通过。
 
     Returns:
-        dict，四个布尔：
-          self_reported_done —— 会话自报完成
-          external_ok        —— 外部判据判通过
-          false_completion   —— **自报完成 + 外部判失败**（本仓头号病灶）
-          verdict_conflict   —— 未自报完成 + 外部判通过（反向不一致，也要看得见）
+        dict：claim_ok / claim_known / external_ok / false_completion / verdict_conflict /
+              unknown_claim
     """
-    self_done = phase in SELF_REPORTED_DONE_PHASES
     ok = bool(external_ok)
     return {
-        "self_reported_done": self_done,
+        "claim_ok": claim is True,
+        "claim_known": claim is not None,
         "external_ok": ok,
-        "false_completion": bool(self_done and not ok),
-        "verdict_conflict": bool((not self_done) and ok),
+        # **假完成**：agent 说做成了，外部判据说没成
+        "false_completion": (claim is True) and not ok,
+        # **反向不一致**：agent 说没做成，外部判据说成了（多见于预算耗尽但活干完了）
+        "verdict_conflict": (claim is False) and ok,
+        "unknown_claim": claim is None,
     }
 
 
 def summarize_runs(records):
-    """从逐条记录汇总一等指标。`false_completion_rate` 的分母是**自报完成数**
-    （不是总数）：我们要问的是"自报成功里有多少是假的"。
+    """从逐条记录汇总一等指标。
 
+    `false_completion_rate` 的分母是**自称做成的会话数**（不是总数）：
+    要回答的是"**自称成功的里面，有多少是假的**"。
     分母为 0 时**不返回 0.0**，而是 `None`——本仓口径：未知 ≠ 0（同 D-176/D-219）。
     """
     total = len(records)
-    done = sum(1 for r in records if r.get("self_reported_done"))
+    claimed = sum(1 for r in records if r.get("claim_ok"))
     ext_ok = sum(1 for r in records if r.get("external_ok"))
     fc = sum(1 for r in records if r.get("false_completion"))
     vc = sum(1 for r in records if r.get("verdict_conflict"))
+    unk = sum(1 for r in records if r.get("unknown_claim"))
     return {
         "runs": total,
-        "self_reported_done": done,
+        "claim_ok": claimed,
         "external_ok": ext_ok,
         "false_completion": fc,
-        "false_completion_rate": (fc / done) if done else None,
+        "false_completion_rate": (fc / claimed) if claimed else None,
         "verdict_conflict": vc,
+        "unknown_claim": unk,
     }

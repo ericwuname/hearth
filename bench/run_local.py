@@ -98,6 +98,33 @@ def wait_ready(base, secs=45):
     return False
 
 
+def fetch_claim(base, sid):
+    """取 **agent 自报的结论**（D-230）：transcript 里最后一个 `done` 事件的 `report.ok`。
+
+    为什么不用 `/status.phase`：`phase=="done"` 只表示**循环正常终止**，不表示它声称做成了。
+    实测 31 条录制语料里 `report.ok==true` 只有 1 条，其余 30 条自报 `budget_exhausted`，
+    而 `phase` 全是 `done`——用 phase 会把 30 条"agent 自己承认没做完"的会话算成"自报完成"。
+
+    Returns: `(claim, status)`；claim ∈ {True, False, None}（None=取不到/无 `ok` 字段），
+    status 是 `report.status`（`completed` / `budget_exhausted` / …，仅诊断用）。
+    """
+    try:
+        hist = api(base, "GET", f"/api/v1/sessions/{sid}/messages", timeout=20)
+    except Exception as e:  # noqa: BLE001
+        log(f"    [warn] 取 transcript 失败（claim 记为未知）：{e}")
+        return None, None
+    msgs = (hist.get("messages") if isinstance(hist, dict) else hist) or []
+    for m in reversed(msgs):
+        if m.get("event_type") != "done":
+            continue
+        rep = (m.get("payload") or {}).get("report") or {}
+        status = rep.get("status")
+        if "ok" not in rep:
+            return None, status
+        return (True if rep.get("ok") is True else False), status
+    return None, None
+
+
 # ---------------------------------------------------------------- 服务进程
 class LocalService:
     def __init__(self, bin_path, work, port, replay_dir, provider, env_extra):
@@ -237,20 +264,30 @@ def run_one(base, work, fx, tasks_dir, control_substr=None):
     # D-229 **已知正例对照**：把工作区**打回原样**（撤销 agent 的改动），模拟"自报完成、
     # 其实没改对"。没有这条对照，"假完成率 = 0"就只是**结构性 0**（因为录制语料全是 PASS），
     # 等于没测——本仓对此有专门口径（"只用手造数据自证"/"结构性 0"）。
+    #
+    # D-230 修：不能用 `copytree(..., dirs_exist_ok=True)` —— 它只**覆盖** fixture 里已有的
+    # 文件，**不删** agent 新建的文件（实测 T11 的产物是新文件 ⇒ 打回后判据仍 PASS，对照失效）。
+    # 必须整目录重建，才是真正的 pristine。
     control_applied = bool(control_substr) and control_substr in stem
     if control_applied:
-        shutil.copytree(task_dir / "fixture", ws, dirs_exist_ok=True)
-        log(f"    [对照] 已把 {stem} 的工作区打回原始 fixture（模拟假完成）")
+        shutil.rmtree(ws, ignore_errors=True)
+        shutil.copytree(task_dir / "fixture", ws)
+        log(f"    [对照] 已把 {stem} 的工作区**整目录重建**为原始 fixture（模拟假完成）")
 
     # 判据：与远端同一条契约（verify_exec.verify_task + 本地传输层）
     put, exec_ = verify_exec.local_shell_adapter(ws)
     ok, out, rc = verify_exec.verify_task(put, exec_, verify_file)
+
+    # agent **自报**的结论（D-230：不能用 /status.phase 代替）
+    claim, claim_status = fetch_claim(base, sid)
 
     rec = {
         "fixture": stem,
         "task": task,
         "ok": ok,
         "phase": phase,
+        "claim": claim,
+        "claim_status": claim_status,
         "steps": steps,
         "recorded_steps": meta.get("steps"),
         "wall_s": wall_s,
@@ -259,8 +296,8 @@ def run_one(base, work, fx, tasks_dir, control_substr=None):
         "verify_tail": out.strip()[-300:],
         "control_applied": control_applied,
     }
-    # 自报终态 × 外部判据（跨进程比对）——一等指标"假完成率"的原料
-    rec.update(judge.classify_run(phase, ok))
+    # **agent 自报** × 外部判据（跨进程比对）——一等指标"假完成率"的原料
+    rec.update(judge.classify_run(claim, ok))
     return rec
 
 
@@ -280,7 +317,9 @@ def main(argv=None):
         "--false-completion-control",
         default=None,
         help="**仅用于自测指标**：名字含该子串的 fixture，在会话结束后把工作区打回原始 "
-        "fixture（模拟『自报完成但没改对』），用来证明假完成率能报出正例",
+        "fixture（模拟『自报完成但没改对』），用来证明假完成率能报出正例。"
+        "建议用 T11-read-struct__run0——录制里**唯一**自报成功（status=completed）的那条，"
+        "这样对照全部是真实数据。",
     )
     a = ap.parse_args(argv)
 
@@ -319,24 +358,27 @@ def main(argv=None):
     finally:
         svc.stop()
 
-    # ---- 一等指标（M1）：自报完成 × 外部判据 -------------------------------------------------
+    # ---- 一等指标（M1）：agent 自报 × 外部判据 -------------------------------------------------
     s = judge.summarize_runs(results)
     rate = s["false_completion_rate"]
     rate_s = (
-        "n/a（没有自报完成的会话 ⇒ **未知**，不按 0 冒充）"
+        "n/a（没有自称做成的会话 ⇒ **未知**，不按 0 冒充）"
         if rate is None
         else f"{rate:.1%}"
     )
     log("--- 一等指标 ---")
     log(
-        f"runs={s['runs']}  自报完成={s['self_reported_done']}  "
-        f"外部判通过={s['external_ok']}"
+        f"runs={s['runs']}  自称做成={s['claim_ok']}  "
+        f"外部判通过={s['external_ok']}  自报结论未知={s['unknown_claim']}"
     )
     log(
-        f"**假完成率 = {s['false_completion']}/{s['self_reported_done']} = {rate_s}**"
-        "（分子：自报完成但外部判失败；分母：自报完成数）"
+        f"**假完成率 = {s['false_completion']}/{s['claim_ok']} = {rate_s}**"
+        "（分子：自称做成但外部判失败；分母：自称做成的会话数）"
     )
-    log(f"反向不一致（未自报完成却判通过）={s['verdict_conflict']}")
+    log(
+        f"反向不一致（agent 自报没做成、外部判据说成了）={s['verdict_conflict']}"
+        "——多见于预算耗尽但活其实干完了"
+    )
 
     out = pathlib.Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
