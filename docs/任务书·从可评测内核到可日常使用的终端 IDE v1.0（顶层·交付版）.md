@@ -263,7 +263,7 @@
 
 **风险对冲**：若 `resume` 在进程内形态下无法保证（负结果），**如实降级**为"会话持久化 + 重启后可选恢复"，并在文档登记；**不得**声称已可中断恢复。
 
-> **M2 v1 交付（2026-10-22，D-241）**：`hearth tui` 已可启动并跑真实任务（headless E2E：**completed / 3 步 / 1 次工具 / 66 token 事件**）；审批面板、`Esc` 优雅中断（**paused → 会话档落盘 → `hearth resume` 实测续跑**）、`hearth session export <id>`（diff + 报告 + 命令日志单 JSON）已落地。**审批链 headless E2E**：`--auto-approve` + 真破坏性命令 ⇒ `approvals=1`、目标目录被删、completed（InteractionRequested → dispatcher 放行全链）。**未验收（不按"已通过"记）**：真 TTY 下的全屏视觉与键盘交互需人工目测。**负结果**：硬杀进程时当前未完成轮不落盘，只能恢复到上一轮。
+> **M2 v1 交付（2026-10-22，D-241）**：`hearth tui` 已可启动并跑真实任务（headless E2E：**completed / 3 步 / 1 次工具 / 66 token 事件**）；审批面板、`Esc` 优雅中断（**paused → 会话档落盘 → `hearth resume` 实测续跑**）、`hearth session export <id>`（diff + 报告 + 命令日志单 JSON）已落地。**审批链 headless E2E**：`--auto-approve` + 真破坏性命令 ⇒ `approvals=1`、目标目录被删、completed（InteractionRequested → dispatcher 放行全链）。**视觉验收已通过（2026-10-22）**：真 TTY（Windows Terminal）下全屏渲染、审批面板（含参数/原因，按 `n` 后目标目录未被动）、`Esc` 中断（`paused`·上下文保留）均**人工目测通过**；验收中抓到并修复 **D-242**（`RUST_LOG` 日志画花全屏 ⇒ TUI 日志强制落文件）。**负结果**：硬杀进程时当前未完成轮不落盘，只能恢复到上一轮。
 > 上手指南：[onboarding.md](file:///c:/Users/87465/Desktop/codex-rust-v1.0-final/docs/onboarding.md)。
 
 ---

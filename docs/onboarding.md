@@ -72,6 +72,8 @@ hearth resume <id> --budget 4 "继续"
   若仍出现，设 `HEARTH_BASH_BIN` 指到 Git Bash。
 - `cargo: command not found`：确认 `%USERPROFILE%\.cargo\bin` 在 PATH；bash 子进程会继承
   OS 必需环境变量（PATH/TEMP/SystemRoot/HOME）。
+- TUI 里看不到日志：**故意的**——日志写 `%APPDATA%\hearth\diagnostics.log`
+  （或 `~/.config/hearth/diagnostics.log`），避免画花全屏。排障时看该文件。
 - 审批一直不动：交互模式下必须按 `y`/`n`；`chat` 非交互请加 `--approve-within session`。
   `tui --headless` **默认 fail-closed**（破坏性操作直接拒绝，不会挂住）；只做审批链冒烟时
   可加隐藏旗标 `--auto-approve`。
