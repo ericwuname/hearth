@@ -10,7 +10,13 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from judge import classify_run, judge_verify, split_rc, summarize_runs  # noqa: E402
+from judge import (  # noqa: E402
+    classify_run,
+    judge_verify,
+    split_rc,
+    summarize_runs,
+    summarize_tool_metrics,
+)
 
 
 class TestClassifyRun(unittest.TestCase):
@@ -83,6 +89,98 @@ class TestSummarizeRuns(unittest.TestCase):
         s = summarize_runs([])
         self.assertEqual(0, s["runs"])
         self.assertIsNone(s["false_completion_rate"])
+
+
+class TestSummarizeToolMetrics(unittest.TestCase):
+    """M1-3 静默失败率：失败发生了、但用户**看不到原因**（空错误 / 结果丢失）。
+
+    口径订正记录：初版把"没有 error 事件"当静默，是错的——CLI 拿 `tool_result.is_error`
+    画 ✗（D-155/W4），工具失败本来就有用户可见通道；现在的静默只数
+    `empty_errors`（失败但无输出）+ `lost_results`（调用没有结果）两类。
+    """
+
+    def test_silent_is_empty_errors_plus_lost_results(self):
+        s = summarize_tool_metrics(
+            [
+                {"tool_calls": 10, "tool_errors": 2, "error_events": 0,
+                 "empty_errors": 2, "lost_results": 0, "silent_errors": 2},
+                {"tool_calls": 10, "tool_errors": 3, "error_events": 1,
+                 "empty_errors": 0, "lost_results": 1, "silent_errors": 1},
+            ]
+        )
+        self.assertEqual(20, s["tool_calls"])
+        self.assertEqual(5, s["tool_errors"])
+        self.assertEqual(3, s["silent_errors"])
+        self.assertAlmostEqual(0.15, s["silent_error_rate"], msg="3/20")
+
+    def test_visible_tool_errors_are_not_silent(self):
+        """工具失败但**有输出**（用户能看到原因）⇒ 不算静默。"""
+        s = summarize_tool_metrics(
+            [{"tool_calls": 5, "tool_errors": 5, "error_events": 0,
+              "empty_errors": 0, "lost_results": 0, "silent_errors": 0}]
+        )
+        self.assertEqual(0, s["silent_errors"])
+        self.assertEqual(0.0, s["silent_error_rate"])
+
+    def test_no_tool_calls_is_unknown_not_zero(self):
+        """没有任何工具调用 ⇒ 分母 0 ⇒ **未知**（None），不是 0.0（同 D-176/D-219）。"""
+        s = summarize_tool_metrics(
+            [{"tool_calls": 0, "tool_errors": 0, "error_events": 0,
+              "empty_errors": 0, "lost_results": 0, "silent_errors": 0}]
+        )
+        self.assertIsNone(s["silent_error_rate"])
+
+    def test_missing_metric_rows_are_excluded(self):
+        """旧结果文件没有 `tool_metrics` 列 ⇒ 该条**不参与**，不得当 0 失败灌进分母。"""
+        s = summarize_tool_metrics(
+            [None, {},
+             {"tool_calls": 4, "tool_errors": 1, "error_events": 0,
+              "empty_errors": 1, "lost_results": 0, "silent_errors": 1}]
+        )
+        self.assertEqual(1, s["runs_with_metrics"])
+        self.assertEqual(4, s["tool_calls"])
+        self.assertAlmostEqual(0.25, s["silent_error_rate"])
+
+    def test_all_missing_yields_none(self):
+        s = summarize_tool_metrics([None, None])
+        self.assertEqual(0, s["runs_with_metrics"])
+        self.assertIsNone(s["silent_error_rate"])
+
+
+class TestScanToolStats(unittest.TestCase):
+    """`run_local.scan_tool_stats`：静默两类（空错误 / 结果丢失）的事件级计数。"""
+
+    def _ev(self, et, **payload):
+        return {"event_type": et, "payload": dict(payload, type=et)}
+
+    def test_empty_error_and_lost_result(self):
+        from run_local import scan_tool_stats
+
+        msgs = [
+            self._ev("tool_call", call_id="a", name="bash", args={}),
+            self._ev("tool_result", call_id="a", is_error=True, output="   "),  # 失败但空白
+            self._ev("tool_call", call_id="b", name="read", args={}),  # 永远没有结果
+            self._ev("tool_call", call_id="c", name="read", args={}),
+            self._ev("tool_result", call_id="c", is_error=False, output="ok"),
+        ]
+        s = scan_tool_stats(msgs)
+        self.assertEqual(3, s["tool_calls"])
+        self.assertEqual(1, s["tool_errors"])
+        self.assertEqual(1, s["empty_errors"])
+        self.assertEqual(1, s["lost_results"])
+        self.assertEqual(2, s["silent_errors"], "空错误 + 结果丢失")
+
+    def test_visible_error_is_not_silent(self):
+        from run_local import scan_tool_stats
+
+        s = scan_tool_stats(
+            [
+                self._ev("tool_call", call_id="a", name="bash", args={}),
+                self._ev("tool_result", call_id="a", is_error=True, output="exit code 1: boom"),
+            ]
+        )
+        self.assertEqual(1, s["tool_errors"])
+        self.assertEqual(0, s["silent_errors"])
 
 
 class TestSplitRc(unittest.TestCase):

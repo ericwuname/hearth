@@ -16,7 +16,13 @@
 """
 import argparse
 import json
+import pathlib
+import sys
 from pathlib import Path
+
+# 复用 judge 的**唯一**口径实现（静默失败率/假完成率都不在这里另写一份）
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import judge  # noqa: E402
 
 
 def load_records(path: str) -> list[dict]:
@@ -56,6 +62,32 @@ def _rate(num: int, den: int):
     return f"{num}/{den} = {num / den * 100:.1f}%"
 
 
+def _cost_breakdown(records: list[dict]) -> dict:
+    """M1-5：每解成本 = 已定价解的总成本 ÷ **已定价成功解数**。
+
+    口径（承 D-46/D-176/任务书 M1-5）：**未定价解不计入分母、单列**——未知 ≠ 0。
+    分母为 0（没有任何一条成功解是已定价的，例如 agnes 无价表）⇒ `None`，
+    如实报"未知"，**绝不**把 `cost_usd=None` 当 0 算出一个"每解 $0"。
+    """
+    solved = [r for r in records if r.get("external_ok")]
+    priced = [r for r in solved if isinstance(r.get("cost_usd"), (int, float))]
+    unpriced = len(solved) - len(priced)
+    total = sum(float(r["cost_usd"]) for r in priced)
+    return {
+        "solved": len(solved),
+        "priced_solved": len(priced),
+        "unpriced_solved": unpriced,
+        "total_cost_usd": total if priced else None,
+        "cost_per_solve": (total / len(priced)) if priced else None,
+    }
+
+
+def _cost_cell(c: dict) -> str:
+    if c["cost_per_solve"] is None:
+        return f"未知（{c['unpriced_solved']} 条未定价，0 条已定价）"
+    return f"${c['cost_per_solve']:.4f}（n={c['priced_solved']}；未定价 {c['unpriced_solved']} 条单列）"
+
+
 def summarize(name: str, records: list[dict]) -> dict:
     runs = len(records)
     claim_ok = sum(1 for r in records if r.get("claim_ok"))
@@ -65,6 +97,7 @@ def summarize(name: str, records: list[dict]) -> dict:
     unknown = sum(1 for r in records if r.get("unknown_claim"))
     walls = _nums(records, "wall_s")
     steps = _nums(records, "steps")
+    tm = judge.summarize_tool_metrics([r.get("tool_metrics") for r in records])
     return {
         "name": name,
         "runs": runs,
@@ -78,7 +111,18 @@ def summarize(name: str, records: list[dict]) -> dict:
         "avg_wall_s": _fmt_stat(walls, "{:.1f}"),
         "tok_per_solve": _fmt_stat(_tokens(records, True)),
         "tok_all": _fmt_stat(_tokens(records, False)),
+        "cost_per_solve": _cost_cell(_cost_breakdown(records)),
+        "silent_rate": _silent_cell(tm),
     }
+
+
+def _silent_cell(tm: dict) -> str:
+    """M1-3 单元格：区分两种"未知"——旧数据没有该列 vs 真有数据但没调工具。"""
+    if tm["runs_with_metrics"] == 0:
+        return "未知（结果缺 tool_metrics 列）"
+    if tm["silent_error_rate"] is None:
+        return "未知（无工具调用）"
+    return f"{tm['silent_error_rate']:.1%}（{tm['silent_errors']}/{tm['tool_calls']}）"
 
 
 SUMMARY_COLS = [
@@ -92,6 +136,8 @@ SUMMARY_COLS = [
     ("均墙钟/s", "avg_wall_s"),
     ("每解 tokens", "tok_per_solve"),
     ("全会话 tokens", "tok_all"),
+    ("每解成本", "cost_per_solve"),
+    ("静默失败率", "silent_rate"),
 ]
 
 

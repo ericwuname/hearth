@@ -141,3 +141,48 @@ def summarize_runs(records):
         "verdict_conflict": vc,
         "unknown_claim": unk,
     }
+
+
+_TOOL_METRIC_KEYS = (
+    "tool_calls",
+    "tool_errors",
+    "error_events",
+    "empty_errors",
+    "lost_results",
+    "silent_errors",
+)
+
+
+def summarize_tool_metrics(metrics_list):
+    """M1-3：静默失败率汇总。
+
+    输入是每条会话的 `tool_metrics`（形状见 `run_local.scan_tool_stats`）；缺该字段的
+    记录**不参与**（旧结果文件没有这一列 ⇒ 不能把它当"0 失败"塞进分母）。
+
+    口径（定义见 `run_local.scan_tool_stats`，此处只做汇总；**不另写一份定义**）：
+      · 静默 = `empty_errors`（失败但输出空白，用户只看到一个没有理由的 ✗）
+        + `lost_results`（工具调用没有对应结果，用户什么都看不到）；
+      · `silent_error_rate` = 静默数 ÷ **工具调用总数**；
+      · 分母为 0（这批会话压根没调工具）⇒ `None`（未知 ≠ 0，同 D-176/D-219/D-230）；
+      · `runs_with_metrics` 如实给出参与统计的会话数，便于识别"样本少 ⇒ 别下结论"。
+    """
+    # 只认**真正带数**的行：`None`（旧结果无此列）与 `{}`（下游丢了列）都不许当"0 失败"进分母。
+    usable = [
+        m for m in metrics_list if isinstance(m, dict) and any(k in m for k in _TOOL_METRIC_KEYS)
+    ]
+    calls = sum(int(m.get("tool_calls") or 0) for m in usable)
+    errs = sum(int(m.get("tool_errors") or 0) for m in usable)
+    events = sum(int(m.get("error_events") or 0) for m in usable)
+    empty = sum(int(m.get("empty_errors") or 0) for m in usable)
+    lost = sum(int(m.get("lost_results") or 0) for m in usable)
+    silent = sum(int(m.get("silent_errors") or 0) for m in usable)
+    return {
+        "runs_with_metrics": len(usable),
+        "tool_calls": calls,
+        "tool_errors": errs,
+        "error_events": events,
+        "empty_errors": empty,
+        "lost_results": lost,
+        "silent_errors": silent,
+        "silent_error_rate": (silent / calls) if calls else None,
+    }

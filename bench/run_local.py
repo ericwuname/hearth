@@ -102,6 +102,59 @@ def wait_ready(base, secs=45):
     return False
 
 
+def scan_tool_stats(msgs):
+    """M1-3 的原料：从 transcript 事件流里数工具失败与"失败有没有带着可见提示"。
+
+    **口径订正（实现时自查）**：初版把"整条会话没有 `error` 事件"当作静默——错了。
+    CLI/渲染层是拿 `tool_result.is_error` 画 ✗ 的（D-155/W4 之后已是结构化字段），
+    **工具失败本来就走工具卡片这条用户可见通道**；把"没有 error 事件"算静默会把
+    agent 正常重试成功的场景全打成静默，读数虚高。
+
+    现在的操作化定义（都能从事件流直接数出来，不靠猜字符串）：
+      · `tool_calls`     —— `tool_call` 事件数（分母：agent 发起的工具动作）；
+      · `tool_errors`    —— `tool_result.is_error == true`（工具自己报的失败：Err / 非零退出 / 超时）；
+      · `error_events`   —— 会话级 `error` 事件数（诊断用）；
+      · `empty_errors`   —— **失败了却没有内容**：`is_error==true` 且 `output` 空白 ⇒
+                            用户只看到一个没有理由的 ✗（"无提示"的字面义）；
+      · `lost_results`   —— **工具结果丢失**：某次 `tool_call` 的 `call_id` 在整条 transcript
+                            里找不到任何 `tool_result` ⇒ 失败/成功都不知道，用户看不到任何东西；
+      · `silent_errors`  = `empty_errors + lost_results`（两类"失败发生了但用户看不到原因"）。
+    """
+    calls = 0
+    errors = 0
+    error_events = 0
+    empty_errors = 0
+    call_ids = set()
+    result_ids = set()
+    for m in msgs:
+        et = m.get("event_type")
+        payload = m.get("payload") or {}
+        if et == "tool_call":
+            calls += 1
+            cid = payload.get("call_id")
+            if cid:
+                call_ids.add(cid)
+        elif et == "tool_result":
+            cid = payload.get("call_id")
+            if cid:
+                result_ids.add(cid)
+            if payload.get("is_error") is True:
+                errors += 1
+                if not str(payload.get("output") or "").strip():
+                    empty_errors += 1
+        elif et == "error":
+            error_events += 1
+    lost = len(call_ids - result_ids)
+    return {
+        "tool_calls": calls,
+        "tool_errors": errors,
+        "error_events": error_events,
+        "empty_errors": empty_errors,
+        "lost_results": lost,
+        "silent_errors": empty_errors + lost,
+    }
+
+
 def fetch_claim(base, sid):
     """取 **agent 自报的结论**（D-230）：transcript 里最后一个 `done` 事件的 `report.ok`。
 
@@ -109,20 +162,31 @@ def fetch_claim(base, sid):
     实测 31 条录制语料里 `report.ok==true` 只有 1 条，其余 30 条自报 `budget_exhausted`，
     而 `phase` 全是 `done`——用 phase 会把 30 条"agent 自己承认没做完"的会话算成"自报完成"。
 
-    Returns: `(claim, status, usage, cost_usd)`；claim ∈ {True, False, None}（None=取不到/无 `ok` 字段），
-    status 是 `report.status`（`completed` / `budget_exhausted` / …，仅诊断用）。
+    Returns: `(claim, status, usage, cost_usd, stats)`；claim ∈ {True, False, None}
+    （None=取不到/无 `ok` 字段），status 是 `report.status`（`completed` / `budget_exhausted` / …，
+    仅诊断用）；stats 见 [`scan_tool_stats`]（M1-3 静默失败率的原料，同一份 transcript 顺带数出，
+    不额外发一次 GET）。
     usage/cost_usd 在 **report 内层**——实证（2026-10-19 探针 dump）：`Event::Done` 的
     payload 就是 report 本体，D-219 的 emit 注入即落在其中
     （transcript 形状：`{"type":"done","report":{...,"usage":{...},"cost_usd":...}}`）。
     【订正记录】本函数一度改读 payload 顶层——那是**错的方向**，恒 None（顶层只有
     report+type）；若再见到"payload 顶层 usage"的声称，以探针 dump 为准。
     """
+    empty = {
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "error_events": 0,
+        "empty_errors": 0,
+        "lost_results": 0,
+        "silent_errors": 0,
+    }
     try:
         hist = api(base, "GET", f"/api/v1/sessions/{sid}/messages", timeout=20)
     except Exception as e:  # noqa: BLE001
         log(f"    [warn] 取 transcript 失败（claim 记为未知）：{e}")
-        return None, None, None, None
+        return None, None, None, None, empty
     msgs = (hist.get("messages") if isinstance(hist, dict) else hist) or []
+    stats = scan_tool_stats(msgs)
     for m in reversed(msgs):
         if m.get("event_type") != "done":
             continue
@@ -133,18 +197,132 @@ def fetch_claim(base, sid):
         usage = rep.get("usage")
         cost_usd = rep.get("cost_usd")
         if "ok" not in rep:
-            return None, status, usage, cost_usd
-        return (True if rep.get("ok") is True else False), status, usage, cost_usd
-    return None, None, None, None
+            return None, status, usage, cost_usd, stats
+        return (True if rep.get("ok") is True else False), status, usage, cost_usd, stats
+    return None, None, None, None, stats
+
+
+# ---------------------------------------------------------------- 录制脱敏
+def _redaction_pairs(work_root):
+    """要脱敏的「绝对前缀 → 占位符」对照表（含 Windows / POSIX 两种写法）。"""
+    pairs = []
+    roots = [("WORK", pathlib.Path(work_root))]
+    home = pathlib.Path.home()
+    if home and str(home) not in ("", "/"):
+        roots.append(("HOME", home))
+    for tag, root in roots:
+        for s in {str(root), str(root).replace("\\", "/")}:
+            if s and s not in ("", "/"):
+                pairs.append((s, f"<{tag}>"))
+    # 长前缀优先替换，避免 `<HOME>` 先吃掉 `<HOME>\…\target\local-run` 的更长形态
+    pairs.sort(key=lambda p: -len(p[0]))
+    return pairs
+
+
+def _session_dir_forms(work_root, sid):
+    """会话工作区的绝对路径写法（Windows 反斜杠 / 正斜杠 / 已脱敏占位三种）。"""
+    base = pathlib.Path(work_root) / "sessions" / sid
+    forms = {str(base), str(base).replace("\\", "/")}
+    # 已脱敏过的形态（<WORK>\sessions\<sid>）——迁移旧 fixture 时也要能处理
+    forms |= {s.replace(str(pathlib.Path(work_root)), "<WORK>") for s in list(forms)}
+    return [f for f in forms if f]
+
+
+def portabilize_args(args, work_root, sid):
+    """把工具参数里的**会话绝对路径**改成可移植形态（相对路径 / `cd .`）。
+
+    为什么不能像其它字段那样替换成 `<WORK>`（实测教训，M1-1 保真门禁 31 条首跑）：
+    `read`/`write_file`/`apply_patch` 的 `path` 与 `bash` 的 `cmd` 是**语义载荷**——
+    替换成占位符后回放会去访问不存在的 `<WORK>\\sessions\\…`，5 条 trace 因此判据翻转
+    （live PASS → replay FAIL）。正确做法是保留可解析性：
+      · `cd "<会话目录>"` / `cd /d "<会话目录>"` → `cd .` / `cd /d .`（会话目录本来就等于 cwd）；
+      · `"<会话目录>\\src\\lib.rs"` → `src\\lib.rs`（相对会话根，回放工作区里同样成立）。
+
+    其余绝对路径（家目录等）仍交给 [`sanitize_transcript`] 的红acted 分支处理。
+    """
+    forms = _session_dir_forms(work_root, sid)
+
+    def walk(v):
+        if isinstance(v, str):
+            out = v
+            for pref in sorted(forms, key=len, reverse=True):
+                for quoted in (f'"{pref}"', f"'{pref}'", pref):
+                    for verb in ("cd /d ", "cd "):
+                        out = out.replace(f"{verb}{quoted}", f"{verb}.")
+            for pref in sorted(forms, key=len, reverse=True):
+                out = out.replace(pref + "\\", "").replace(pref + "/", "")
+                out = out.replace(pref, ".")
+            return out
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        return v
+
+    return walk(args)
+
+
+def sanitize_transcript(obj, work_root, sid=""):
+    """录制落盘前的可移植化：**语义载荷**保留可解析，**展示文本**做脱敏。
+
+    M1-1 实录时发现两类问题，处置不同：
+      ① `tool_result.output` 会回显
+         `wrote 296 bytes to C:\\Users\\<user>\\…\\sessions\\<sid>\\ANSWER.md`——
+         **展示文本**，直接换成 `<WORK>` / `<HOME>` 占位（回放不消费它，llm-replay
+         只用它划 turn 边界），入库不泄露本机目录结构；
+      ② `tool_call.args` 是**语义载荷**（path / cmd），换成占位符会让回放访问不存在的
+         路径（31 条实录首跑 5 条翻转，见 `portabilize_args` 的实测记录）⇒ 只做
+         **可移植化**（相对化 / `cd .`）。
+
+    注意：`llm-replay::portable_paths` 在加载时也会剥 `sessions/<uuid>` 前缀，两者
+    方向一致（这里是落盘期，那里是读入期），不冲突。
+    """
+    pairs = _redaction_pairs(work_root)
+
+    def redact_str(v: str) -> str:
+        out = v
+        for old, new in pairs:
+            out = out.replace(old, new)
+        return out
+
+    def walk(v):
+        if isinstance(v, str):
+            return redact_str(v)
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        return v
+
+    def walk_msg(m):
+        if not isinstance(m, dict):
+            return walk(m)
+        out = walk(m)
+        # tool_call → 参数单独走可移植化（不做占位替换）
+        if m.get("event_type") == "tool_call" and sid:
+            p = m.get("payload") or {}
+            if isinstance(p.get("args"), (dict, list)):
+                out["payload"] = dict(
+                    p, args=portabilize_args(p["args"], work_root, sid)
+                )
+        return out
+
+    if isinstance(obj, dict) and isinstance(obj.get("messages"), list):
+        return dict(obj, messages=[walk_msg(m) for m in obj["messages"]])
+    return walk(obj)
 
 
 # ---------------------------------------------------------------- 服务进程
 class LocalService:
     def __init__(self, bin_path, work, port, replay_dir, provider, env_extra):
-        self.bin = pathlib.Path(bin_path)
-        self.work = pathlib.Path(work)
+        self.bin = pathlib.Path(bin_path).resolve()
+        self.work = pathlib.Path(work).resolve()
         self.port = port
-        self.replay_dir = pathlib.Path(replay_dir)
+        # **必须绝对化**：service 子进程的 cwd 是 `work`，相对路径会被它按 `work/…` 解析。
+        # 实测（M1-1 保真门禁首跑）：传相对的 `bench/replay/live` ⇒ REPLAY_DIR 读不到 ⇒
+        # replay provider **未注册** ⇒ 建会话 400 `provider not found: replay`；
+        # 而 run_one 只见 "建会话失败: HTTP 400"，看不出是路径问题（静默的错读数）。
+        self.replay_dir = pathlib.Path(replay_dir).resolve()
         self.provider = provider
         self.env_extra = env_extra
         self.proc = None
@@ -221,7 +399,16 @@ class LocalService:
 
 
 # ---------------------------------------------------------------- 单个 fixture
-def run_one(base, work, fx, tasks_dir, control_substr=None, provider="replay", deadline_s=300):
+def run_one(
+    base,
+    work,
+    fx,
+    tasks_dir,
+    control_substr=None,
+    provider="replay",
+    deadline_s=300,
+    record_dir=None,
+):
     stem = fx.stem
     try:
         d = json.loads(fx.read_text(encoding="utf-8"))
@@ -306,7 +493,48 @@ def run_one(base, work, fx, tasks_dir, control_substr=None, provider="replay", d
     ok, out, rc = verify_exec.verify_task(put, exec_, verify_file)
 
     # agent **自报**的结论（D-230：不能用 /status.phase 代替）+ 真实用量（D-219，report 内层）
-    claim, claim_status, usage, cost_usd = fetch_claim(base, sid)
+    claim, claim_status, usage, cost_usd, tool_stats = fetch_claim(base, sid)
+
+    # M1-1（双轨录制）：把**本次活体会话**的 transcript 固化成 replay fixture。
+    # 必须在这里做——service 进程随本函数返回后由调用方停掉，会话 transcript 只在
+    # 进程内存里（`archive_replay_v14.py` 的老路就是被这条时序坑过：停下再导出＝全空）。
+    # 只在活体轨录制：replay 轨跑出来的 "transcript" 是回放结果，拿它当录制等于自我循环。
+    recorded = None
+    if record_dir and provider != "replay":
+        try:
+            # 入库 fixtures 不许带本机绝对路径；但工具参数只做**可移植化**（见 sanitize_transcript）。
+            hist = api(base, "GET", f"/api/v1/sessions/{sid}/messages", timeout=30)
+            hist = sanitize_transcript(hist, work, sid)
+            dest = pathlib.Path(record_dir) / f"{stem}.json"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fixture = {
+                "meta": {
+                    "task": task,
+                    # run 号沿用源 fixture（公开集 fixture 名里带 runN；合成 fixture 没有）
+                    "run": meta.get("run"),
+                    "provider": provider,
+                    "steps": steps,
+                    "wall_s": wall_s,
+                    "session_id": sid,
+                    "source": f"live-{provider}",
+                    "fixture_schema": 1,
+                    # 录这一条的**外部判据结论**：回放保真度检查拿它当对照基准
+                    "live_verify_ok": ok,
+                    "live_claim_ok": claim,
+                },
+                # llm-replay 读 `history.goal` + `history.messages`；GET .../messages
+                # 的响应正好是这两个键（goal 原文 / 事件流），直接整份落盘。
+                "history": hist,
+            }
+            dest.write_text(
+                json.dumps(fixture, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
+            n_msgs = len((hist.get("messages") if isinstance(hist, dict) else hist) or [])
+            recorded = {"path": str(dest), "messages": n_msgs}
+            log(f"    [录制] {dest.name} msgs={n_msgs}")
+        except Exception as e:  # noqa: BLE001
+            # 录制失败不改变本次判据结论，但必须留痕（不许静默丢条，D-120 同口径）
+            log(f"    [warn] 录制失败（{stem}）：{e}")
 
     rec = {
         "fixture": stem,
@@ -325,6 +553,9 @@ def run_one(base, work, fx, tasks_dir, control_substr=None, provider="replay", d
         "verify_rc": rc,
         "verify_tail": out.strip()[-300:],
         "control_applied": control_applied,
+        "recorded": recorded,
+        # M1-3：静默失败率原料（同一次 transcript 顺带数出，不额外取数）
+        "tool_metrics": tool_stats,
     }
     # **agent 自报** × 外部判据（跨进程比对）——一等指标"假完成率"的原料
     rec.update(judge.classify_run(claim, ok))
@@ -349,6 +580,13 @@ def main(argv=None):
     ap.add_argument("--fixtures", default=str(DEFAULT_FIXTURES))
     ap.add_argument("--tasks-dir", default=str(HERE / "tasks"))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument(
+        "--record-dir",
+        default=None,
+        help="M1-1 双轨录制：**活体轨**（provider≠replay）把每条会话的 transcript 固化成 "
+        "replay fixture，落到该目录（stem 与源 fixture 同名，便于回放时按名字对上）。"
+        "replay 轨忽略此参数——回放产物不能当录制（自我循环）。",
+    )
     ap.add_argument(
         "--false-completion-control",
         default=None,
@@ -384,7 +622,7 @@ def main(argv=None):
         for i, fx in enumerate(fixtures, 1):
             rec = run_one(
                 base, a.work, fx, a.tasks_dir,
-                a.false_completion_control, a.provider, a.deadline,
+                a.false_completion_control, a.provider, a.deadline, a.record_dir,
             )
             rec["openai_key_injected"] = svc.openai_key_injected
             results.append(rec)
@@ -417,6 +655,21 @@ def main(argv=None):
     log(
         f"反向不一致（agent 自报没做成、外部判据说成了）={s['verdict_conflict']}"
         "——多见于预算耗尽但活其实干完了"
+    )
+
+    # ---- M1-3 静默失败率（同一批 transcript 顺带数出）------------------------------------------
+    # 口径：分母 = 工具调用总数；分子 = 空错误 + 结果丢失（定义见 scan_tool_stats）。
+    tm = judge.summarize_tool_metrics([r.get("tool_metrics") for r in results])
+    log("--- M1-3 静默失败 ---")
+    log(
+        f"工具调用={tm['tool_calls']}  工具失败={tm['tool_errors']}  error 事件={tm['error_events']}  "
+        f"空错误={tm['empty_errors']}  结果丢失={tm['lost_results']}  静默={tm['silent_errors']}"
+    )
+    silent_rate = tm["silent_error_rate"]
+    log(
+        "**静默失败率 = "
+        + ("n/a（没有工具调用 ⇒ 未知，不按 0 冒充）" if silent_rate is None else f"{silent_rate:.1%}")
+        + "**（分子：空错误 + 工具结果丢失——失败发生了但用户看不到原因；分母：工具调用总数）"
     )
 
     out = pathlib.Path(a.out)

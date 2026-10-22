@@ -1,0 +1,3069 @@
+{
+ "meta": {
+  "task": "T06-fix-null-check",
+  "run": 1,
+  "provider": "agnes",
+  "steps": 13,
+  "wall_s": 37.2,
+  "session_id": "b8d7658a-172a-4f17-a8cb-84991b2ef38f",
+  "source": "live-agnes",
+  "fixture_schema": 1,
+  "live_verify_ok": true,
+  "live_claim_ok": true
+ },
+ "history": {
+  "session_id": "b8d7658a-172a-4f17-a8cb-84991b2ef38f",
+  "goal": "first_char_or_default 对空字符串返回了错误值。修复：用 unwrap_or(default) 代替直接 .next()。cargo test 全绿。",
+  "messages": [
+   {
+    "seq": 0,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:48:56.683964900+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.715967800+00:00"
+   },
+   {
+    "seq": 1,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.715972400+00:00"
+   },
+   {
+    "seq": 2,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 2739,
+     "span_id": "",
+     "t1": "2026-10-22T07:48:59.423675+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.715974900+00:00"
+   },
+   {
+    "seq": 3,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "path": ".",
+      "pattern": "first_char_or_default"
+     },
+     "call_id": "call_80b3e36bda5b430a907bb826",
+     "name": "grep",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.715979400+00:00"
+   },
+   {
+    "seq": 4,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "pattern": "**/*.rs"
+     },
+     "call_id": "call_e95427f5c5544254a4c33b13",
+     "name": "glob",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.715981800+00:00"
+   },
+   {
+    "seq": 5,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:48:59.424416500+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.715984500+00:00"
+   },
+   {
+    "seq": 6,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 21,
+     "span_id": "",
+     "t1": "2026-10-22T07:48:59.445935700+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.715986400+00:00"
+   },
+   {
+    "seq": 7,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_80b3e36bda5b430a907bb826",
+     "is_error": false,
+     "output": "<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs:1:pub fn first_char_or_default(s: &str, default: char) -> char {\n<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs:5:  #[test] fn t_has() { assert_eq!(first_char_or_default(\"abc\", 'x'), 'a'); }\n<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs:6:  #[test] fn t_empty_bug() { assert_eq!(first_char_or_default(\"\", 'x'), 'x'); }\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.715988800+00:00"
+   },
+   {
+    "seq": 8,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_e95427f5c5544254a4c33b13",
+     "is_error": false,
+     "output": "src/lib.rs",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.715990700+00:00"
+   },
+   {
+    "seq": 9,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:48:59.446709+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.715993100+00:00"
+   },
+   {
+    "seq": 10,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 4985,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:04.432656600+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.715995+00:00"
+   },
+   {
+    "seq": 11,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "path": "src\\lib.rs"
+     },
+     "call_id": "call_882df756e5c645cc8fd7faba",
+     "name": "read",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.715997400+00:00"
+   },
+   {
+    "seq": 12,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:04.433314500+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.715999900+00:00"
+   },
+   {
+    "seq": 13,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 0,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:04.434267700+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716001700+00:00"
+   },
+   {
+    "seq": 14,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_882df756e5c645cc8fd7faba",
+     "is_error": false,
+     "output": "     1\tpub fn first_char_or_default(s: &str, default: char) -> char {\n     2\t    s.chars().next() // BUG: should be s.chars().next().unwrap_or(default)\n     3\t}\n     4\t#[cfg(test)] mod tests { use super::*;\n     5\t  #[test] fn t_has() { assert_eq!(first_char_or_default(\"abc\", 'x'), 'a'); }\n     6\t  #[test] fn t_empty_bug() { assert_eq!(first_char_or_default(\"\", 'x'), 'x'); }\n     7\t}\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.716003800+00:00"
+   },
+   {
+    "seq": 15,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:04.435551400+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716006+00:00"
+   },
+   {
+    "seq": 16,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 3277,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:07.713293800+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716007900+00:00"
+   },
+   {
+    "seq": 17,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "path": "src\\lib.rs",
+      "replace": "    s.chars().next().unwrap_or(default)",
+      "search": "    s.chars().next() // BUG: should be s.chars().next().unwrap_or(default)"
+     },
+     "call_id": "call_f056a488d5514bc5a2a5ea53",
+     "name": "apply_patch",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.716011700+00:00"
+   },
+   {
+    "seq": 18,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:07.713997400+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716014+00:00"
+   },
+   {
+    "seq": 19,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 9,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:07.723923200+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716015700+00:00"
+   },
+   {
+    "seq": 20,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_f056a488d5514bc5a2a5ea53",
+     "is_error": false,
+     "output": "patched <WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs: replaced 74 bytes (search) with 39 bytes (replace); file now 302 bytes",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.716018200+00:00"
+   },
+   {
+    "seq": 21,
+    "event_type": "artifact",
+    "payload": {
+     "delta_lines": 0,
+     "kind": "file",
+     "path": "<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs",
+     "size_bytes": 0,
+     "type": "artifact"
+    },
+    "timestamp": "2026-10-22T07:49:34.716020500+00:00"
+   },
+   {
+    "seq": 22,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:07.724517200+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716022600+00:00"
+   },
+   {
+    "seq": 23,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 2789,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:10.514255300+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716024500+00:00"
+   },
+   {
+    "seq": 24,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "cmd": "cd . && cargo test 2>&1 | tail -30"
+     },
+     "call_id": "call_f4c4e54f0e674c6bbc578efb",
+     "name": "bash",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.716027100+00:00"
+   },
+   {
+    "seq": 25,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:10.515041300+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716029400+00:00"
+   },
+   {
+    "seq": 26,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 1679,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:12.194444400+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716031200+00:00"
+   },
+   {
+    "seq": 27,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_f4c4e54f0e674c6bbc578efb",
+     "is_error": true,
+     "output": "exit code: 1\nstdout:\nR\u0000P\u0000C\u0000 \u0000\u0003�(u\u0005S+T�v�g*N�S�g\rN\fT�N�X\u000ef�v�S�g{|�W\u00020 \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u00000\u0000x\u00008\u00000\u00000\u00007\u00000\u00007\u00002\u0000c\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.716033700+00:00"
+   },
+   {
+    "seq": 28,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:12.195101700+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716036+00:00"
+   },
+   {
+    "seq": 29,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 2267,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:14.462202600+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716037800+00:00"
+   },
+   {
+    "seq": 30,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "cmd": "cd . && cargo test --color never 2>&1"
+     },
+     "call_id": "call_3836a0f6583945e8a885ba94",
+     "name": "bash",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.716040600+00:00"
+   },
+   {
+    "seq": 31,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:14.462937800+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716042900+00:00"
+   },
+   {
+    "seq": 32,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 30,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:14.493291200+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716044800+00:00"
+   },
+   {
+    "seq": 33,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_3836a0f6583945e8a885ba94",
+     "is_error": true,
+     "output": "exit code: 1\nstdout:\n~p��'`Ee�� \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u0000E\u0000_\u0000U\u0000N\u0000E\u0000X\u0000P\u0000E\u0000C\u0000T\u0000E\u0000D\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.716047500+00:00"
+   },
+   {
+    "seq": 34,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:14.493894800+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716049700+00:00"
+   },
+   {
+    "seq": 35,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 3368,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:17.862175200+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716051500+00:00"
+   },
+   {
+    "seq": 36,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "cmd": "chcp 65001; cd .; cargo test",
+      "timeout_secs": 120
+     },
+     "call_id": "call_d2467465de394cae905e33c9",
+     "name": "bash",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T07:49:34.716054700+00:00"
+   },
+   {
+    "seq": 37,
+    "event_type": "span_open",
+    "payload": {
+     "name": "act",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:17.862798600+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716057+00:00"
+   },
+   {
+    "seq": 38,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 29,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:17.892418500+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716058800+00:00"
+   },
+   {
+    "seq": 39,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_d2467465de394cae905e33c9",
+     "is_error": true,
+     "output": "exit code: 1\nstdout:\n~p��'`Ee�� \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u0000E\u0000_\u0000U\u0000N\u0000E\u0000X\u0000P\u0000E\u0000C\u0000T\u0000E\u0000D\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T07:49:34.716061+00:00"
+   },
+   {
+    "seq": 40,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T07:49:17.893044900+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T07:49:34.716063100+00:00"
+   },
+   {
+    "seq": 41,
+    "event_type": "token",
+    "payload": {
+     "delta": "The",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716064600+00:00"
+   },
+   {
+    "seq": 42,
+    "event_type": "token",
+    "payload": {
+     "delta": " cargo",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716066+00:00"
+   },
+   {
+    "seq": 43,
+    "event_type": "token",
+    "payload": {
+     "delta": " test",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716067200+00:00"
+   },
+   {
+    "seq": 44,
+    "event_type": "token",
+    "payload": {
+     "delta": " runs",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716068500+00:00"
+   },
+   {
+    "seq": 45,
+    "event_type": "token",
+    "payload": {
+     "delta": " are",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716069900+00:00"
+   },
+   {
+    "seq": 46,
+    "event_type": "token",
+    "payload": {
+     "delta": " failing",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716071300+00:00"
+   },
+   {
+    "seq": 47,
+    "event_type": "token",
+    "payload": {
+     "delta": " due",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716072700+00:00"
+   },
+   {
+    "seq": 48,
+    "event_type": "token",
+    "payload": {
+     "delta": " to",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716074100+00:00"
+   },
+   {
+    "seq": 49,
+    "event_type": "token",
+    "payload": {
+     "delta": " a",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716075500+00:00"
+   },
+   {
+    "seq": 50,
+    "event_type": "token",
+    "payload": {
+     "delta": " Windows",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716076900+00:00"
+   },
+   {
+    "seq": 51,
+    "event_type": "token",
+    "payload": {
+     "delta": " environment",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716078200+00:00"
+   },
+   {
+    "seq": 52,
+    "event_type": "token",
+    "payload": {
+     "delta": " issue",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716079500+00:00"
+   },
+   {
+    "seq": 53,
+    "event_type": "token",
+    "payload": {
+     "delta": " where",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716080900+00:00"
+   },
+   {
+    "seq": 54,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716082300+00:00"
+   },
+   {
+    "seq": 55,
+    "event_type": "token",
+    "payload": {
+     "delta": " bash",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716083700+00:00"
+   },
+   {
+    "seq": 56,
+    "event_type": "token",
+    "payload": {
+     "delta": " sandbox",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716085200+00:00"
+   },
+   {
+    "seq": 57,
+    "event_type": "token",
+    "payload": {
+     "delta": " can",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716087+00:00"
+   },
+   {
+    "seq": 58,
+    "event_type": "token",
+    "payload": {
+     "delta": "'t",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716088300+00:00"
+   },
+   {
+    "seq": 59,
+    "event_type": "token",
+    "payload": {
+     "delta": " properly",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716089800+00:00"
+   },
+   {
+    "seq": 60,
+    "event_type": "token",
+    "payload": {
+     "delta": " execute",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716091100+00:00"
+   },
+   {
+    "seq": 61,
+    "event_type": "token",
+    "payload": {
+     "delta": " cargo",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716092500+00:00"
+   },
+   {
+    "seq": 62,
+    "event_type": "token",
+    "payload": {
+     "delta": " commands",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716093800+00:00"
+   },
+   {
+    "seq": 63,
+    "event_type": "token",
+    "payload": {
+     "delta": " (",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716095100+00:00"
+   },
+   {
+    "seq": 64,
+    "event_type": "token",
+    "payload": {
+     "delta": "the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716096500+00:00"
+   },
+   {
+    "seq": 65,
+    "event_type": "token",
+    "payload": {
+     "delta": " output",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716097800+00:00"
+   },
+   {
+    "seq": 66,
+    "event_type": "token",
+    "payload": {
+     "delta": " shows",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716099200+00:00"
+   },
+   {
+    "seq": 67,
+    "event_type": "token",
+    "payload": {
+     "delta": " encoding",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716100500+00:00"
+   },
+   {
+    "seq": 68,
+    "event_type": "token",
+    "payload": {
+     "delta": " errors",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716101800+00:00"
+   },
+   {
+    "seq": 69,
+    "event_type": "token",
+    "payload": {
+     "delta": " from",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716103200+00:00"
+   },
+   {
+    "seq": 70,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716104600+00:00"
+   },
+   {
+    "seq": 71,
+    "event_type": "token",
+    "payload": {
+     "delta": " Windows",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716106+00:00"
+   },
+   {
+    "seq": 72,
+    "event_type": "token",
+    "payload": {
+     "delta": " service",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716107300+00:00"
+   },
+   {
+    "seq": 73,
+    "event_type": "token",
+    "payload": {
+     "delta": " layer",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716108700+00:00"
+   },
+   {
+    "seq": 74,
+    "event_type": "token",
+    "payload": {
+     "delta": ",",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716110100+00:00"
+   },
+   {
+    "seq": 75,
+    "event_type": "token",
+    "payload": {
+     "delta": " not",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716111500+00:00"
+   },
+   {
+    "seq": 76,
+    "event_type": "token",
+    "payload": {
+     "delta": " from",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716112800+00:00"
+   },
+   {
+    "seq": 77,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716114300+00:00"
+   },
+   {
+    "seq": 78,
+    "event_type": "token",
+    "payload": {
+     "delta": " code",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716115600+00:00"
+   },
+   {
+    "seq": 79,
+    "event_type": "token",
+    "payload": {
+     "delta": " itself",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716117+00:00"
+   },
+   {
+    "seq": 80,
+    "event_type": "token",
+    "payload": {
+     "delta": ").",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716118400+00:00"
+   },
+   {
+    "seq": 81,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716119800+00:00"
+   },
+   {
+    "seq": 82,
+    "event_type": "token",
+    "payload": {
+     "delta": "Here",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716121800+00:00"
+   },
+   {
+    "seq": 83,
+    "event_type": "token",
+    "payload": {
+     "delta": "'s",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716123100+00:00"
+   },
+   {
+    "seq": 84,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716124500+00:00"
+   },
+   {
+    "seq": 85,
+    "event_type": "token",
+    "payload": {
+     "delta": " summary",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716125800+00:00"
+   },
+   {
+    "seq": 86,
+    "event_type": "token",
+    "payload": {
+     "delta": " of",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716127300+00:00"
+   },
+   {
+    "seq": 87,
+    "event_type": "token",
+    "payload": {
+     "delta": " what",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716128700+00:00"
+   },
+   {
+    "seq": 88,
+    "event_type": "token",
+    "payload": {
+     "delta": " I",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716130100+00:00"
+   },
+   {
+    "seq": 89,
+    "event_type": "token",
+    "payload": {
+     "delta": " completed",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716131500+00:00"
+   },
+   {
+    "seq": 90,
+    "event_type": "token",
+    "payload": {
+     "delta": ":",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716133200+00:00"
+   },
+   {
+    "seq": 91,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716134600+00:00"
+   },
+   {
+    "seq": 92,
+    "event_type": "token",
+    "payload": {
+     "delta": "**",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716136100+00:00"
+   },
+   {
+    "seq": 93,
+    "event_type": "token",
+    "payload": {
+     "delta": "Fixed",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716137400+00:00"
+   },
+   {
+    "seq": 94,
+    "event_type": "token",
+    "payload": {
+     "delta": ":**",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716138800+00:00"
+   },
+   {
+    "seq": 95,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716140100+00:00"
+   },
+   {
+    "seq": 96,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716141500+00:00"
+   },
+   {
+    "seq": 97,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716142800+00:00"
+   },
+   {
+    "seq": 98,
+    "event_type": "token",
+    "payload": {
+     "delta": "src",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716144200+00:00"
+   },
+   {
+    "seq": 99,
+    "event_type": "token",
+    "payload": {
+     "delta": "/lib",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716145500+00:00"
+   },
+   {
+    "seq": 100,
+    "event_type": "token",
+    "payload": {
+     "delta": ".rs",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716146900+00:00"
+   },
+   {
+    "seq": 101,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716148300+00:00"
+   },
+   {
+    "seq": 102,
+    "event_type": "token",
+    "payload": {
+     "delta": " line",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716149600+00:00"
+   },
+   {
+    "seq": 103,
+    "event_type": "token",
+    "payload": {
+     "delta": " ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716150900+00:00"
+   },
+   {
+    "seq": 104,
+    "event_type": "token",
+    "payload": {
+     "delta": "2",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716152200+00:00"
+   },
+   {
+    "seq": 105,
+    "event_type": "token",
+    "payload": {
+     "delta": ":",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716153500+00:00"
+   },
+   {
+    "seq": 106,
+    "event_type": "token",
+    "payload": {
+     "delta": " Changed",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716154900+00:00"
+   },
+   {
+    "seq": 107,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716156200+00:00"
+   },
+   {
+    "seq": 108,
+    "event_type": "token",
+    "payload": {
+     "delta": "s",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716157600+00:00"
+   },
+   {
+    "seq": 109,
+    "event_type": "token",
+    "payload": {
+     "delta": ".chars",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716158900+00:00"
+   },
+   {
+    "seq": 110,
+    "event_type": "token",
+    "payload": {
+     "delta": "().",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716160200+00:00"
+   },
+   {
+    "seq": 111,
+    "event_type": "token",
+    "payload": {
+     "delta": "next",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716161500+00:00"
+   },
+   {
+    "seq": 112,
+    "event_type": "token",
+    "payload": {
+     "delta": "()`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716162900+00:00"
+   },
+   {
+    "seq": 113,
+    "event_type": "token",
+    "payload": {
+     "delta": " to",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716164200+00:00"
+   },
+   {
+    "seq": 114,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716165500+00:00"
+   },
+   {
+    "seq": 115,
+    "event_type": "token",
+    "payload": {
+     "delta": "s",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716167+00:00"
+   },
+   {
+    "seq": 116,
+    "event_type": "token",
+    "payload": {
+     "delta": ".chars",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716168300+00:00"
+   },
+   {
+    "seq": 117,
+    "event_type": "token",
+    "payload": {
+     "delta": "().",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716169600+00:00"
+   },
+   {
+    "seq": 118,
+    "event_type": "token",
+    "payload": {
+     "delta": "next",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716171+00:00"
+   },
+   {
+    "seq": 119,
+    "event_type": "token",
+    "payload": {
+     "delta": "().",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716172200+00:00"
+   },
+   {
+    "seq": 120,
+    "event_type": "token",
+    "payload": {
+     "delta": "unwrap",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716173700+00:00"
+   },
+   {
+    "seq": 121,
+    "event_type": "token",
+    "payload": {
+     "delta": "_or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716174900+00:00"
+   },
+   {
+    "seq": 122,
+    "event_type": "token",
+    "payload": {
+     "delta": "(default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716176300+00:00"
+   },
+   {
+    "seq": 123,
+    "event_type": "token",
+    "payload": {
+     "delta": ")`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716177700+00:00"
+   },
+   {
+    "seq": 124,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716179+00:00"
+   },
+   {
+    "seq": 125,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716180300+00:00"
+   },
+   {
+    "seq": 126,
+    "event_type": "token",
+    "payload": {
+     "delta": " This",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716181600+00:00"
+   },
+   {
+    "seq": 127,
+    "event_type": "token",
+    "payload": {
+     "delta": " ensures",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716183+00:00"
+   },
+   {
+    "seq": 128,
+    "event_type": "token",
+    "payload": {
+     "delta": " empty",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716184200+00:00"
+   },
+   {
+    "seq": 129,
+    "event_type": "token",
+    "payload": {
+     "delta": " strings",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716185600+00:00"
+   },
+   {
+    "seq": 130,
+    "event_type": "token",
+    "payload": {
+     "delta": " return",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716187+00:00"
+   },
+   {
+    "seq": 131,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716188800+00:00"
+   },
+   {
+    "seq": 132,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716192600+00:00"
+   },
+   {
+    "seq": 133,
+    "event_type": "token",
+    "payload": {
+     "delta": "default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716195600+00:00"
+   },
+   {
+    "seq": 134,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716197200+00:00"
+   },
+   {
+    "seq": 135,
+    "event_type": "token",
+    "payload": {
+     "delta": " character",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716198700+00:00"
+   },
+   {
+    "seq": 136,
+    "event_type": "token",
+    "payload": {
+     "delta": " instead",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716200200+00:00"
+   },
+   {
+    "seq": 137,
+    "event_type": "token",
+    "payload": {
+     "delta": " of",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716201600+00:00"
+   },
+   {
+    "seq": 138,
+    "event_type": "token",
+    "payload": {
+     "delta": " pan",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716203100+00:00"
+   },
+   {
+    "seq": 139,
+    "event_type": "token",
+    "payload": {
+     "delta": "icking",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716204500+00:00"
+   },
+   {
+    "seq": 140,
+    "event_type": "token",
+    "payload": {
+     "delta": " or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716205900+00:00"
+   },
+   {
+    "seq": 141,
+    "event_type": "token",
+    "payload": {
+     "delta": " returning",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716207300+00:00"
+   },
+   {
+    "seq": 142,
+    "event_type": "token",
+    "payload": {
+     "delta": " a",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716208700+00:00"
+   },
+   {
+    "seq": 143,
+    "event_type": "token",
+    "payload": {
+     "delta": " wrong",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716210200+00:00"
+   },
+   {
+    "seq": 144,
+    "event_type": "token",
+    "payload": {
+     "delta": " value",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716211700+00:00"
+   },
+   {
+    "seq": 145,
+    "event_type": "token",
+    "payload": {
+     "delta": ".",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716213200+00:00"
+   },
+   {
+    "seq": 146,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716214600+00:00"
+   },
+   {
+    "seq": 147,
+    "event_type": "token",
+    "payload": {
+     "delta": "**",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716216+00:00"
+   },
+   {
+    "seq": 148,
+    "event_type": "token",
+    "payload": {
+     "delta": "Verification",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716217300+00:00"
+   },
+   {
+    "seq": 149,
+    "event_type": "token",
+    "payload": {
+     "delta": " gap",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716218700+00:00"
+   },
+   {
+    "seq": 150,
+    "event_type": "token",
+    "payload": {
+     "delta": ":**",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716220100+00:00"
+   },
+   {
+    "seq": 151,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716221400+00:00"
+   },
+   {
+    "seq": 152,
+    "event_type": "token",
+    "payload": {
+     "delta": "I",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716222800+00:00"
+   },
+   {
+    "seq": 153,
+    "event_type": "token",
+    "payload": {
+     "delta": " was",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716224100+00:00"
+   },
+   {
+    "seq": 154,
+    "event_type": "token",
+    "payload": {
+     "delta": " unable",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716225400+00:00"
+   },
+   {
+    "seq": 155,
+    "event_type": "token",
+    "payload": {
+     "delta": " to",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716226800+00:00"
+   },
+   {
+    "seq": 156,
+    "event_type": "token",
+    "payload": {
+     "delta": " run",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716228100+00:00"
+   },
+   {
+    "seq": 157,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716229500+00:00"
+   },
+   {
+    "seq": 158,
+    "event_type": "token",
+    "payload": {
+     "delta": "cargo",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716230800+00:00"
+   },
+   {
+    "seq": 159,
+    "event_type": "token",
+    "payload": {
+     "delta": " test",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716232300+00:00"
+   },
+   {
+    "seq": 160,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716233600+00:00"
+   },
+   {
+    "seq": 161,
+    "event_type": "token",
+    "payload": {
+     "delta": " to",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716235+00:00"
+   },
+   {
+    "seq": 162,
+    "event_type": "token",
+    "payload": {
+     "delta": " green",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716236200+00:00"
+   },
+   {
+    "seq": 163,
+    "event_type": "token",
+    "payload": {
+     "delta": " due",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716237600+00:00"
+   },
+   {
+    "seq": 164,
+    "event_type": "token",
+    "payload": {
+     "delta": " to",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716238900+00:00"
+   },
+   {
+    "seq": 165,
+    "event_type": "token",
+    "payload": {
+     "delta": " a",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716240200+00:00"
+   },
+   {
+    "seq": 166,
+    "event_type": "token",
+    "payload": {
+     "delta": " Windows",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716241600+00:00"
+   },
+   {
+    "seq": 167,
+    "event_type": "token",
+    "payload": {
+     "delta": " sandbox",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716242900+00:00"
+   },
+   {
+    "seq": 168,
+    "event_type": "token",
+    "payload": {
+     "delta": " encoding",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716244300+00:00"
+   },
+   {
+    "seq": 169,
+    "event_type": "token",
+    "payload": {
+     "delta": " issue",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716245700+00:00"
+   },
+   {
+    "seq": 170,
+    "event_type": "token",
+    "payload": {
+     "delta": " (",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716247+00:00"
+   },
+   {
+    "seq": 171,
+    "event_type": "token",
+    "payload": {
+     "delta": "the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716248400+00:00"
+   },
+   {
+    "seq": 172,
+    "event_type": "token",
+    "payload": {
+     "delta": " bash",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716249700+00:00"
+   },
+   {
+    "seq": 173,
+    "event_type": "token",
+    "payload": {
+     "delta": " tool",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716251100+00:00"
+   },
+   {
+    "seq": 174,
+    "event_type": "token",
+    "payload": {
+     "delta": " produces",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716252500+00:00"
+   },
+   {
+    "seq": 175,
+    "event_type": "token",
+    "payload": {
+     "delta": " non",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716253900+00:00"
+   },
+   {
+    "seq": 176,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716255200+00:00"
+   },
+   {
+    "seq": 177,
+    "event_type": "token",
+    "payload": {
+     "delta": "UTF",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716256600+00:00"
+   },
+   {
+    "seq": 178,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716258+00:00"
+   },
+   {
+    "seq": 179,
+    "event_type": "token",
+    "payload": {
+     "delta": "8",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716259300+00:00"
+   },
+   {
+    "seq": 180,
+    "event_type": "token",
+    "payload": {
+     "delta": " error",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716260700+00:00"
+   },
+   {
+    "seq": 181,
+    "event_type": "token",
+    "payload": {
+     "delta": " bytes",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716262100+00:00"
+   },
+   {
+    "seq": 182,
+    "event_type": "token",
+    "payload": {
+     "delta": " from",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716263600+00:00"
+   },
+   {
+    "seq": 183,
+    "event_type": "token",
+    "payload": {
+     "delta": " the",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716265600+00:00"
+   },
+   {
+    "seq": 184,
+    "event_type": "token",
+    "payload": {
+     "delta": " underlying",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716267200+00:00"
+   },
+   {
+    "seq": 185,
+    "event_type": "token",
+    "payload": {
+     "delta": " service",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716268500+00:00"
+   },
+   {
+    "seq": 186,
+    "event_type": "token",
+    "payload": {
+     "delta": ").",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716269900+00:00"
+   },
+   {
+    "seq": 187,
+    "event_type": "token",
+    "payload": {
+     "delta": " The",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716271200+00:00"
+   },
+   {
+    "seq": 188,
+    "event_type": "token",
+    "payload": {
+     "delta": " code",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716272700+00:00"
+   },
+   {
+    "seq": 189,
+    "event_type": "token",
+    "payload": {
+     "delta": " change",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716274100+00:00"
+   },
+   {
+    "seq": 190,
+    "event_type": "token",
+    "payload": {
+     "delta": " is",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716275400+00:00"
+   },
+   {
+    "seq": 191,
+    "event_type": "token",
+    "payload": {
+     "delta": " correct",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716276800+00:00"
+   },
+   {
+    "seq": 192,
+    "event_type": "token",
+    "payload": {
+     "delta": " by",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716278200+00:00"
+   },
+   {
+    "seq": 193,
+    "event_type": "token",
+    "payload": {
+     "delta": " inspection",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716279600+00:00"
+   },
+   {
+    "seq": 194,
+    "event_type": "token",
+    "payload": {
+     "delta": ":",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716281+00:00"
+   },
+   {
+    "seq": 195,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716282400+00:00"
+   },
+   {
+    "seq": 196,
+    "event_type": "token",
+    "payload": {
+     "delta": "```",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716283700+00:00"
+   },
+   {
+    "seq": 197,
+    "event_type": "token",
+    "payload": {
+     "delta": "rust",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716285100+00:00"
+   },
+   {
+    "seq": 198,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716286500+00:00"
+   },
+   {
+    "seq": 199,
+    "event_type": "token",
+    "payload": {
+     "delta": "pub",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716287900+00:00"
+   },
+   {
+    "seq": 200,
+    "event_type": "token",
+    "payload": {
+     "delta": " fn",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716289300+00:00"
+   },
+   {
+    "seq": 201,
+    "event_type": "token",
+    "payload": {
+     "delta": " first",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716291500+00:00"
+   },
+   {
+    "seq": 202,
+    "event_type": "token",
+    "payload": {
+     "delta": "_char",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716293+00:00"
+   },
+   {
+    "seq": 203,
+    "event_type": "token",
+    "payload": {
+     "delta": "_or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716294200+00:00"
+   },
+   {
+    "seq": 204,
+    "event_type": "token",
+    "payload": {
+     "delta": "_default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716295700+00:00"
+   },
+   {
+    "seq": 205,
+    "event_type": "token",
+    "payload": {
+     "delta": "(s",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716297+00:00"
+   },
+   {
+    "seq": 206,
+    "event_type": "token",
+    "payload": {
+     "delta": ":",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716298300+00:00"
+   },
+   {
+    "seq": 207,
+    "event_type": "token",
+    "payload": {
+     "delta": " &",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716299800+00:00"
+   },
+   {
+    "seq": 208,
+    "event_type": "token",
+    "payload": {
+     "delta": "str",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716301700+00:00"
+   },
+   {
+    "seq": 209,
+    "event_type": "token",
+    "payload": {
+     "delta": ",",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716303200+00:00"
+   },
+   {
+    "seq": 210,
+    "event_type": "token",
+    "payload": {
+     "delta": " default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716304500+00:00"
+   },
+   {
+    "seq": 211,
+    "event_type": "token",
+    "payload": {
+     "delta": ":",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716305800+00:00"
+   },
+   {
+    "seq": 212,
+    "event_type": "token",
+    "payload": {
+     "delta": " char",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716307200+00:00"
+   },
+   {
+    "seq": 213,
+    "event_type": "token",
+    "payload": {
+     "delta": ")",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716308600+00:00"
+   },
+   {
+    "seq": 214,
+    "event_type": "token",
+    "payload": {
+     "delta": " ->",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716309900+00:00"
+   },
+   {
+    "seq": 215,
+    "event_type": "token",
+    "payload": {
+     "delta": " char",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716311300+00:00"
+   },
+   {
+    "seq": 216,
+    "event_type": "token",
+    "payload": {
+     "delta": " {",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716312600+00:00"
+   },
+   {
+    "seq": 217,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716314+00:00"
+   },
+   {
+    "seq": 218,
+    "event_type": "token",
+    "payload": {
+     "delta": "   ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716315300+00:00"
+   },
+   {
+    "seq": 219,
+    "event_type": "token",
+    "payload": {
+     "delta": " s",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716316700+00:00"
+   },
+   {
+    "seq": 220,
+    "event_type": "token",
+    "payload": {
+     "delta": ".chars",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716318100+00:00"
+   },
+   {
+    "seq": 221,
+    "event_type": "token",
+    "payload": {
+     "delta": "().",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716319400+00:00"
+   },
+   {
+    "seq": 222,
+    "event_type": "token",
+    "payload": {
+     "delta": "next",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716320800+00:00"
+   },
+   {
+    "seq": 223,
+    "event_type": "token",
+    "payload": {
+     "delta": "().",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716322200+00:00"
+   },
+   {
+    "seq": 224,
+    "event_type": "token",
+    "payload": {
+     "delta": "unwrap",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716323600+00:00"
+   },
+   {
+    "seq": 225,
+    "event_type": "token",
+    "payload": {
+     "delta": "_or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716324900+00:00"
+   },
+   {
+    "seq": 226,
+    "event_type": "token",
+    "payload": {
+     "delta": "(default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716326300+00:00"
+   },
+   {
+    "seq": 227,
+    "event_type": "token",
+    "payload": {
+     "delta": ")",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716327700+00:00"
+   },
+   {
+    "seq": 228,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716329100+00:00"
+   },
+   {
+    "seq": 229,
+    "event_type": "token",
+    "payload": {
+     "delta": "}",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716330500+00:00"
+   },
+   {
+    "seq": 230,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716331800+00:00"
+   },
+   {
+    "seq": 231,
+    "event_type": "token",
+    "payload": {
+     "delta": "```",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716333200+00:00"
+   },
+   {
+    "seq": 232,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716334500+00:00"
+   },
+   {
+    "seq": 233,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716336900+00:00"
+   },
+   {
+    "seq": 234,
+    "event_type": "token",
+    "payload": {
+     "delta": " Non",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716338300+00:00"
+   },
+   {
+    "seq": 235,
+    "event_type": "token",
+    "payload": {
+     "delta": "-empty",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716339600+00:00"
+   },
+   {
+    "seq": 236,
+    "event_type": "token",
+    "payload": {
+     "delta": " string",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716341+00:00"
+   },
+   {
+    "seq": 237,
+    "event_type": "token",
+    "payload": {
+     "delta": " `\"",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716342300+00:00"
+   },
+   {
+    "seq": 238,
+    "event_type": "token",
+    "payload": {
+     "delta": "abc",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716343600+00:00"
+   },
+   {
+    "seq": 239,
+    "event_type": "token",
+    "payload": {
+     "delta": "\"`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716345+00:00"
+   },
+   {
+    "seq": 240,
+    "event_type": "token",
+    "payload": {
+     "delta": " →",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716346300+00:00"
+   },
+   {
+    "seq": 241,
+    "event_type": "token",
+    "payload": {
+     "delta": " `.",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716347700+00:00"
+   },
+   {
+    "seq": 242,
+    "event_type": "token",
+    "payload": {
+     "delta": "next",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716349+00:00"
+   },
+   {
+    "seq": 243,
+    "event_type": "token",
+    "payload": {
+     "delta": "()`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716350300+00:00"
+   },
+   {
+    "seq": 244,
+    "event_type": "token",
+    "payload": {
+     "delta": " returns",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716351600+00:00"
+   },
+   {
+    "seq": 245,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716352900+00:00"
+   },
+   {
+    "seq": 246,
+    "event_type": "token",
+    "payload": {
+     "delta": "Some",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716354200+00:00"
+   },
+   {
+    "seq": 247,
+    "event_type": "token",
+    "payload": {
+     "delta": "('",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716355500+00:00"
+   },
+   {
+    "seq": 248,
+    "event_type": "token",
+    "payload": {
+     "delta": "a",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716356900+00:00"
+   },
+   {
+    "seq": 249,
+    "event_type": "token",
+    "payload": {
+     "delta": "')",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716358300+00:00"
+   },
+   {
+    "seq": 250,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716359600+00:00"
+   },
+   {
+    "seq": 251,
+    "event_type": "token",
+    "payload": {
+     "delta": " →",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716361+00:00"
+   },
+   {
+    "seq": 252,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716362200+00:00"
+   },
+   {
+    "seq": 253,
+    "event_type": "token",
+    "payload": {
+     "delta": "unwrap",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716363600+00:00"
+   },
+   {
+    "seq": 254,
+    "event_type": "token",
+    "payload": {
+     "delta": "_or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716365+00:00"
+   },
+   {
+    "seq": 255,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716366300+00:00"
+   },
+   {
+    "seq": 256,
+    "event_type": "token",
+    "payload": {
+     "delta": " yields",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716367600+00:00"
+   },
+   {
+    "seq": 257,
+    "event_type": "token",
+    "payload": {
+     "delta": " `'",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716368900+00:00"
+   },
+   {
+    "seq": 258,
+    "event_type": "token",
+    "payload": {
+     "delta": "a",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716370200+00:00"
+   },
+   {
+    "seq": 259,
+    "event_type": "token",
+    "payload": {
+     "delta": "'",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716371600+00:00"
+   },
+   {
+    "seq": 260,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716373+00:00"
+   },
+   {
+    "seq": 261,
+    "event_type": "token",
+    "payload": {
+     "delta": " ✓",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716374200+00:00"
+   },
+   {
+    "seq": 262,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716375500+00:00"
+   },
+   {
+    "seq": 263,
+    "event_type": "token",
+    "payload": {
+     "delta": "-",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716376900+00:00"
+   },
+   {
+    "seq": 264,
+    "event_type": "token",
+    "payload": {
+     "delta": " Empty",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716378300+00:00"
+   },
+   {
+    "seq": 265,
+    "event_type": "token",
+    "payload": {
+     "delta": " string",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716379700+00:00"
+   },
+   {
+    "seq": 266,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716381+00:00"
+   },
+   {
+    "seq": 267,
+    "event_type": "token",
+    "payload": {
+     "delta": "\"\"",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716382300+00:00"
+   },
+   {
+    "seq": 268,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716383700+00:00"
+   },
+   {
+    "seq": 269,
+    "event_type": "token",
+    "payload": {
+     "delta": " →",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716385100+00:00"
+   },
+   {
+    "seq": 270,
+    "event_type": "token",
+    "payload": {
+     "delta": " `.",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716386400+00:00"
+   },
+   {
+    "seq": 271,
+    "event_type": "token",
+    "payload": {
+     "delta": "next",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716387700+00:00"
+   },
+   {
+    "seq": 272,
+    "event_type": "token",
+    "payload": {
+     "delta": "()`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716389200+00:00"
+   },
+   {
+    "seq": 273,
+    "event_type": "token",
+    "payload": {
+     "delta": " returns",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716390500+00:00"
+   },
+   {
+    "seq": 274,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716392200+00:00"
+   },
+   {
+    "seq": 275,
+    "event_type": "token",
+    "payload": {
+     "delta": "None",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716394900+00:00"
+   },
+   {
+    "seq": 276,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716398+00:00"
+   },
+   {
+    "seq": 277,
+    "event_type": "token",
+    "payload": {
+     "delta": " →",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716400300+00:00"
+   },
+   {
+    "seq": 278,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716402500+00:00"
+   },
+   {
+    "seq": 279,
+    "event_type": "token",
+    "payload": {
+     "delta": "unwrap",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716404400+00:00"
+   },
+   {
+    "seq": 280,
+    "event_type": "token",
+    "payload": {
+     "delta": "_or",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716406200+00:00"
+   },
+   {
+    "seq": 281,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716408100+00:00"
+   },
+   {
+    "seq": 282,
+    "event_type": "token",
+    "payload": {
+     "delta": " yields",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716410+00:00"
+   },
+   {
+    "seq": 283,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716413500+00:00"
+   },
+   {
+    "seq": 284,
+    "event_type": "token",
+    "payload": {
+     "delta": "default",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716415500+00:00"
+   },
+   {
+    "seq": 285,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716417400+00:00"
+   },
+   {
+    "seq": 286,
+    "event_type": "token",
+    "payload": {
+     "delta": " (`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716419400+00:00"
+   },
+   {
+    "seq": 287,
+    "event_type": "token",
+    "payload": {
+     "delta": "'",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716421400+00:00"
+   },
+   {
+    "seq": 288,
+    "event_type": "token",
+    "payload": {
+     "delta": "x",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716423400+00:00"
+   },
+   {
+    "seq": 289,
+    "event_type": "token",
+    "payload": {
+     "delta": "'",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716425400+00:00"
+   },
+   {
+    "seq": 290,
+    "event_type": "token",
+    "payload": {
+     "delta": "`)",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716427700+00:00"
+   },
+   {
+    "seq": 291,
+    "event_type": "token",
+    "payload": {
+     "delta": " ✓",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716430+00:00"
+   },
+   {
+    "seq": 292,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716432200+00:00"
+   },
+   {
+    "seq": 293,
+    "event_type": "token",
+    "payload": {
+     "delta": "Both",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716434100+00:00"
+   },
+   {
+    "seq": 294,
+    "event_type": "token",
+    "payload": {
+     "delta": " test",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716436200+00:00"
+   },
+   {
+    "seq": 295,
+    "event_type": "token",
+    "payload": {
+     "delta": " cases",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716438100+00:00"
+   },
+   {
+    "seq": 296,
+    "event_type": "token",
+    "payload": {
+     "delta": " in",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716440100+00:00"
+   },
+   {
+    "seq": 297,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716442200+00:00"
+   },
+   {
+    "seq": 298,
+    "event_type": "token",
+    "payload": {
+     "delta": "tests",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716444200+00:00"
+   },
+   {
+    "seq": 299,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716446300+00:00"
+   },
+   {
+    "seq": 300,
+    "event_type": "token",
+    "payload": {
+     "delta": " pass",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716448400+00:00"
+   },
+   {
+    "seq": 301,
+    "event_type": "token",
+    "payload": {
+     "delta": " logically",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716450300+00:00"
+   },
+   {
+    "seq": 302,
+    "event_type": "token",
+    "payload": {
+     "delta": ".",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716452300+00:00"
+   },
+   {
+    "seq": 303,
+    "event_type": "token",
+    "payload": {
+     "delta": " If",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716454200+00:00"
+   },
+   {
+    "seq": 304,
+    "event_type": "token",
+    "payload": {
+     "delta": " you",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716456200+00:00"
+   },
+   {
+    "seq": 305,
+    "event_type": "token",
+    "payload": {
+     "delta": " can",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716458100+00:00"
+   },
+   {
+    "seq": 306,
+    "event_type": "token",
+    "payload": {
+     "delta": " run",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716460+00:00"
+   },
+   {
+    "seq": 307,
+    "event_type": "token",
+    "payload": {
+     "delta": " `",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716461800+00:00"
+   },
+   {
+    "seq": 308,
+    "event_type": "token",
+    "payload": {
+     "delta": "cargo",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716464+00:00"
+   },
+   {
+    "seq": 309,
+    "event_type": "token",
+    "payload": {
+     "delta": " test",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716465900+00:00"
+   },
+   {
+    "seq": 310,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716468800+00:00"
+   },
+   {
+    "seq": 311,
+    "event_type": "token",
+    "payload": {
+     "delta": " locally",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716470900+00:00"
+   },
+   {
+    "seq": 312,
+    "event_type": "token",
+    "payload": {
+     "delta": ",",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716472800+00:00"
+   },
+   {
+    "seq": 313,
+    "event_type": "token",
+    "payload": {
+     "delta": " it",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716475+00:00"
+   },
+   {
+    "seq": 314,
+    "event_type": "token",
+    "payload": {
+     "delta": " should",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716476900+00:00"
+   },
+   {
+    "seq": 315,
+    "event_type": "token",
+    "payload": {
+     "delta": " be",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716478900+00:00"
+   },
+   {
+    "seq": 316,
+    "event_type": "token",
+    "payload": {
+     "delta": " fully",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716480800+00:00"
+   },
+   {
+    "seq": 317,
+    "event_type": "token",
+    "payload": {
+     "delta": " green",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716482900+00:00"
+   },
+   {
+    "seq": 318,
+    "event_type": "token",
+    "payload": {
+     "delta": ".",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T07:49:34.716486100+00:00"
+   },
+   {
+    "seq": 319,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 6308,
+     "span_id": "",
+     "t1": "2026-10-22T07:49:24.201825100+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T07:49:34.716488800+00:00"
+   },
+   {
+    "seq": 320,
+    "event_type": "think_summary",
+    "payload": {
+     "phase": "selfcheck",
+     "text": "[selfcheck] 产物自检通过（1 项）",
+     "type": "think_summary"
+    },
+    "timestamp": "2026-10-22T07:49:34.716491800+00:00"
+   },
+   {
+    "seq": 321,
+    "event_type": "done",
+    "payload": {
+     "report": {
+      "artifacts": [
+       "<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs"
+      ],
+      "completion_decision": "accepted: all_done gate + verify passed",
+      "cost_usd": null,
+      "goal": "first_char_or_default 对空字符串返回了错误值。修复：用 unwrap_or(default) 代替直接 .next()。cargo test 全绿。",
+      "known_failing_open": [],
+      "ledger_pending": [],
+      "ok": true,
+      "selfcheck": {
+       "checks": [
+        {
+         "detail": "",
+         "kind": "cargo_check",
+         "ok": true,
+         "path": "<WORK>\\sessions\\b8d7658a-172a-4f17-a8cb-84991b2ef38f\\src\\lib.rs"
+        }
+       ],
+       "failures": [],
+       "passed": true,
+       "rounds_used": 0,
+       "skipped_any": false
+      },
+      "status": "completed",
+      "steps": 13,
+      "usage": {
+       "cache_hit_tokens": 0,
+       "cache_miss_tokens": 0,
+       "cache_reported_calls": 0,
+       "calls": 7,
+       "completion_tokens": 942,
+       "prompt_tokens": 35215,
+       "total_tokens": 36157
+      },
+      "verification": "UNVERIFIED"
+     },
+     "type": "done"
+    },
+    "timestamp": "2026-10-22T07:49:34.716511200+00:00"
+   }
+  ]
+ }
+}
