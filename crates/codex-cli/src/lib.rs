@@ -470,12 +470,26 @@ pub async fn hearth_main() -> Result<()> {
         std::env::var("RUST_LOG").unwrap_or_else(|_| default_filter.into()),
     );
     let rc51_builder = tracing_subscriber::fmt().with_env_filter(rc51_filter);
-    if std::env::var("RUST_LOG").is_ok() {
+    // M2（视觉验收实测）：TUI 占整屏且处于 raw mode——tracing 只要写 stderr 就会
+    // 在界面上画出一片日志（截图实证）。`tui` 子命令一律**不写终端**：强制落诊断
+    // 文件；连文件都开不了时退到 `sink`（宁可丢日志，不可画花界面）。
+    let tui_mode = std::env::args().nth(1).as_deref() == Some("tui");
+    if std::env::var("RUST_LOG").is_ok() && !tui_mode {
         rc51_builder.with_writer(std::io::stderr).init();
     } else {
         let diag = std::env::var("HOME")
             .map(|h| std::path::PathBuf::from(h).join(".config/hearth/diagnostics.log"))
+            .or_else(|_| {
+                std::env::var("APPDATA").map(|a| {
+                    std::path::PathBuf::from(a)
+                        .join("hearth")
+                        .join("diagnostics.log")
+                })
+            })
             .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/hearth-diagnostics.log"));
+        if let Some(parent) = diag.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         match std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -483,7 +497,12 @@ pub async fn hearth_main() -> Result<()> {
         {
             Ok(f) => {
                 rc51_builder.with_writer(std::sync::Mutex::new(f)).init();
-                eprintln!("diagnostics → {}", diag.display());
+                if !tui_mode {
+                    eprintln!("diagnostics → {}", diag.display());
+                }
+            }
+            Err(_) if tui_mode => {
+                rc51_builder.with_writer(std::io::sink).init();
             }
             Err(_) => {
                 rc51_builder.with_writer(std::io::stderr).init();

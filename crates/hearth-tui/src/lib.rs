@@ -125,7 +125,10 @@ impl TuiState {
                 self.push(LineKind::Tool, format!("→ {} {}", tc.name, args));
             }
             Event::ToolResult(tr) => {
-                let first = first_line(&tr.output, 220);
+                let mut first = first_line(&tr.output, 220).trim().to_string();
+                if first.is_empty() {
+                    first = "（无输出）".to_string();
+                }
                 if tr.is_error {
                     self.push(
                         LineKind::ToolErr,
@@ -441,6 +444,9 @@ fn submit(
         );
         return;
     };
+    // 新一轮：清掉上一轮的 phase/步数（否则 Done 到来前头栏仍显示旧状态）。
+    state.phase = "planning".into();
+    state.steps = 0;
     let goal = agent_core::Goal::with_budget(
         goal_text,
         agent_types::Budget {
@@ -611,6 +617,22 @@ mod tests {
         let text = st.visible_text();
         assert!(text.contains("→ bash"), "{text}");
         assert!(text.contains("✗ c1: exit code: 1"), "{text}");
+    }
+
+    #[test]
+    fn empty_tool_output_is_not_silent() {
+        let mut st = TuiState::new("s");
+        st.ingest(&Event::ToolResult(ToolResult {
+            call_id: "c0".into(),
+            is_error: false,
+            output: String::new(),
+            artifacts: vec![],
+            error_kind: None,
+        }));
+        assert!(
+            st.visible_text().contains("（无输出）"),
+            "空输出必须显式标注，不能只留一个空冒号"
+        );
     }
 
     #[test]
