@@ -121,6 +121,30 @@ pub fn extract_cwd_marker(formatted: &str) -> (Option<std::path::PathBuf>, Strin
     }
 }
 
+/// D-237：bash 可执行文件解析——`HEARTH_BASH_BIN` 显式配置优先。
+///
+/// Windows 上裸 `bash` 会被 CreateProcess 的搜索序解析到 **system32 的 WSL bash**
+/// （PATH 前置无效），而它与本工具的 Windows 语义命令不兼容（实测 `cargo test`
+/// 返回 `Bash/Service/0x8007072c` + 乱码）。Git Bash 在场 ⇒ **默认**用它（绝对路径）；
+/// 不在场时保持 `bash`（由 spawn 如实报错，不静默降级）。
+fn resolve_bash_bin(env: &std::collections::HashMap<String, String>) -> String {
+    if let Some(v) = env.get("HEARTH_BASH_BIN") {
+        return v.clone();
+    }
+    #[cfg(windows)]
+    {
+        for cand in [
+            "C:\\Program Files\\Git\\bin\\bash.exe",
+            "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+        ] {
+            if std::path::Path::new(cand).is_file() {
+                return cand.to_string();
+            }
+        }
+    }
+    "bash".to_string()
+}
+
 impl BashTool {
     pub fn new() -> Self {
         Self {
@@ -555,11 +579,7 @@ impl Tool for BashTool {
         // CreateProcess 搜索序 system32 恒优先于 PATH——PATH 前置无效）：
         // bash 可执行文件路径 env 可配，默认 "bash" 行为零变化（Linux 真机
         // 不受影响；测试经 HEARTH_BASH_BIN 指向 Git Bash）。
-        let bash_bin = ctx
-            .env
-            .get("HEARTH_BASH_BIN")
-            .cloned()
-            .unwrap_or_else(|| "bash".to_string());
+        let bash_bin = resolve_bash_bin(&ctx.env);
         // D-155：**执行契约**（把"Windows 上 sh 语法无意义"+实测的无声失败**显式化**）——
         // 本工具恒以 `<bin> -c <sh 脚本>` 调用，包装脚本是 **sh 语法**；指向 cmd/cmd.exe
         // 时 `-c` 与 sh 语法**都无意义** ⇒ **fail-loud**（给出可行动指引），
@@ -1071,7 +1091,52 @@ mod tests {
         "bash".to_string()
     }
 
-    /// S1: 超时解析纯函数——effective(deadline) > args > env > 默认 120，cap 600。
+    /// D-237（先红后绿）：Windows 默认 `bash` 是 system32 的 WSL bash——实测
+    /// `cd . && cargo test 2>&1 | tail -30` 返回 `Bash/Service/0x8007072c` + 乱码
+    /// （T03 活体实录），agent 因此**从未真正跑到测试**却自报完成。Git Bash 在场时
+    /// 必须**默认**用它（绝对路径，绕开 CreateProcess 的 system32 搜索序）。
+    #[cfg(windows)]
+    #[test]
+    fn test_d237_windows_default_bash_prefers_git_bash() {
+        let git = "C:\\Program Files\\Git\\bin\\bash.exe";
+        if !std::path::Path::new(git).exists() {
+            return; // 该机器无 Git Bash —— 不误伤
+        }
+        let empty = std::collections::HashMap::new();
+        assert_eq!(
+            resolve_bash_bin(&empty),
+            git,
+            "Windows 默认 bash 必须解析到 Git Bash"
+        );
+        // 显式 env 覆盖优先（既有契约不倒退）
+        let env = std::collections::HashMap::from([(
+            "HEARTH_BASH_BIN".to_string(),
+            "C:\\custom\\bash.exe".to_string(),
+        )]);
+        assert_eq!(resolve_bash_bin(&env), "C:\\custom\\bash.exe");
+    }
+
+    /// D-237 行为侧：不设 `HEARTH_BASH_BIN` 时，默认 bash 必须是 **Windows 语义的
+    /// 真 POSIX shell**（Git Bash），而不是 WSL——`uname -s` 是最小判别器。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_d237_default_bash_is_not_wsl() {
+        if !std::path::Path::new("C:\\Program Files\\Git\\bin\\bash.exe").exists() {
+            return;
+        }
+        let tool = BashTool::new();
+        let ctx = ToolContext::default();
+        let out = tool
+            .execute(serde_json::json!({"cmd": "uname -s"}), &ctx)
+            .await
+            .expect("默认 bash 必须可执行");
+        assert!(
+            !out.contains("Linux"),
+            "默认 bash 解析到了 WSL（uname -s={out:?}）"
+        );
+    }
+
+    /// S1：超时解析纯函数——effective(deadline) > args > env > 默认 120，cap 600。
     #[test]
     fn test_s1_resolve_timeout_priority() {
         use std::collections::HashMap;
