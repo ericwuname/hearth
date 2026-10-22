@@ -3,16 +3,16 @@
   "task": "T17-fix-race",
   "run": 0,
   "provider": "agnes",
-  "steps": 13,
-  "wall_s": 43.8,
-  "session_id": "f23b3ced-b3f7-444a-8ab6-435738eafe16",
+  "steps": 9,
+  "wall_s": 25.3,
+  "session_id": "ab64ff41-0eed-415b-aee7-c262476441de",
   "source": "live-agnes",
   "fixture_schema": 1,
   "live_verify_ok": true,
   "live_claim_ok": true
  },
  "history": {
-  "session_id": "f23b3ced-b3f7-444a-8ab6-435738eafe16",
+  "session_id": "ab64ff41-0eed-415b-aee7-c262476441de",
   "goal": "Counter::inc 有一个数据竞争 bug。修复 inc 方法使测试通过。提示：MutexGuard<{integer}> 的 += 操作不是原子的，需要先解引用赋值。cargo test 全绿。",
   "messages": [
    {
@@ -22,164 +22,197 @@
      "name": "plan",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:24.357128400+00:00",
+     "t0": "2026-10-22T10:12:51.868801200+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025835600+00:00"
+    "timestamp": "2026-10-22T10:13:18.066968700+00:00"
    },
    {
     "seq": 1,
-    "event_type": "span_close",
+    "event_type": "token",
     "payload": {
-     "duration_ms": 1875,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:26.233083200+00:00",
-     "type": "span_close"
+     "delta": "\n",
+     "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025842200+00:00"
+    "timestamp": "2026-10-22T10:13:18.066980300+00:00"
    },
    {
     "seq": 2,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 3242,
+     "span_id": "",
+     "t1": "2026-10-22T10:12:55.111144900+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T10:13:18.066985+00:00"
+   },
+   {
+    "seq": 3,
+    "event_type": "tool_call",
+    "payload": {
+     "args": {
+      "cmd": "find . -name \"*.rs\" | head -50"
+     },
+     "call_id": "call_d03d743f9a02443395b277e8",
+     "name": "bash",
+     "type": "tool_call"
+    },
+    "timestamp": "2026-10-22T10:13:18.066993600+00:00"
+   },
+   {
+    "seq": 4,
     "event_type": "tool_call",
     "payload": {
      "args": {
       "pattern": "**/*.rs"
      },
-     "call_id": "call_5b809066bcf9463998d5605e",
+     "call_id": "call_2a2b3ee83b9448c2bf6822e3",
      "name": "glob",
      "type": "tool_call"
     },
-    "timestamp": "2026-10-22T08:03:09.025846700+00:00"
+    "timestamp": "2026-10-22T10:13:18.066998700+00:00"
    },
    {
-    "seq": 3,
+    "seq": 5,
     "event_type": "span_open",
     "payload": {
      "name": "act",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:26.233706+00:00",
+     "t0": "2026-10-22T10:12:55.112037600+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025849600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067003300+00:00"
    },
    {
-    "seq": 4,
+    "seq": 6,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 0,
+     "duration_ms": 70,
      "span_id": "",
-     "t1": "2026-10-22T08:02:26.234354400+00:00",
+     "t1": "2026-10-22T10:12:55.182959100+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025851800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067007500+00:00"
    },
    {
-    "seq": 5,
+    "seq": 7,
     "event_type": "tool_result",
     "payload": {
-     "call_id": "call_5b809066bcf9463998d5605e",
+     "call_id": "call_d03d743f9a02443395b277e8",
+     "is_error": false,
+     "output": "./src/lib.rs\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T10:13:18.067012400+00:00"
+   },
+   {
+    "seq": 8,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_2a2b3ee83b9448c2bf6822e3",
      "is_error": false,
      "output": "src/lib.rs",
      "type": "tool_result"
     },
-    "timestamp": "2026-10-22T08:03:09.025854400+00:00"
-   },
-   {
-    "seq": 6,
-    "event_type": "span_open",
-    "payload": {
-     "name": "plan",
-     "parent_id": null,
-     "span_id": "",
-     "t0": "2026-10-22T08:02:26.234894500+00:00",
-     "type": "span_open"
-    },
-    "timestamp": "2026-10-22T08:03:09.025856700+00:00"
-   },
-   {
-    "seq": 7,
-    "event_type": "span_close",
-    "payload": {
-     "duration_ms": 3963,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:30.198070700+00:00",
-     "type": "span_close"
-    },
-    "timestamp": "2026-10-22T08:03:09.025858800+00:00"
-   },
-   {
-    "seq": 8,
-    "event_type": "tool_call",
-    "payload": {
-     "args": {
-      "path": "src/lib.rs"
-     },
-     "call_id": "call_1a0cd61aa0e14f6d8204c926",
-     "name": "read",
-     "type": "tool_call"
-    },
-    "timestamp": "2026-10-22T08:03:09.025861700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067016200+00:00"
    },
    {
     "seq": 9,
     "event_type": "span_open",
     "payload": {
-     "name": "act",
+     "name": "plan",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:30.198764100+00:00",
+     "t0": "2026-10-22T10:12:55.183834+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025864300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067020100+00:00"
    },
    {
     "seq": 10,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 1,
+     "duration_ms": 1569,
      "span_id": "",
-     "t1": "2026-10-22T08:02:30.199773400+00:00",
+     "t1": "2026-10-22T10:12:56.753313800+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025866600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067023500+00:00"
    },
    {
     "seq": 11,
-    "event_type": "tool_result",
+    "event_type": "tool_call",
     "payload": {
-     "call_id": "call_1a0cd61aa0e14f6d8204c926",
-     "is_error": false,
-     "output": "     1\tuse std::sync::Mutex;\n     2\tpub struct Counter { value: Mutex<i32> }\n     3\timpl Counter {\n     4\t    pub fn new() -> Self { Counter { value: Mutex::new(0) } }\n     5\t    pub fn inc(&self) { self.value.lock().unwrap() += 1; } // BUG: MutexGuard returned, not incremented\n     6\t    pub fn get(&self) -> i32 { *self.value.lock().unwrap() }\n     7\t}\n     8\t#[cfg(test)] mod tests { use super::*;\n     9\t  #[test] fn t_inc() { let c = Counter::new(); c.inc(); assert_eq!(c.get(), 1); }\n    10\t}\n",
-     "type": "tool_result"
+     "args": {
+      "path": "src/lib.rs"
+     },
+     "call_id": "call_3368e9d40e4347b4ac677f87",
+     "name": "read",
+     "type": "tool_call"
     },
-    "timestamp": "2026-10-22T08:03:09.025869100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067028500+00:00"
    },
    {
     "seq": 12,
     "event_type": "span_open",
     "payload": {
-     "name": "plan",
+     "name": "act",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:30.201026800+00:00",
+     "t0": "2026-10-22T10:12:56.754246+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025871600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067032200+00:00"
    },
    {
     "seq": 13,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 7317,
+     "duration_ms": 1,
      "span_id": "",
-     "t1": "2026-10-22T08:02:37.518875100+00:00",
+     "t1": "2026-10-22T10:12:56.755686100+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025873700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067035500+00:00"
    },
    {
     "seq": 14,
+    "event_type": "tool_result",
+    "payload": {
+     "call_id": "call_3368e9d40e4347b4ac677f87",
+     "is_error": false,
+     "output": "     1\tuse std::sync::Mutex;\n     2\tpub struct Counter { value: Mutex<i32> }\n     3\timpl Counter {\n     4\t    pub fn new() -> Self { Counter { value: Mutex::new(0) } }\n     5\t    pub fn inc(&self) { self.value.lock().unwrap() += 1; } // BUG: MutexGuard returned, not incremented\n     6\t    pub fn get(&self) -> i32 { *self.value.lock().unwrap() }\n     7\t}\n     8\t#[cfg(test)] mod tests { use super::*;\n     9\t  #[test] fn t_inc() { let c = Counter::new(); c.inc(); assert_eq!(c.get(), 1); }\n    10\t}\n",
+     "type": "tool_result"
+    },
+    "timestamp": "2026-10-22T10:13:18.067040+00:00"
+   },
+   {
+    "seq": 15,
+    "event_type": "span_open",
+    "payload": {
+     "name": "plan",
+     "parent_id": null,
+     "span_id": "",
+     "t0": "2026-10-22T10:12:56.757036+00:00",
+     "type": "span_open"
+    },
+    "timestamp": "2026-10-22T10:13:18.067043900+00:00"
+   },
+   {
+    "seq": 16,
+    "event_type": "span_close",
+    "payload": {
+     "duration_ms": 3512,
+     "span_id": "",
+     "t1": "2026-10-22T10:13:00.269172100+00:00",
+     "type": "span_close"
+    },
+    "timestamp": "2026-10-22T10:13:18.067047600+00:00"
+   },
+   {
+    "seq": 17,
     "event_type": "tool_call",
     "payload": {
      "args": {
@@ -187,48 +220,48 @@
       "replace": "pub fn inc(&self) { *self.value.lock().unwrap() += 1; }",
       "search": "pub fn inc(&self) { self.value.lock().unwrap() += 1; } // BUG: MutexGuard returned, not incremented"
      },
-     "call_id": "call_782c26b96c33444784616cf9",
+     "call_id": "call_7ad159a4f05a41a4869a1e0e",
      "name": "apply_patch",
      "type": "tool_call"
     },
-    "timestamp": "2026-10-22T08:03:09.025878+00:00"
+    "timestamp": "2026-10-22T10:13:18.067055900+00:00"
    },
    {
-    "seq": 15,
+    "seq": 18,
     "event_type": "span_open",
     "payload": {
      "name": "act",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:37.519794100+00:00",
+     "t0": "2026-10-22T10:13:00.269945300+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025880700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067059900+00:00"
    },
    {
-    "seq": 16,
+    "seq": 19,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 10,
+     "duration_ms": 19,
      "span_id": "",
-     "t1": "2026-10-22T08:02:37.529915800+00:00",
+     "t1": "2026-10-22T10:13:00.289864100+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025882600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067063300+00:00"
    },
    {
-    "seq": 17,
+    "seq": 20,
     "event_type": "tool_result",
     "payload": {
-     "call_id": "call_782c26b96c33444784616cf9",
+     "call_id": "call_7ad159a4f05a41a4869a1e0e",
      "is_error": false,
-     "output": "patched <WORK>\\sessions\\f23b3ced-b3f7-444a-8ab6-435738eafe16\\src/lib.rs: replaced 99 bytes (search) with 55 bytes (replace); file now 385 bytes",
+     "output": "patched <WORK>\\sessions\\ab64ff41-0eed-415b-aee7-c262476441de\\src/lib.rs: replaced 99 bytes (search) with 55 bytes (replace); file now 385 bytes",
      "type": "tool_result"
     },
-    "timestamp": "2026-10-22T08:03:09.025885400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067067100+00:00"
    },
    {
-    "seq": 18,
+    "seq": 21,
     "event_type": "artifact",
     "payload": {
      "delta_lines": 0,
@@ -237,418 +270,359 @@
      "size_bytes": 0,
      "type": "artifact"
     },
-    "timestamp": "2026-10-22T08:03:09.025888400+00:00"
-   },
-   {
-    "seq": 19,
-    "event_type": "span_open",
-    "payload": {
-     "name": "plan",
-     "parent_id": null,
-     "span_id": "",
-     "t0": "2026-10-22T08:02:37.530575500+00:00",
-     "type": "span_open"
-    },
-    "timestamp": "2026-10-22T08:03:09.025891100+00:00"
-   },
-   {
-    "seq": 20,
-    "event_type": "span_close",
-    "payload": {
-     "duration_ms": 9154,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:46.685080800+00:00",
-     "type": "span_close"
-    },
-    "timestamp": "2026-10-22T08:03:09.025893+00:00"
-   },
-   {
-    "seq": 21,
-    "event_type": "tool_call",
-    "payload": {
-     "args": {
-      "cmd": "cargo test 2>&1 | tail -20"
-     },
-     "call_id": "call_f9fb11ae7a78428795c2c5e4",
-     "name": "bash",
-     "type": "tool_call"
-    },
-    "timestamp": "2026-10-22T08:03:09.025896500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067071400+00:00"
    },
    {
     "seq": 22,
     "event_type": "span_open",
     "payload": {
-     "name": "act",
+     "name": "plan",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:46.685900100+00:00",
+     "t0": "2026-10-22T10:13:00.290486200+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025898900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067075300+00:00"
    },
    {
     "seq": 23,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 1686,
+     "duration_ms": 1578,
      "span_id": "",
-     "t1": "2026-10-22T08:02:48.372179900+00:00",
+     "t1": "2026-10-22T10:13:01.869133500+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025901+00:00"
+    "timestamp": "2026-10-22T10:13:18.067078800+00:00"
    },
    {
     "seq": 24,
-    "event_type": "tool_result",
+    "event_type": "tool_call",
     "payload": {
-     "call_id": "call_f9fb11ae7a78428795c2c5e4",
-     "is_error": true,
-     "output": "exit code: 1\nstdout:\nR\u0000P\u0000C\u0000 \u0000\u0003�(u\u0005S+T�v�g*N�S�g\rN\fT�N�X\u000ef�v�S�g{|�W\u00020 \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u00000\u0000x\u00008\u00000\u00000\u00007\u00000\u00007\u00002\u0000c\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
-     "type": "tool_result"
+     "args": {
+      "cmd": "cargo test 2>&1 | tail -30"
+     },
+     "call_id": "call_7a45dca912874797ae259c79",
+     "name": "bash",
+     "type": "tool_call"
     },
-    "timestamp": "2026-10-22T08:03:09.025903300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067083200+00:00"
    },
    {
     "seq": 25,
     "event_type": "span_open",
     "payload": {
-     "name": "plan",
+     "name": "act",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:48.372956500+00:00",
+     "t0": "2026-10-22T10:13:01.869805700+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025905700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067087600+00:00"
    },
    {
     "seq": 26,
     "event_type": "span_close",
     "payload": {
-     "duration_ms": 4178,
+     "duration_ms": 774,
      "span_id": "",
-     "t1": "2026-10-22T08:02:52.551276600+00:00",
+     "t1": "2026-10-22T10:13:02.644732100+00:00",
      "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.025907600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067091500+00:00"
    },
    {
     "seq": 27,
-    "event_type": "tool_call",
+    "event_type": "tool_result",
     "payload": {
-     "args": {
-      "cmd": "chcp 65001 && cargo test 2>&1 | tail -30"
-     },
-     "call_id": "call_eecb4bde656c41e39e943069",
-     "name": "bash",
-     "type": "tool_call"
+     "call_id": "call_7a45dca912874797ae259c79",
+     "is_error": false,
+     "output": "   Compiling T17 v0.1.0 (<WORK>\\sessions\\ab64ff41-0eed-415b-aee7-c262476441de)\nwarning: crate `T17` should have a snake case name\n  |\n  = help: convert the identifier to snake case: `t17`\n  = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default\n\nwarning: `T17` (lib) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s\n     Running unittests src\\lib.rs (target\\debug\\deps\\T17-14cd5fc1f9cdd8ce.exe)\n\nrunning 1 test\ntest tests::t_inc ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests T17\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+     "type": "tool_result"
     },
-    "timestamp": "2026-10-22T08:03:09.025910500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067095600+00:00"
    },
    {
     "seq": 28,
     "event_type": "span_open",
     "payload": {
-     "name": "act",
+     "name": "plan",
      "parent_id": null,
      "span_id": "",
-     "t0": "2026-10-22T08:02:52.552008500+00:00",
+     "t0": "2026-10-22T10:13:02.645360200+00:00",
      "type": "span_open"
     },
-    "timestamp": "2026-10-22T08:03:09.025912900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067099900+00:00"
    },
    {
     "seq": 29,
-    "event_type": "span_close",
+    "event_type": "token",
     "payload": {
-     "duration_ms": 29,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:52.581493+00:00",
-     "type": "span_close"
+     "delta": "修复",
+     "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025915600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067102900+00:00"
    },
    {
     "seq": 30,
-    "event_type": "tool_result",
+    "event_type": "token",
     "payload": {
-     "call_id": "call_eecb4bde656c41e39e943069",
-     "is_error": true,
-     "output": "exit code: 1\nstdout:\n~p��'`Ee�� \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u0000E\u0000_\u0000U\u0000N\u0000E\u0000X\u0000P\u0000E\u0000C\u0000T\u0000E\u0000D\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
-     "type": "tool_result"
+     "delta": "完成",
+     "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025918+00:00"
+    "timestamp": "2026-10-22T10:13:18.067105700+00:00"
    },
    {
     "seq": 31,
-    "event_type": "span_open",
+    "event_type": "token",
     "payload": {
-     "name": "plan",
-     "parent_id": null,
-     "span_id": "",
-     "t0": "2026-10-22T08:02:52.582198300+00:00",
-     "type": "span_open"
+     "delta": "。",
+     "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025920500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067108500+00:00"
    },
    {
     "seq": 32,
-    "event_type": "span_close",
+    "event_type": "token",
     "payload": {
-     "duration_ms": 4302,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:56.884799400+00:00",
-     "type": "span_close"
+     "delta": "\n\n",
+     "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025922500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067111200+00:00"
    },
    {
     "seq": 33,
-    "event_type": "tool_call",
-    "payload": {
-     "args": {
-      "cmd": "cmd /c \"chcp 65001 >nul && cargo test 2>&1\""
-     },
-     "call_id": "call_04ce0c59fbfb409e9c3d9409",
-     "name": "bash",
-     "type": "tool_call"
-    },
-    "timestamp": "2026-10-22T08:03:09.025925100+00:00"
-   },
-   {
-    "seq": 34,
-    "event_type": "span_open",
-    "payload": {
-     "name": "act",
-     "parent_id": null,
-     "span_id": "",
-     "t0": "2026-10-22T08:02:56.885584200+00:00",
-     "type": "span_open"
-    },
-    "timestamp": "2026-10-22T08:03:09.025927500+00:00"
-   },
-   {
-    "seq": 35,
-    "event_type": "span_close",
-    "payload": {
-     "duration_ms": 29,
-     "span_id": "",
-     "t1": "2026-10-22T08:02:56.915087600+00:00",
-     "type": "span_close"
-    },
-    "timestamp": "2026-10-22T08:03:09.025929500+00:00"
-   },
-   {
-    "seq": 36,
-    "event_type": "tool_result",
-    "payload": {
-     "call_id": "call_04ce0c59fbfb409e9c3d9409",
-     "is_error": true,
-     "output": "exit code: 1\nstdout:\n~p��'`Ee�� \u0000\r\u0000\n\u0000\u0019���N\u0001x:\u0000 \u0000B\u0000a\u0000s\u0000h\u0000/\u0000S\u0000e\u0000r\u0000v\u0000i\u0000c\u0000e\u0000/\u0000E\u0000_\u0000U\u0000N\u0000E\u0000X\u0000P\u0000E\u0000C\u0000T\u0000E\u0000D\u0000\r\u0000\n\u0000\nstderr:\n\n[hearth sandbox] 上述输出含**非 UTF-8 字节**：已按 U+FFFD 替换显示（Windows 上多为子进程按非 UTF-8 代码页输出，如 cmd/GBK 程序）。若需正确文本，请让命令输出 UTF-8（如 `chcp 65001`）或把 `HEARTH_BASH_BIN` 指向 Git Bash。\n",
-     "type": "tool_result"
-    },
-    "timestamp": "2026-10-22T08:03:09.025931900+00:00"
-   },
-   {
-    "seq": 37,
-    "event_type": "span_open",
-    "payload": {
-     "name": "plan",
-     "parent_id": null,
-     "span_id": "",
-     "t0": "2026-10-22T08:02:56.915556200+00:00",
-     "type": "span_open"
-    },
-    "timestamp": "2026-10-22T08:03:09.025934800+00:00"
-   },
-   {
-    "seq": 38,
-    "event_type": "token",
-    "payload": {
-     "delta": "修复",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025936500+00:00"
-   },
-   {
-    "seq": 39,
-    "event_type": "token",
-    "payload": {
-     "delta": "已完成",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025938100+00:00"
-   },
-   {
-    "seq": 40,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025939700+00:00"
-   },
-   {
-    "seq": 41,
-    "event_type": "token",
-    "payload": {
-     "delta": "但",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025941800+00:00"
-   },
-   {
-    "seq": 42,
-    "event_type": "token",
-    "payload": {
-     "delta": "测试",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025943300+00:00"
-   },
-   {
-    "seq": 43,
-    "event_type": "token",
-    "payload": {
-     "delta": "验证",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025944800+00:00"
-   },
-   {
-    "seq": 44,
-    "event_type": "token",
-    "payload": {
-     "delta": "受阻",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025946300+00:00"
-   },
-   {
-    "seq": 45,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025947800+00:00"
-   },
-   {
-    "seq": 46,
-    "event_type": "token",
-    "payload": {
-     "delta": "说明",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025949300+00:00"
-   },
-   {
-    "seq": 47,
-    "event_type": "token",
-    "payload": {
-     "delta": "情况",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025950800+00:00"
-   },
-   {
-    "seq": 48,
-    "event_type": "token",
-    "payload": {
-     "delta": "如下",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025952400+00:00"
-   },
-   {
-    "seq": 49,
-    "event_type": "token",
-    "payload": {
-     "delta": "：",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025953900+00:00"
-   },
-   {
-    "seq": 50,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025955400+00:00"
-   },
-   {
-    "seq": 51,
-    "event_type": "token",
-    "payload": {
-     "delta": "##",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025957+00:00"
-   },
-   {
-    "seq": 52,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025958600+00:00"
-   },
-   {
-    "seq": 53,
-    "event_type": "token",
-    "payload": {
-     "delta": "已",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025960100+00:00"
-   },
-   {
-    "seq": 54,
-    "event_type": "token",
-    "payload": {
-     "delta": "完成的",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025961600+00:00"
-   },
-   {
-    "seq": 55,
-    "event_type": "token",
-    "payload": {
-     "delta": "修复",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025963+00:00"
-   },
-   {
-    "seq": 56,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.025964500+00:00"
-   },
-   {
-    "seq": 57,
     "event_type": "token",
     "payload": {
      "delta": "**",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025965900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067114+00:00"
+   },
+   {
+    "seq": 34,
+    "event_type": "token",
+    "payload": {
+     "delta": "改动",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067116600+00:00"
+   },
+   {
+    "seq": 35,
+    "event_type": "token",
+    "payload": {
+     "delta": "**",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067119600+00:00"
+   },
+   {
+    "seq": 36,
+    "event_type": "token",
+    "payload": {
+     "delta": "：",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067122500+00:00"
+   },
+   {
+    "seq": 37,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067125200+00:00"
+   },
+   {
+    "seq": 38,
+    "event_type": "token",
+    "payload": {
+     "delta": "src",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067127600+00:00"
+   },
+   {
+    "seq": 39,
+    "event_type": "token",
+    "payload": {
+     "delta": "/lib",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067130200+00:00"
+   },
+   {
+    "seq": 40,
+    "event_type": "token",
+    "payload": {
+     "delta": ".rs",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067132600+00:00"
+   },
+   {
+    "seq": 41,
+    "event_type": "token",
+    "payload": {
+     "delta": "`",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067135600+00:00"
+   },
+   {
+    "seq": 42,
+    "event_type": "token",
+    "payload": {
+     "delta": " ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067137800+00:00"
+   },
+   {
+    "seq": 43,
+    "event_type": "token",
+    "payload": {
+     "delta": "第",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067140600+00:00"
+   },
+   {
+    "seq": 44,
+    "event_type": "token",
+    "payload": {
+     "delta": " ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067143400+00:00"
+   },
+   {
+    "seq": 45,
+    "event_type": "token",
+    "payload": {
+     "delta": "5",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067145800+00:00"
+   },
+   {
+    "seq": 46,
+    "event_type": "token",
+    "payload": {
+     "delta": " ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067148100+00:00"
+   },
+   {
+    "seq": 47,
+    "event_type": "token",
+    "payload": {
+     "delta": "行",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067151+00:00"
+   },
+   {
+    "seq": 48,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067153200+00:00"
+   },
+   {
+    "seq": 49,
+    "event_type": "token",
+    "payload": {
+     "delta": "```",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067155700+00:00"
+   },
+   {
+    "seq": 50,
+    "event_type": "token",
+    "payload": {
+     "delta": "rust",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067158200+00:00"
+   },
+   {
+    "seq": 51,
+    "event_type": "token",
+    "payload": {
+     "delta": "\n",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067160700+00:00"
+   },
+   {
+    "seq": 52,
+    "event_type": "token",
+    "payload": {
+     "delta": "//",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067163200+00:00"
+   },
+   {
+    "seq": 53,
+    "event_type": "token",
+    "payload": {
+     "delta": " ",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067166300+00:00"
+   },
+   {
+    "seq": 54,
+    "event_type": "token",
+    "payload": {
+     "delta": "修复前",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067169200+00:00"
+   },
+   {
+    "seq": 55,
+    "event_type": "token",
+    "payload": {
+     "delta": "（",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067171800+00:00"
+   },
+   {
+    "seq": 56,
+    "event_type": "token",
+    "payload": {
+     "delta": "有",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067174500+00:00"
+   },
+   {
+    "seq": 57,
+    "event_type": "token",
+    "payload": {
+     "delta": " bug",
+     "type": "token"
+    },
+    "timestamp": "2026-10-22T10:13:18.067177+00:00"
    },
    {
     "seq": 58,
     "event_type": "token",
     "payload": {
-     "delta": "文件",
+     "delta": "）",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025967400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067179200+00:00"
    },
    {
     "seq": 59,
@@ -657,178 +631,178 @@
      "delta": "：",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025968900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067182+00:00"
    },
    {
     "seq": 60,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025970300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067184400+00:00"
    },
    {
     "seq": 61,
     "event_type": "token",
     "payload": {
-     "delta": "src",
+     "delta": "pub",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025971800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067186700+00:00"
    },
    {
     "seq": 62,
     "event_type": "token",
     "payload": {
-     "delta": "/lib",
+     "delta": " fn",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025973200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067189+00:00"
    },
    {
     "seq": 63,
     "event_type": "token",
     "payload": {
-     "delta": ".rs",
+     "delta": " inc",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025974700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067191+00:00"
    },
    {
     "seq": 64,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "(&",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025976200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067193200+00:00"
    },
    {
     "seq": 65,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "self",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025977800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067195600+00:00"
    },
    {
     "seq": 66,
     "event_type": "token",
     "payload": {
-     "delta": "第",
+     "delta": ")",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025979300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067198800+00:00"
    },
    {
     "seq": 67,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": " {",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025980700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067201100+00:00"
    },
    {
     "seq": 68,
     "event_type": "token",
     "payload": {
-     "delta": "5",
+     "delta": " self",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025982200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067204+00:00"
    },
    {
     "seq": 69,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": ".value",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025983600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067208800+00:00"
    },
    {
     "seq": 70,
     "event_type": "token",
     "payload": {
-     "delta": "行",
+     "delta": ".lock",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025985+00:00"
+    "timestamp": "2026-10-22T10:13:18.067211200+00:00"
    },
    {
     "seq": 71,
     "event_type": "token",
     "payload": {
-     "delta": "**",
+     "delta": "().",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025986400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067214+00:00"
    },
    {
     "seq": 72,
     "event_type": "token",
     "payload": {
-     "delta": "\n\n",
+     "delta": "unwrap",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025987800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067216300+00:00"
    },
    {
     "seq": 73,
     "event_type": "token",
     "payload": {
-     "delta": "原来的",
+     "delta": "()",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025989200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067218900+00:00"
    },
    {
     "seq": 74,
     "event_type": "token",
     "payload": {
-     "delta": " bug",
+     "delta": " +=",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025990600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067221500+00:00"
    },
    {
     "seq": 75,
     "event_type": "token",
     "payload": {
-     "delta": "：",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025992+00:00"
+    "timestamp": "2026-10-22T10:13:18.067223900+00:00"
    },
    {
     "seq": 76,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025993400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067226300+00:00"
    },
    {
     "seq": 77,
     "event_type": "token",
     "payload": {
-     "delta": "```",
+     "delta": ";",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025995100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067228600+00:00"
    },
    {
     "seq": 78,
     "event_type": "token",
     "payload": {
-     "delta": "rust",
+     "delta": " }",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025996500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067231+00:00"
    },
    {
     "seq": 79,
@@ -837,3514 +811,1183 @@
      "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025998+00:00"
+    "timestamp": "2026-10-22T10:13:18.067233200+00:00"
    },
    {
     "seq": 80,
     "event_type": "token",
     "payload": {
-     "delta": "pub",
+     "delta": "//",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.025999600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067235800+00:00"
    },
    {
     "seq": 81,
     "event_type": "token",
     "payload": {
-     "delta": " fn",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026001+00:00"
+    "timestamp": "2026-10-22T10:13:18.067238300+00:00"
    },
    {
     "seq": 82,
     "event_type": "token",
     "payload": {
-     "delta": " inc",
+     "delta": "修复",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026002300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067241+00:00"
    },
    {
     "seq": 83,
     "event_type": "token",
     "payload": {
-     "delta": "(&",
+     "delta": "后",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026003700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067243500+00:00"
    },
    {
     "seq": 84,
     "event_type": "token",
     "payload": {
-     "delta": "self",
+     "delta": "：",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026005200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067246400+00:00"
    },
    {
     "seq": 85,
     "event_type": "token",
     "payload": {
-     "delta": ")",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026006600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067248900+00:00"
    },
    {
     "seq": 86,
     "event_type": "token",
     "payload": {
-     "delta": " {",
+     "delta": "pub",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026008100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067251800+00:00"
    },
    {
     "seq": 87,
     "event_type": "token",
     "payload": {
-     "delta": " self",
+     "delta": " fn",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026009500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067254600+00:00"
    },
    {
     "seq": 88,
     "event_type": "token",
     "payload": {
-     "delta": ".value",
+     "delta": " inc",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026011400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067257300+00:00"
    },
    {
     "seq": 89,
     "event_type": "token",
     "payload": {
-     "delta": ".lock",
+     "delta": "(&",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026013+00:00"
+    "timestamp": "2026-10-22T10:13:18.067260500+00:00"
    },
    {
     "seq": 90,
     "event_type": "token",
     "payload": {
-     "delta": "().",
+     "delta": "self",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026014400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067263100+00:00"
    },
    {
     "seq": 91,
     "event_type": "token",
     "payload": {
-     "delta": "unwrap",
+     "delta": ")",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026015900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067265600+00:00"
    },
    {
     "seq": 92,
     "event_type": "token",
     "payload": {
-     "delta": "()",
+     "delta": " {",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026017300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067268200+00:00"
    },
    {
     "seq": 93,
     "event_type": "token",
     "payload": {
-     "delta": " +=",
+     "delta": " *",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026018700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067270800+00:00"
    },
    {
     "seq": 94,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "self",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026020200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067273300+00:00"
    },
    {
     "seq": 95,
     "event_type": "token",
     "payload": {
-     "delta": "1",
+     "delta": ".value",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026021600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067275800+00:00"
    },
    {
     "seq": 96,
     "event_type": "token",
     "payload": {
-     "delta": ";",
+     "delta": ".lock",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026023+00:00"
+    "timestamp": "2026-10-22T10:13:18.067278700+00:00"
    },
    {
     "seq": 97,
     "event_type": "token",
     "payload": {
-     "delta": " }",
+     "delta": "().",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026024400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067281500+00:00"
    },
    {
     "seq": 98,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": "unwrap",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026025900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067284300+00:00"
    },
    {
     "seq": 99,
     "event_type": "token",
     "payload": {
-     "delta": "```",
+     "delta": "()",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026027400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067286900+00:00"
    },
    {
     "seq": 100,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": " +=",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026028900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067289300+00:00"
    },
    {
     "seq": 101,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026030500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067292100+00:00"
    },
    {
     "seq": 102,
     "event_type": "token",
     "payload": {
-     "delta": "self",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026032100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067294900+00:00"
    },
    {
     "seq": 103,
     "event_type": "token",
     "payload": {
-     "delta": ".value",
+     "delta": ";",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026033600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067297600+00:00"
    },
    {
     "seq": 104,
     "event_type": "token",
     "payload": {
-     "delta": ".lock",
+     "delta": " }",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026035+00:00"
+    "timestamp": "2026-10-22T10:13:18.067300200+00:00"
    },
    {
     "seq": 105,
     "event_type": "token",
     "payload": {
-     "delta": "().",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026036300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067302700+00:00"
    },
    {
     "seq": 106,
     "event_type": "token",
     "payload": {
-     "delta": "unwrap",
+     "delta": "```",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026037800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067305400+00:00"
    },
    {
     "seq": 107,
     "event_type": "token",
     "payload": {
-     "delta": "()`",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026039200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067308200+00:00"
    },
    {
     "seq": 108,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026040800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067311200+00:00"
    },
    {
     "seq": 109,
     "event_type": "token",
     "payload": {
-     "delta": "返回",
+     "delta": "Mutex",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026042200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067314400+00:00"
    },
    {
     "seq": 110,
     "event_type": "token",
     "payload": {
-     "delta": "的是",
+     "delta": "Guard",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026043600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067317300+00:00"
    },
    {
     "seq": 111,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": "<i",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026045+00:00"
+    "timestamp": "2026-10-22T10:13:18.067320300+00:00"
    },
    {
     "seq": 112,
     "event_type": "token",
     "payload": {
-     "delta": "Mutex",
+     "delta": "3",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026046600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067323+00:00"
    },
    {
     "seq": 113,
     "event_type": "token",
     "payload": {
-     "delta": "Guard",
+     "delta": "2",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026048300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067325800+00:00"
    },
    {
     "seq": 114,
     "event_type": "token",
     "payload": {
-     "delta": "<i",
+     "delta": ">`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026049700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067328500+00:00"
    },
    {
     "seq": 115,
     "event_type": "token",
     "payload": {
-     "delta": "3",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026051200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067331300+00:00"
    },
    {
     "seq": 116,
     "event_type": "token",
     "payload": {
-     "delta": "2",
+     "delta": "本身",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026052700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067334200+00:00"
    },
    {
     "seq": 117,
     "event_type": "token",
     "payload": {
-     "delta": ">`",
+     "delta": "不是",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026054200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067337+00:00"
    },
    {
     "seq": 118,
     "event_type": "token",
     "payload": {
-     "delta": "，",
+     "delta": "整数",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026055600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067339300+00:00"
    },
    {
     "seq": 119,
     "event_type": "token",
     "payload": {
-     "delta": "对",
+     "delta": "，",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026057100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067342200+00:00"
    },
    {
     "seq": 120,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": "对",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026058600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067344700+00:00"
    },
    {
     "seq": 121,
     "event_type": "token",
     "payload": {
-     "delta": "Mutex",
+     "delta": " guard",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026059900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067347200+00:00"
    },
    {
     "seq": 122,
     "event_type": "token",
     "payload": {
-     "delta": "Guard",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026061300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067349700+00:00"
    },
    {
     "seq": 123,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "直接",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026062600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067352400+00:00"
    },
    {
     "seq": 124,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": " `",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026064100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067354800+00:00"
    },
    {
     "seq": 125,
     "event_type": "token",
     "payload": {
-     "delta": "执行",
+     "delta": "+=",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026067+00:00"
+    "timestamp": "2026-10-22T10:13:18.067357700+00:00"
    },
    {
     "seq": 126,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026068400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067361+00:00"
    },
    {
     "seq": 127,
     "event_type": "token",
     "payload": {
-     "delta": "+=",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026070+00:00"
+    "timestamp": "2026-10-22T10:13:18.067363500+00:00"
    },
    {
     "seq": 128,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026071400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067366+00:00"
    },
    {
     "seq": 129,
     "event_type": "token",
     "payload": {
-     "delta": "1",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026072800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067368600+00:00"
    },
    {
     "seq": 130,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "实际",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026074200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067371400+00:00"
    },
    {
     "seq": 131,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "是在",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026075800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067373900+00:00"
    },
    {
     "seq": 132,
     "event_type": "token",
     "payload": {
-     "delta": "并不是",
+     "delta": "做",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026077400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067376400+00:00"
    },
    {
     "seq": 133,
     "event_type": "token",
     "payload": {
-     "delta": "原",
+     "delta": " guard",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026079+00:00"
+    "timestamp": "2026-10-22T10:13:18.067379100+00:00"
    },
    {
     "seq": 134,
     "event_type": "token",
     "payload": {
-     "delta": "子的",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026080400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067381700+00:00"
    },
    {
     "seq": 135,
     "event_type": "token",
     "payload": {
-     "delta": "累",
+     "delta": "对象的",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026081900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067384600+00:00"
    },
    {
     "seq": 136,
     "event_type": "token",
     "payload": {
-     "delta": "加",
+     "delta": "加法",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026083400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067387200+00:00"
    },
    {
     "seq": 137,
     "event_type": "token",
     "payload": {
-     "delta": "操作",
+     "delta": "而非",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026084900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067389900+00:00"
    },
    {
     "seq": 138,
     "event_type": "token",
     "payload": {
-     "delta": "（",
+     "delta": "内部",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026086400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067392600+00:00"
    },
    {
     "seq": 139,
     "event_type": "token",
     "payload": {
-     "delta": "会",
+     "delta": "值",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026087800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067395+00:00"
    },
    {
     "seq": 140,
     "event_type": "token",
     "payload": {
-     "delta": "调用",
+     "delta": "；",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026089300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067397500+00:00"
    },
    {
     "seq": 141,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": "加上",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026091+00:00"
+    "timestamp": "2026-10-22T10:13:18.067400+00:00"
    },
    {
     "seq": 142,
     "event_type": "token",
     "payload": {
-     "delta": "D",
+     "delta": "解",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026092400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067402300+00:00"
    },
    {
     "seq": 143,
     "event_type": "token",
     "payload": {
-     "delta": "eref",
+     "delta": "引用",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026094+00:00"
+    "timestamp": "2026-10-22T10:13:18.067405+00:00"
    },
    {
     "seq": 144,
     "event_type": "token",
     "payload": {
-     "delta": "Mut",
+     "delta": " `",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026095300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067407300+00:00"
    },
    {
     "seq": 145,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "*",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026096800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067409800+00:00"
    },
    {
     "seq": 146,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026098300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067412700+00:00"
    },
    {
     "seq": 147,
     "event_type": "token",
     "payload": {
-     "delta": "并",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067415600+00:00"
    },
    {
     "seq": 148,
     "event_type": "token",
     "payload": {
-     "delta": "产生",
+     "delta": "后才",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026101200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067419100+00:00"
    },
    {
     "seq": 149,
     "event_type": "token",
     "payload": {
-     "delta": "非",
+     "delta": "真正",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026102800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067422100+00:00"
    },
    {
     "seq": 150,
     "event_type": "token",
     "payload": {
-     "delta": "原子",
+     "delta": "修改",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026104400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067425200+00:00"
    },
    {
     "seq": 151,
     "event_type": "token",
     "payload": {
-     "delta": "路径",
+     "delta": " `",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026105900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067428300+00:00"
    },
    {
     "seq": 152,
     "event_type": "token",
     "payload": {
-     "delta": "），",
+     "delta": "i",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026107500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067431+00:00"
    },
    {
     "seq": 153,
     "event_type": "token",
     "payload": {
-     "delta": "且",
+     "delta": "3",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026109200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067433600+00:00"
    },
    {
     "seq": 154,
     "event_type": "token",
     "payload": {
-     "delta": "该",
+     "delta": "2",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026110900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067436100+00:00"
    },
    {
     "seq": 155,
     "event_type": "token",
     "payload": {
-     "delta": "写法",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026112800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067438400+00:00"
    },
    {
     "seq": 156,
     "event_type": "token",
     "payload": {
-     "delta": "语义",
+     "delta": "。",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026114400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067440900+00:00"
    },
    {
     "seq": 157,
     "event_type": "token",
     "payload": {
-     "delta": "上",
+     "delta": "\n\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026115900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067443400+00:00"
    },
    {
     "seq": 158,
     "event_type": "token",
     "payload": {
-     "delta": "不正确",
+     "delta": "**",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026117700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067446+00:00"
    },
    {
     "seq": 159,
     "event_type": "token",
     "payload": {
-     "delta": "。",
+     "delta": "验证",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026119200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067448700+00:00"
    },
    {
     "seq": 160,
     "event_type": "token",
     "payload": {
-     "delta": "\n\n",
+     "delta": "**",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026120600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067451900+00:00"
    },
    {
     "seq": 161,
     "event_type": "token",
     "payload": {
-     "delta": "修复",
+     "delta": "：",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026122100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067455300+00:00"
    },
    {
     "seq": 162,
     "event_type": "token",
     "payload": {
-     "delta": "后",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026123500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067457900+00:00"
    },
    {
     "seq": 163,
     "event_type": "token",
     "payload": {
-     "delta": "：",
+     "delta": "cargo",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026125+00:00"
+    "timestamp": "2026-10-22T10:13:18.067460300+00:00"
    },
    {
     "seq": 164,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": " test",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026126300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067463300+00:00"
    },
    {
     "seq": 165,
     "event_type": "token",
     "payload": {
-     "delta": "```",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026127700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067476700+00:00"
    },
    {
     "seq": 166,
     "event_type": "token",
     "payload": {
-     "delta": "rust",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026129100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067479400+00:00"
    },
    {
     "seq": 167,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": "全",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026130500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067483+00:00"
    },
    {
     "seq": 168,
     "event_type": "token",
     "payload": {
-     "delta": "pub",
+     "delta": "绿",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026132+00:00"
+    "timestamp": "2026-10-22T10:13:18.067485500+00:00"
    },
    {
     "seq": 169,
     "event_type": "token",
     "payload": {
-     "delta": " fn",
+     "delta": " —",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026133300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067488100+00:00"
    },
    {
     "seq": 170,
     "event_type": "token",
     "payload": {
-     "delta": " inc",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026134800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067490700+00:00"
    },
    {
     "seq": 171,
     "event_type": "token",
     "payload": {
-     "delta": "(&",
+     "delta": "-",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026136400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067493400+00:00"
    },
    {
     "seq": 172,
     "event_type": "token",
     "payload": {
-     "delta": "self",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026138+00:00"
+    "timestamp": "2026-10-22T10:13:18.067496300+00:00"
    },
    {
     "seq": 173,
     "event_type": "token",
     "payload": {
-     "delta": ")",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026139400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067499500+00:00"
    },
    {
     "seq": 174,
     "event_type": "token",
     "payload": {
-     "delta": " {",
+     "delta": " test",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026140800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067502700+00:00"
    },
    {
     "seq": 175,
     "event_type": "token",
     "payload": {
-     "delta": " *",
+     "delta": "：",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026142200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067505700+00:00"
    },
    {
     "seq": 176,
     "event_type": "token",
     "payload": {
-     "delta": "self",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026143600+00:00"
+    "timestamp": "2026-10-22T10:13:18.067508300+00:00"
    },
    {
     "seq": 177,
     "event_type": "token",
     "payload": {
-     "delta": ".value",
+     "delta": "tests",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026145+00:00"
+    "timestamp": "2026-10-22T10:13:18.067511100+00:00"
    },
    {
     "seq": 178,
     "event_type": "token",
     "payload": {
-     "delta": ".lock",
+     "delta": "::",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026146400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067513600+00:00"
    },
    {
     "seq": 179,
     "event_type": "token",
     "payload": {
-     "delta": "().",
+     "delta": "t",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026148+00:00"
+    "timestamp": "2026-10-22T10:13:18.067516100+00:00"
    },
    {
     "seq": 180,
     "event_type": "token",
     "payload": {
-     "delta": "unwrap",
+     "delta": "_inc",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026149400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067519+00:00"
    },
    {
     "seq": 181,
     "event_type": "token",
     "payload": {
-     "delta": "()",
+     "delta": " ...",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026150900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067521500+00:00"
    },
    {
     "seq": 182,
     "event_type": "token",
     "payload": {
-     "delta": " +=",
+     "delta": " ok",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026152300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067524500+00:00"
    },
    {
     "seq": 183,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026153900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067527500+00:00"
    },
    {
     "seq": 184,
     "event_type": "token",
     "payload": {
-     "delta": "1",
+     "delta": "\n",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026155400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067530400+00:00"
    },
    {
     "seq": 185,
     "event_type": "token",
     "payload": {
-     "delta": ";",
+     "delta": "-",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026156800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067533400+00:00"
    },
    {
     "seq": 186,
     "event_type": "token",
     "payload": {
-     "delta": " }",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026158200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067536200+00:00"
    },
    {
     "seq": 187,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026159700+00:00"
+    "timestamp": "2026-10-22T10:13:18.067539300+00:00"
    },
    {
     "seq": 188,
     "event_type": "token",
     "payload": {
-     "delta": "```",
+     "delta": " warning",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026161100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067542500+00:00"
    },
    {
     "seq": 189,
     "event_type": "token",
     "payload": {
-     "delta": "\n",
+     "delta": "（",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026162500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067544900+00:00"
    },
    {
     "seq": 190,
     "event_type": "token",
     "payload": {
-     "delta": "先",
+     "delta": "crate",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026163900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067548100+00:00"
    },
    {
     "seq": 191,
     "event_type": "token",
     "payload": {
-     "delta": "通过",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026165400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067550900+00:00"
    },
    {
     "seq": 192,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": "名",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026167100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067553900+00:00"
    },
    {
     "seq": 193,
     "event_type": "token",
     "payload": {
-     "delta": "*",
+     "delta": " `",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026168500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067556800+00:00"
    },
    {
     "seq": 194,
     "event_type": "token",
     "payload": {
-     "delta": "`",
+     "delta": "T",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026169900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067559800+00:00"
    },
    {
     "seq": 195,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "1",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026171400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067562800+00:00"
    },
    {
     "seq": 196,
     "event_type": "token",
     "payload": {
-     "delta": "解",
+     "delta": "7",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026173+00:00"
+    "timestamp": "2026-10-22T10:13:18.067566100+00:00"
    },
    {
     "seq": 197,
     "event_type": "token",
     "payload": {
-     "delta": "引用",
+     "delta": "`",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026174300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067569300+00:00"
    },
    {
     "seq": 198,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": " ",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026175900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067575800+00:00"
    },
    {
     "seq": 199,
     "event_type": "token",
     "payload": {
-     "delta": "Mutex",
+     "delta": "非",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026177500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067578300+00:00"
    },
    {
     "seq": 200,
     "event_type": "token",
     "payload": {
-     "delta": "Guard",
+     "delta": " snake",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026179+00:00"
+    "timestamp": "2026-10-22T10:13:18.067580700+00:00"
    },
    {
     "seq": 201,
     "event_type": "token",
     "payload": {
-     "delta": "<i",
+     "delta": "_case",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026180500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067583300+00:00"
    },
    {
     "seq": 202,
     "event_type": "token",
     "payload": {
-     "delta": "3",
+     "delta": "，",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026182100+00:00"
+    "timestamp": "2026-10-22T10:13:18.067585900+00:00"
    },
    {
     "seq": 203,
     "event_type": "token",
     "payload": {
-     "delta": "2",
+     "delta": "与",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026183500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067588400+00:00"
    },
    {
     "seq": 204,
     "event_type": "token",
     "payload": {
-     "delta": ">`",
+     "delta": "本次",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026184900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067590800+00:00"
    },
    {
     "seq": 205,
     "event_type": "token",
     "payload": {
-     "delta": " ",
+     "delta": "修复",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026186500+00:00"
+    "timestamp": "2026-10-22T10:13:18.067593300+00:00"
    },
    {
     "seq": 206,
     "event_type": "token",
     "payload": {
-     "delta": "得到",
+     "delta": "无关",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026187900+00:00"
+    "timestamp": "2026-10-22T10:13:18.067596100+00:00"
    },
    {
     "seq": 207,
     "event_type": "token",
     "payload": {
-     "delta": " `",
+     "delta": "）",
      "type": "token"
     },
-    "timestamp": "2026-10-22T08:03:09.026189400+00:00"
+    "timestamp": "2026-10-22T10:13:18.067598400+00:00"
    },
    {
     "seq": 208,
-    "event_type": "token",
+    "event_type": "span_close",
     "payload": {
-     "delta": "i",
-     "type": "token"
+     "duration_ms": 4811,
+     "span_id": "",
+     "t1": "2026-10-22T10:13:07.456822800+00:00",
+     "type": "span_close"
     },
-    "timestamp": "2026-10-22T08:03:09.026191200+00:00"
+    "timestamp": "2026-10-22T10:13:18.067602200+00:00"
    },
    {
     "seq": 209,
-    "event_type": "token",
-    "payload": {
-     "delta": "3",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026192700+00:00"
-   },
-   {
-    "seq": 210,
-    "event_type": "token",
-    "payload": {
-     "delta": "2",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026194300+00:00"
-   },
-   {
-    "seq": 211,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026195800+00:00"
-   },
-   {
-    "seq": 212,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026197600+00:00"
-   },
-   {
-    "seq": 213,
-    "event_type": "token",
-    "payload": {
-     "delta": "的可",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026199200+00:00"
-   },
-   {
-    "seq": 214,
-    "event_type": "token",
-    "payload": {
-     "delta": "变",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026201300+00:00"
-   },
-   {
-    "seq": 215,
-    "event_type": "token",
-    "payload": {
-     "delta": "引用",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026202800+00:00"
-   },
-   {
-    "seq": 216,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026204200+00:00"
-   },
-   {
-    "seq": 217,
-    "event_type": "token",
-    "payload": {
-     "delta": "再",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026205600+00:00"
-   },
-   {
-    "seq": 218,
-    "event_type": "token",
-    "payload": {
-     "delta": "在",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026207100+00:00"
-   },
-   {
-    "seq": 219,
-    "event_type": "token",
-    "payload": {
-     "delta": "已",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026208600+00:00"
-   },
-   {
-    "seq": 220,
-    "event_type": "token",
-    "payload": {
-     "delta": "持有",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026210+00:00"
-   },
-   {
-    "seq": 221,
-    "event_type": "token",
-    "payload": {
-     "delta": "锁",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026211400+00:00"
-   },
-   {
-    "seq": 222,
-    "event_type": "token",
-    "payload": {
-     "delta": "的前提下",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026212900+00:00"
-   },
-   {
-    "seq": 223,
-    "event_type": "token",
-    "payload": {
-     "delta": "执行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026214300+00:00"
-   },
-   {
-    "seq": 224,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026215600+00:00"
-   },
-   {
-    "seq": 225,
-    "event_type": "token",
-    "payload": {
-     "delta": "+= ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026217+00:00"
-   },
-   {
-    "seq": 226,
-    "event_type": "token",
-    "payload": {
-     "delta": "1",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026218300+00:00"
-   },
-   {
-    "seq": 227,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026219700+00:00"
-   },
-   {
-    "seq": 228,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026221100+00:00"
-   },
-   {
-    "seq": 229,
-    "event_type": "token",
-    "payload": {
-     "delta": "保证",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026222500+00:00"
-   },
-   {
-    "seq": 230,
-    "event_type": "token",
-    "payload": {
-     "delta": "原子",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026223900+00:00"
-   },
-   {
-    "seq": 231,
-    "event_type": "token",
-    "payload": {
-     "delta": "性",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026225300+00:00"
-   },
-   {
-    "seq": 232,
-    "event_type": "token",
-    "payload": {
-     "delta": "且",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026226700+00:00"
-   },
-   {
-    "seq": 233,
-    "event_type": "token",
-    "payload": {
-     "delta": "语义",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026228100+00:00"
-   },
-   {
-    "seq": 234,
-    "event_type": "token",
-    "payload": {
-     "delta": "正确",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026229500+00:00"
-   },
-   {
-    "seq": 235,
-    "event_type": "token",
-    "payload": {
-     "delta": "。",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026231+00:00"
-   },
-   {
-    "seq": 236,
-    "event_type": "token",
-    "payload": {
-     "delta": "该",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026232400+00:00"
-   },
-   {
-    "seq": 237,
-    "event_type": "token",
-    "payload": {
-     "delta": "修改",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026233900+00:00"
-   },
-   {
-    "seq": 238,
-    "event_type": "token",
-    "payload": {
-     "delta": "已通过",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026235400+00:00"
-   },
-   {
-    "seq": 239,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026236900+00:00"
-   },
-   {
-    "seq": 240,
-    "event_type": "token",
-    "payload": {
-     "delta": "apply",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026238300+00:00"
-   },
-   {
-    "seq": 241,
-    "event_type": "token",
-    "payload": {
-     "delta": "_patch",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026239700+00:00"
-   },
-   {
-    "seq": 242,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026241200+00:00"
-   },
-   {
-    "seq": 243,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026242600+00:00"
-   },
-   {
-    "seq": 244,
-    "event_type": "token",
-    "payload": {
-     "delta": "成功",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026244100+00:00"
-   },
-   {
-    "seq": 245,
-    "event_type": "token",
-    "payload": {
-     "delta": "写入",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026245400+00:00"
-   },
-   {
-    "seq": 246,
-    "event_type": "token",
-    "payload": {
-     "delta": "并",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026246800+00:00"
-   },
-   {
-    "seq": 247,
-    "event_type": "token",
-    "payload": {
-     "delta": "确认",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026248300+00:00"
-   },
-   {
-    "seq": 248,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026249800+00:00"
-   },
-   {
-    "seq": 249,
-    "event_type": "token",
-    "payload": {
-     "delta": "\"",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026251100+00:00"
-   },
-   {
-    "seq": 250,
-    "event_type": "token",
-    "payload": {
-     "delta": "file",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026252500+00:00"
-   },
-   {
-    "seq": 251,
-    "event_type": "token",
-    "payload": {
-     "delta": " now",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026253900+00:00"
-   },
-   {
-    "seq": 252,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026255300+00:00"
-   },
-   {
-    "seq": 253,
-    "event_type": "token",
-    "payload": {
-     "delta": "3",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026256700+00:00"
-   },
-   {
-    "seq": 254,
-    "event_type": "token",
-    "payload": {
-     "delta": "8",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026258100+00:00"
-   },
-   {
-    "seq": 255,
-    "event_type": "token",
-    "payload": {
-     "delta": "5",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026259500+00:00"
-   },
-   {
-    "seq": 256,
-    "event_type": "token",
-    "payload": {
-     "delta": " bytes",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026260900+00:00"
-   },
-   {
-    "seq": 257,
-    "event_type": "token",
-    "payload": {
-     "delta": "\"",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026262300+00:00"
-   },
-   {
-    "seq": 258,
-    "event_type": "token",
-    "payload": {
-     "delta": "）。",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026263700+00:00"
-   },
-   {
-    "seq": 259,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026265100+00:00"
-   },
-   {
-    "seq": 260,
-    "event_type": "token",
-    "payload": {
-     "delta": "##",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026266500+00:00"
-   },
-   {
-    "seq": 261,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026267900+00:00"
-   },
-   {
-    "seq": 262,
-    "event_type": "token",
-    "payload": {
-     "delta": "未",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026269400+00:00"
-   },
-   {
-    "seq": 263,
-    "event_type": "token",
-    "payload": {
-     "delta": "完成的",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026271+00:00"
-   },
-   {
-    "seq": 264,
-    "event_type": "token",
-    "payload": {
-     "delta": "验证",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026272300+00:00"
-   },
-   {
-    "seq": 265,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026273600+00:00"
-   },
-   {
-    "seq": 266,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026275100+00:00"
-   },
-   {
-    "seq": 267,
-    "event_type": "token",
-    "payload": {
-     "delta": "cargo",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026276600+00:00"
-   },
-   {
-    "seq": 268,
-    "event_type": "token",
-    "payload": {
-     "delta": " test",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026278+00:00"
-   },
-   {
-    "seq": 269,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026279300+00:00"
-   },
-   {
-    "seq": 270,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026280700+00:00"
-   },
-   {
-    "seq": 271,
-    "event_type": "token",
-    "payload": {
-     "delta": "连续",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026282100+00:00"
-   },
-   {
-    "seq": 272,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026283500+00:00"
-   },
-   {
-    "seq": 273,
-    "event_type": "token",
-    "payload": {
-     "delta": "3",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026285+00:00"
-   },
-   {
-    "seq": 274,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026286400+00:00"
-   },
-   {
-    "seq": 275,
-    "event_type": "token",
-    "payload": {
-     "delta": "次",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026287800+00:00"
-   },
-   {
-    "seq": 276,
-    "event_type": "token",
-    "payload": {
-     "delta": "执行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026289100+00:00"
-   },
-   {
-    "seq": 277,
-    "event_type": "token",
-    "payload": {
-     "delta": "均",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026290600+00:00"
-   },
-   {
-    "seq": 278,
-    "event_type": "token",
-    "payload": {
-     "delta": "因",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026292+00:00"
-   },
-   {
-    "seq": 279,
-    "event_type": "token",
-    "payload": {
-     "delta": "沙",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026293400+00:00"
-   },
-   {
-    "seq": 280,
-    "event_type": "token",
-    "payload": {
-     "delta": "箱",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026294800+00:00"
-   },
-   {
-    "seq": 281,
-    "event_type": "token",
-    "payload": {
-     "delta": "环境问题",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026296300+00:00"
-   },
-   {
-    "seq": 282,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026297800+00:00"
-   },
-   {
-    "seq": 283,
-    "event_type": "token",
-    "payload": {
-     "delta": "Windows",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026299200+00:00"
-   },
-   {
-    "seq": 284,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026300600+00:00"
-   },
-   {
-    "seq": 285,
-    "event_type": "token",
-    "payload": {
-     "delta": "上",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026301900+00:00"
-   },
-   {
-    "seq": 286,
-    "event_type": "token",
-    "payload": {
-     "delta": "子",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026304800+00:00"
-   },
-   {
-    "seq": 287,
-    "event_type": "token",
-    "payload": {
-     "delta": "进程",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026307900+00:00"
-   },
-   {
-    "seq": 288,
-    "event_type": "token",
-    "payload": {
-     "delta": "以",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026310600+00:00"
-   },
-   {
-    "seq": 289,
-    "event_type": "token",
-    "payload": {
-     "delta": "非",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026312900+00:00"
-   },
-   {
-    "seq": 290,
-    "event_type": "token",
-    "payload": {
-     "delta": " UTF",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026315+00:00"
-   },
-   {
-    "seq": 291,
-    "event_type": "token",
-    "payload": {
-     "delta": "-",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026317300+00:00"
-   },
-   {
-    "seq": 292,
-    "event_type": "token",
-    "payload": {
-     "delta": "8",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026319600+00:00"
-   },
-   {
-    "seq": 293,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026321800+00:00"
-   },
-   {
-    "seq": 294,
-    "event_type": "token",
-    "payload": {
-     "delta": "代码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026324+00:00"
-   },
-   {
-    "seq": 295,
-    "event_type": "token",
-    "payload": {
-     "delta": "页",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026326+00:00"
-   },
-   {
-    "seq": 296,
-    "event_type": "token",
-    "payload": {
-     "delta": "输出",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026328100+00:00"
-   },
-   {
-    "seq": 297,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026330300+00:00"
-   },
-   {
-    "seq": 298,
-    "event_type": "token",
-    "payload": {
-     "delta": "导致",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026332500+00:00"
-   },
-   {
-    "seq": 299,
-    "event_type": "token",
-    "payload": {
-     "delta": "输出",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026334800+00:00"
-   },
-   {
-    "seq": 300,
-    "event_type": "token",
-    "payload": {
-     "delta": "被",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026337+00:00"
-   },
-   {
-    "seq": 301,
-    "event_type": "token",
-    "payload": {
-     "delta": "替换",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026339100+00:00"
-   },
-   {
-    "seq": 302,
-    "event_type": "token",
-    "payload": {
-     "delta": "为",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026341300+00:00"
-   },
-   {
-    "seq": 303,
-    "event_type": "token",
-    "payload": {
-     "delta": " U",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026343500+00:00"
-   },
-   {
-    "seq": 304,
-    "event_type": "token",
-    "payload": {
-     "delta": "+",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026345800+00:00"
-   },
-   {
-    "seq": 305,
-    "event_type": "token",
-    "payload": {
-     "delta": "FF",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026348200+00:00"
-   },
-   {
-    "seq": 306,
-    "event_type": "token",
-    "payload": {
-     "delta": "FD",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026351200+00:00"
-   },
-   {
-    "seq": 307,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026353700+00:00"
-   },
-   {
-    "seq": 308,
-    "event_type": "token",
-    "payload": {
-     "delta": "乱",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026355800+00:00"
-   },
-   {
-    "seq": 309,
-    "event_type": "token",
-    "payload": {
-     "delta": "码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026357600+00:00"
-   },
-   {
-    "seq": 310,
-    "event_type": "token",
-    "payload": {
-     "delta": "且",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026359100+00:00"
-   },
-   {
-    "seq": 311,
-    "event_type": "token",
-    "payload": {
-     "delta": "非",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026360600+00:00"
-   },
-   {
-    "seq": 312,
-    "event_type": "token",
-    "payload": {
-     "delta": "零",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026362+00:00"
-   },
-   {
-    "seq": 313,
-    "event_type": "token",
-    "payload": {
-     "delta": "退出",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026363400+00:00"
-   },
-   {
-    "seq": 314,
-    "event_type": "token",
-    "payload": {
-     "delta": "）",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026364800+00:00"
-   },
-   {
-    "seq": 315,
-    "event_type": "token",
-    "payload": {
-     "delta": "而",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026366200+00:00"
-   },
-   {
-    "seq": 316,
-    "event_type": "token",
-    "payload": {
-     "delta": "失败",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026368600+00:00"
-   },
-   {
-    "seq": 317,
-    "event_type": "token",
-    "payload": {
-     "delta": "——",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026370+00:00"
-   },
-   {
-    "seq": 318,
-    "event_type": "token",
-    "payload": {
-     "delta": "**",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026371400+00:00"
-   },
-   {
-    "seq": 319,
-    "event_type": "token",
-    "payload": {
-     "delta": "不是",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026372800+00:00"
-   },
-   {
-    "seq": 320,
-    "event_type": "token",
-    "payload": {
-     "delta": "代码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026374200+00:00"
-   },
-   {
-    "seq": 321,
-    "event_type": "token",
-    "payload": {
-     "delta": "问题",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026375700+00:00"
-   },
-   {
-    "seq": 322,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026377200+00:00"
-   },
-   {
-    "seq": 323,
-    "event_type": "token",
-    "payload": {
-     "delta": "而是",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026378700+00:00"
-   },
-   {
-    "seq": 324,
-    "event_type": "token",
-    "payload": {
-     "delta": "当前",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026380100+00:00"
-   },
-   {
-    "seq": 325,
-    "event_type": "token",
-    "payload": {
-     "delta": "沙",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026381500+00:00"
-   },
-   {
-    "seq": 326,
-    "event_type": "token",
-    "payload": {
-     "delta": "箱",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026382900+00:00"
-   },
-   {
-    "seq": 327,
-    "event_type": "token",
-    "payload": {
-     "delta": "的",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026384200+00:00"
-   },
-   {
-    "seq": 328,
-    "event_type": "token",
-    "payload": {
-     "delta": " bash",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026386100+00:00"
-   },
-   {
-    "seq": 329,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026387600+00:00"
-   },
-   {
-    "seq": 330,
-    "event_type": "token",
-    "payload": {
-     "delta": "执行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026389+00:00"
-   },
-   {
-    "seq": 331,
-    "event_type": "token",
-    "payload": {
-     "delta": "器",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026390300+00:00"
-   },
-   {
-    "seq": 332,
-    "event_type": "token",
-    "payload": {
-     "delta": "与",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026391900+00:00"
-   },
-   {
-    "seq": 333,
-    "event_type": "token",
-    "payload": {
-     "delta": " cargo",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026393400+00:00"
-   },
-   {
-    "seq": 334,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026394900+00:00"
-   },
-   {
-    "seq": 335,
-    "event_type": "token",
-    "payload": {
-     "delta": "子",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026396500+00:00"
-   },
-   {
-    "seq": 336,
-    "event_type": "token",
-    "payload": {
-     "delta": "进程",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026398+00:00"
-   },
-   {
-    "seq": 337,
-    "event_type": "token",
-    "payload": {
-     "delta": "之间存在",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026399500+00:00"
-   },
-   {
-    "seq": 338,
-    "event_type": "token",
-    "payload": {
-     "delta": "编码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026400900+00:00"
-   },
-   {
-    "seq": 339,
-    "event_type": "token",
-    "payload": {
-     "delta": "/",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026402400+00:00"
-   },
-   {
-    "seq": 340,
-    "event_type": "token",
-    "payload": {
-     "delta": "服务",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026403800+00:00"
-   },
-   {
-    "seq": 341,
-    "event_type": "token",
-    "payload": {
-     "delta": "层",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026405100+00:00"
-   },
-   {
-    "seq": 342,
-    "event_type": "token",
-    "payload": {
-     "delta": "异常",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026406500+00:00"
-   },
-   {
-    "seq": 343,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026408+00:00"
-   },
-   {
-    "seq": 344,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026409400+00:00"
-   },
-   {
-    "seq": 345,
-    "event_type": "token",
-    "payload": {
-     "delta": "E",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026410700+00:00"
-   },
-   {
-    "seq": 346,
-    "event_type": "token",
-    "payload": {
-     "delta": "_UN",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026412100+00:00"
-   },
-   {
-    "seq": 347,
-    "event_type": "token",
-    "payload": {
-     "delta": "EXPECTED",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026413500+00:00"
-   },
-   {
-    "seq": 348,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026415+00:00"
-   },
-   {
-    "seq": 349,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026416300+00:00"
-   },
-   {
-    "seq": 350,
-    "event_type": "token",
-    "payload": {
-     "delta": "错误",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026417600+00:00"
-   },
-   {
-    "seq": 351,
-    "event_type": "token",
-    "payload": {
-     "delta": "）**",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026419200+00:00"
-   },
-   {
-    "seq": 352,
-    "event_type": "token",
-    "payload": {
-     "delta": "。",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026420700+00:00"
-   },
-   {
-    "seq": 353,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026422+00:00"
-   },
-   {
-    "seq": 354,
-    "event_type": "token",
-    "payload": {
-     "delta": "因此",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026423400+00:00"
-   },
-   {
-    "seq": 355,
-    "event_type": "token",
-    "payload": {
-     "delta": "当前",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026424700+00:00"
-   },
-   {
-    "seq": 356,
-    "event_type": "token",
-    "payload": {
-     "delta": "状态",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026426100+00:00"
-   },
-   {
-    "seq": 357,
-    "event_type": "token",
-    "payload": {
-     "delta": "：",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026427500+00:00"
-   },
-   {
-    "seq": 358,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026428900+00:00"
-   },
-   {
-    "seq": 359,
-    "event_type": "token",
-    "payload": {
-     "delta": "-",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026430300+00:00"
-   },
-   {
-    "seq": 360,
-    "event_type": "token",
-    "payload": {
-     "delta": " ✅",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026431700+00:00"
-   },
-   {
-    "seq": 361,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026433100+00:00"
-   },
-   {
-    "seq": 362,
-    "event_type": "token",
-    "payload": {
-     "delta": "代码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026434500+00:00"
-   },
-   {
-    "seq": 363,
-    "event_type": "token",
-    "payload": {
-     "delta": "修复",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026435900+00:00"
-   },
-   {
-    "seq": 364,
-    "event_type": "token",
-    "payload": {
-     "delta": "已",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026437300+00:00"
-   },
-   {
-    "seq": 365,
-    "event_type": "token",
-    "payload": {
-     "delta": "落",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026438700+00:00"
-   },
-   {
-    "seq": 366,
-    "event_type": "token",
-    "payload": {
-     "delta": "盘",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026440+00:00"
-   },
-   {
-    "seq": 367,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026441400+00:00"
-   },
-   {
-    "seq": 368,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026442700+00:00"
-   },
-   {
-    "seq": 369,
-    "event_type": "token",
-    "payload": {
-     "delta": "src",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026444100+00:00"
-   },
-   {
-    "seq": 370,
-    "event_type": "token",
-    "payload": {
-     "delta": "/lib",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026445500+00:00"
-   },
-   {
-    "seq": 371,
-    "event_type": "token",
-    "payload": {
-     "delta": ".rs",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026446800+00:00"
-   },
-   {
-    "seq": 372,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026448200+00:00"
-   },
-   {
-    "seq": 373,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026449600+00:00"
-   },
-   {
-    "seq": 374,
-    "event_type": "token",
-    "payload": {
-     "delta": "第",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026450900+00:00"
-   },
-   {
-    "seq": 375,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026452600+00:00"
-   },
-   {
-    "seq": 376,
-    "event_type": "token",
-    "payload": {
-     "delta": "5",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026454+00:00"
-   },
-   {
-    "seq": 377,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026455300+00:00"
-   },
-   {
-    "seq": 378,
-    "event_type": "token",
-    "payload": {
-     "delta": "行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026457800+00:00"
-   },
-   {
-    "seq": 379,
-    "event_type": "token",
-    "payload": {
-     "delta": "）",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026459300+00:00"
-   },
-   {
-    "seq": 380,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026460800+00:00"
-   },
-   {
-    "seq": 381,
-    "event_type": "token",
-    "payload": {
-     "delta": "-",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026462100+00:00"
-   },
-   {
-    "seq": 382,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026463700+00:00"
-   },
-   {
-    "seq": 383,
-    "event_type": "token",
-    "payload": {
-     "delta": "❌",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026465300+00:00"
-   },
-   {
-    "seq": 384,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026467100+00:00"
-   },
-   {
-    "seq": 385,
-    "event_type": "token",
-    "payload": {
-     "delta": "cargo",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026470300+00:00"
-   },
-   {
-    "seq": 386,
-    "event_type": "token",
-    "payload": {
-     "delta": " test",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026471700+00:00"
-   },
-   {
-    "seq": 387,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026473100+00:00"
-   },
-   {
-    "seq": 388,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026474600+00:00"
-   },
-   {
-    "seq": 389,
-    "event_type": "token",
-    "payload": {
-     "delta": "因",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026476+00:00"
-   },
-   {
-    "seq": 390,
-    "event_type": "token",
-    "payload": {
-     "delta": "沙",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026477400+00:00"
-   },
-   {
-    "seq": 391,
-    "event_type": "token",
-    "payload": {
-     "delta": "箱",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026478900+00:00"
-   },
-   {
-    "seq": 392,
-    "event_type": "token",
-    "payload": {
-     "delta": "环境",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026480600+00:00"
-   },
-   {
-    "seq": 393,
-    "event_type": "token",
-    "payload": {
-     "delta": "限制",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026482100+00:00"
-   },
-   {
-    "seq": 394,
-    "event_type": "token",
-    "payload": {
-     "delta": "未能",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026483800+00:00"
-   },
-   {
-    "seq": 395,
-    "event_type": "token",
-    "payload": {
-     "delta": "成功",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026485200+00:00"
-   },
-   {
-    "seq": 396,
-    "event_type": "token",
-    "payload": {
-     "delta": "运行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026486700+00:00"
-   },
-   {
-    "seq": 397,
-    "event_type": "token",
-    "payload": {
-     "delta": "验证",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026488200+00:00"
-   },
-   {
-    "seq": 398,
-    "event_type": "token",
-    "payload": {
-     "delta": "\n\n",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026489700+00:00"
-   },
-   {
-    "seq": 399,
-    "event_type": "token",
-    "payload": {
-     "delta": "**",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026491100+00:00"
-   },
-   {
-    "seq": 400,
-    "event_type": "token",
-    "payload": {
-     "delta": "建议",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026492600+00:00"
-   },
-   {
-    "seq": 401,
-    "event_type": "token",
-    "payload": {
-     "delta": "你在",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026494100+00:00"
-   },
-   {
-    "seq": 402,
-    "event_type": "token",
-    "payload": {
-     "delta": "本地",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026495600+00:00"
-   },
-   {
-    "seq": 403,
-    "event_type": "token",
-    "payload": {
-     "delta": "终端",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026497+00:00"
-   },
-   {
-    "seq": 404,
-    "event_type": "token",
-    "payload": {
-     "delta": "直接",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026498400+00:00"
-   },
-   {
-    "seq": 405,
-    "event_type": "token",
-    "payload": {
-     "delta": "运行",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026499900+00:00"
-   },
-   {
-    "seq": 406,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026501300+00:00"
-   },
-   {
-    "seq": 407,
-    "event_type": "token",
-    "payload": {
-     "delta": "cargo",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026502800+00:00"
-   },
-   {
-    "seq": 408,
-    "event_type": "token",
-    "payload": {
-     "delta": " test",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026504200+00:00"
-   },
-   {
-    "seq": 409,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026505700+00:00"
-   },
-   {
-    "seq": 410,
-    "event_type": "token",
-    "payload": {
-     "delta": "，",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026507300+00:00"
-   },
-   {
-    "seq": 411,
-    "event_type": "token",
-    "payload": {
-     "delta": "预期",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026508800+00:00"
-   },
-   {
-    "seq": 412,
-    "event_type": "token",
-    "payload": {
-     "delta": "结果",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026510300+00:00"
-   },
-   {
-    "seq": 413,
-    "event_type": "token",
-    "payload": {
-     "delta": "应为",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026511800+00:00"
-   },
-   {
-    "seq": 414,
-    "event_type": "token",
-    "payload": {
-     "delta": "全",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026513400+00:00"
-   },
-   {
-    "seq": 415,
-    "event_type": "token",
-    "payload": {
-     "delta": "绿",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026515100+00:00"
-   },
-   {
-    "seq": 416,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026516600+00:00"
-   },
-   {
-    "seq": 417,
-    "event_type": "token",
-    "payload": {
-     "delta": "1",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026518200+00:00"
-   },
-   {
-    "seq": 418,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026543900+00:00"
-   },
-   {
-    "seq": 419,
-    "event_type": "token",
-    "payload": {
-     "delta": "个",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026547700+00:00"
-   },
-   {
-    "seq": 420,
-    "event_type": "token",
-    "payload": {
-     "delta": "测试",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026550500+00:00"
-   },
-   {
-    "seq": 421,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026553+00:00"
-   },
-   {
-    "seq": 422,
-    "event_type": "token",
-    "payload": {
-     "delta": "t",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026555500+00:00"
-   },
-   {
-    "seq": 423,
-    "event_type": "token",
-    "payload": {
-     "delta": "_inc",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026558300+00:00"
-   },
-   {
-    "seq": 424,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026560700+00:00"
-   },
-   {
-    "seq": 425,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026563200+00:00"
-   },
-   {
-    "seq": 426,
-    "event_type": "token",
-    "payload": {
-     "delta": "通过",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026566100+00:00"
-   },
-   {
-    "seq": 427,
-    "event_type": "token",
-    "payload": {
-     "delta": "）。",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026568400+00:00"
-   },
-   {
-    "seq": 428,
-    "event_type": "token",
-    "payload": {
-     "delta": "**",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026571+00:00"
-   },
-   {
-    "seq": 429,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026573400+00:00"
-   },
-   {
-    "seq": 430,
-    "event_type": "token",
-    "payload": {
-     "delta": "如果你",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026576200+00:00"
-   },
-   {
-    "seq": 431,
-    "event_type": "token",
-    "payload": {
-     "delta": "能",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026578800+00:00"
-   },
-   {
-    "seq": 432,
-    "event_type": "token",
-    "payload": {
-     "delta": "在此",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026581400+00:00"
-   },
-   {
-    "seq": 433,
-    "event_type": "token",
-    "payload": {
-     "delta": "沙",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026583900+00:00"
-   },
-   {
-    "seq": 434,
-    "event_type": "token",
-    "payload": {
-     "delta": "箱",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026586400+00:00"
-   },
-   {
-    "seq": 435,
-    "event_type": "token",
-    "payload": {
-     "delta": "中",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026588900+00:00"
-   },
-   {
-    "seq": 436,
-    "event_type": "token",
-    "payload": {
-     "delta": "修复",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026591300+00:00"
-   },
-   {
-    "seq": 437,
-    "event_type": "token",
-    "payload": {
-     "delta": "编码",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026593900+00:00"
-   },
-   {
-    "seq": 438,
-    "event_type": "token",
-    "payload": {
-     "delta": "/",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026596300+00:00"
-   },
-   {
-    "seq": 439,
-    "event_type": "token",
-    "payload": {
-     "delta": "服务",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026598900+00:00"
-   },
-   {
-    "seq": 440,
-    "event_type": "token",
-    "payload": {
-     "delta": "层",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026601300+00:00"
-   },
-   {
-    "seq": 441,
-    "event_type": "token",
-    "payload": {
-     "delta": "问题",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026603800+00:00"
-   },
-   {
-    "seq": 442,
-    "event_type": "token",
-    "payload": {
-     "delta": "（",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026606300+00:00"
-   },
-   {
-    "seq": 443,
-    "event_type": "token",
-    "payload": {
-     "delta": "例如",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026608900+00:00"
-   },
-   {
-    "seq": 444,
-    "event_type": "token",
-    "payload": {
-     "delta": "将",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026611300+00:00"
-   },
-   {
-    "seq": 445,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026613900+00:00"
-   },
-   {
-    "seq": 446,
-    "event_type": "token",
-    "payload": {
-     "delta": "HE",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026616700+00:00"
-   },
-   {
-    "seq": 447,
-    "event_type": "token",
-    "payload": {
-     "delta": "ARTH",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026619+00:00"
-   },
-   {
-    "seq": 448,
-    "event_type": "token",
-    "payload": {
-     "delta": "_B",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026621300+00:00"
-   },
-   {
-    "seq": 449,
-    "event_type": "token",
-    "payload": {
-     "delta": "ASH",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026623800+00:00"
-   },
-   {
-    "seq": 450,
-    "event_type": "token",
-    "payload": {
-     "delta": "_BIN",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026626100+00:00"
-   },
-   {
-    "seq": 451,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026628400+00:00"
-   },
-   {
-    "seq": 452,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026630700+00:00"
-   },
-   {
-    "seq": 453,
-    "event_type": "token",
-    "payload": {
-     "delta": "指向",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026633100+00:00"
-   },
-   {
-    "seq": 454,
-    "event_type": "token",
-    "payload": {
-     "delta": " Git",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026635400+00:00"
-   },
-   {
-    "seq": 455,
-    "event_type": "token",
-    "payload": {
-     "delta": " Bash",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026638+00:00"
-   },
-   {
-    "seq": 456,
-    "event_type": "token",
-    "payload": {
-     "delta": " ",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026640200+00:00"
-   },
-   {
-    "seq": 457,
-    "event_type": "token",
-    "payload": {
-     "delta": "的",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026642700+00:00"
-   },
-   {
-    "seq": 458,
-    "event_type": "token",
-    "payload": {
-     "delta": " `",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026645+00:00"
-   },
-   {
-    "seq": 459,
-    "event_type": "token",
-    "payload": {
-     "delta": "bash",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026647+00:00"
-   },
-   {
-    "seq": 460,
-    "event_type": "token",
-    "payload": {
-     "delta": ".exe",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026649100+00:00"
-   },
-   {
-    "seq": 461,
-    "event_type": "token",
-    "payload": {
-     "delta": "`",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026651700+00:00"
-   },
-   {
-    "seq": 462,
-    "event_type": "token",
-    "payload": {
-     "delta": "），",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026654100+00:00"
-   },
-   {
-    "seq": 463,
-    "event_type": "token",
-    "payload": {
-     "delta": "我可以",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026656600+00:00"
-   },
-   {
-    "seq": 464,
-    "event_type": "token",
-    "payload": {
-     "delta": "重新",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026658900+00:00"
-   },
-   {
-    "seq": 465,
-    "event_type": "token",
-    "payload": {
-     "delta": "验证",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026661200+00:00"
-   },
-   {
-    "seq": 466,
-    "event_type": "token",
-    "payload": {
-     "delta": "。",
-     "type": "token"
-    },
-    "timestamp": "2026-10-22T08:03:09.026663500+00:00"
-   },
-   {
-    "seq": 467,
-    "event_type": "span_close",
-    "payload": {
-     "duration_ms": 6205,
-     "span_id": "",
-     "t1": "2026-10-22T08:03:03.121054600+00:00",
-     "type": "span_close"
-    },
-    "timestamp": "2026-10-22T08:03:09.026667700+00:00"
-   },
-   {
-    "seq": 468,
     "event_type": "think_summary",
     "payload": {
      "phase": "selfcheck",
      "text": "[selfcheck] 产物自检通过（1 项）",
      "type": "think_summary"
     },
-    "timestamp": "2026-10-22T08:03:09.026671300+00:00"
+    "timestamp": "2026-10-22T10:13:18.067606400+00:00"
    },
    {
-    "seq": 469,
+    "seq": 210,
     "event_type": "done",
     "payload": {
      "report": {
@@ -4372,21 +2015,21 @@
        "skipped_any": false
       },
       "status": "completed",
-      "steps": 13,
+      "steps": 9,
       "usage": {
        "cache_hit_tokens": 0,
        "cache_miss_tokens": 0,
        "cache_reported_calls": 0,
-       "calls": 7,
-       "completion_tokens": 708,
-       "prompt_tokens": 32430,
-       "total_tokens": 33138
+       "calls": 5,
+       "completion_tokens": 403,
+       "prompt_tokens": 22151,
+       "total_tokens": 22554
       },
       "verification": "UNVERIFIED"
      },
      "type": "done"
     },
-    "timestamp": "2026-10-22T08:03:09.026693800+00:00"
+    "timestamp": "2026-10-22T10:13:18.067634700+00:00"
    }
   ]
  }
