@@ -364,12 +364,16 @@ impl LlmProvider for ReplayProvider {
                 evs.push(Ok(StreamEvent::Token(c)));
             }
         }
-        for tc in resp.tool_calls {
+        for (idx, tc) in resp.tool_calls.into_iter().enumerate() {
             evs.push(Ok(StreamEvent::ToolCallDelta {
                 call_id: tc.call_id,
                 name: Some(tc.name),
                 args_delta: tc.args.to_string(),
-                index: 0, // replay 单片完整 call（无分片概念）
+                // D-235：**必须逐调用递增**。原实现恒 `index: 0` ⇒ 消费端
+                // （agent-core `stream_model_call`）按 index 归并增量，把一回合里的
+                // 多个工具调用合成了一个（实测 T16/T04 三条实录回放轨迹从第一步就偏离）。
+                // replay 的每个 delta 是完整单片（无分片语义），index 只需保证**互不相同**。
+                index: idx,
             }));
         }
         evs.push(Ok(StreamEvent::Finish {
@@ -618,5 +622,61 @@ mod tests {
             ReplayProvider::portable_paths(&keep)["path"],
             "docs/sessions/readme.md"
         );
+    }
+
+    // ── D-235（2026-10-22）：一回合多个工具调用在流式回放里不得被合并 ──
+    // 实测来源（M1-1 双轨保真门禁 31 条实录）：T16/T04 三条 trace **live PASS → replay FAIL**。
+    // 机理：`stream()` 把同一 turn 的每个 `ToolCallDelta` 都写成 `index: 0`，而消费端
+    // （agent-core `stream_model_call`）按 `index` 归并增量 ⇒ 两个调用被合成一个，
+    // 回放轨迹从第一步就偏离（活体：bash+glob，回放只剩 bash），最后产物缺文件。
+    #[tokio::test]
+    async fn d235_multi_call_turn_keeps_distinct_stream_indices() {
+        use futures::StreamExt;
+        let fx = serde_json::json!({
+            "meta": {"task": "T-multi", "session_id": "sid-m", "provider": "agnes"},
+            "history": {
+                "goal": "do two things",
+                "messages": [
+                    {"seq": 0, "event_type": "tool_call",
+                     "payload": {"call_id": "c1", "name": "bash", "args": {"cmd": "pwd"}}},
+                    {"seq": 1, "event_type": "tool_call",
+                     "payload": {"call_id": "c2", "name": "glob", "args": {"pattern": "**/*.rs"}}},
+                    {"seq": 2, "event_type": "tool_result",
+                     "payload": {"call_id": "c1", "output": "/ws"}},
+                    {"seq": 3, "event_type": "tool_result",
+                     "payload": {"call_id": "c2", "output": "src/lib.rs"}}
+                ]
+            }
+        });
+        let p = ReplayProvider {
+            sessions: vec![ReplayProvider::parse_fixture(&fx).unwrap()],
+            model: "replay/test".into(),
+        };
+        assert_eq!(
+            p.sessions[0].turns[0].tool_calls.len(),
+            2,
+            "turn 0 应有两个调用"
+        );
+
+        let mut deltas: Vec<(usize, String)> = Vec::new();
+        let mut s = p.stream(req(vec![msg(Role::User, "do two things")]));
+        while let Some(ev) = s.next().await {
+            if let Ok(StreamEvent::ToolCallDelta {
+                index,
+                name,
+                call_id,
+                ..
+            }) = ev
+            {
+                deltas.push((index, name.unwrap_or_else(|| call_id.clone())));
+            }
+        }
+        assert_eq!(deltas.len(), 2, "两个调用必须各投递一次，实得 {deltas:?}");
+        assert_ne!(
+            deltas[0].0, deltas[1].0,
+            "同一 turn 的两个调用必须有**不同** index——相同 index 会被消费端合并成一个（D-235 病灶）"
+        );
+        assert_eq!(deltas[0].1, "bash");
+        assert_eq!(deltas[1].1, "glob");
     }
 }
