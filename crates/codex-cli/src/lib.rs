@@ -231,6 +231,10 @@ enum Commands {
         /// 仅 headless：N 毫秒后自动优雅中断（验证 Esc 路径 / 落盘 / resume）。
         #[arg(long, hide = true)]
         interrupt_after_ms: Option<u64>,
+
+        /// 仅 headless：审批请求自动批准（验证审批事件 → dispatcher 放行全链）。
+        #[arg(long, hide = true)]
+        auto_approve: bool,
     },
 
     /// M2-5: 会话证据——`hearth session export <id>` 导出 diff + 报告 + 命令日志。
@@ -1258,6 +1262,7 @@ pub async fn hearth_main() -> Result<()> {
             budget,
             headless,
             interrupt_after_ms,
+            auto_approve,
         } => {
             // M2：终端 IDE v1——本地进程内 TUI（不依赖 service / VM）。
             let resolved = file_cfg.resolve(
@@ -1295,6 +1300,7 @@ pub async fn hearth_main() -> Result<()> {
                 initial_goal: goal,
                 persist: Some(persist),
                 interrupt_after_ms,
+                auto_approve,
             };
             if headless {
                 let summary = hearth_tui::run_headless(agent, opts).await?;

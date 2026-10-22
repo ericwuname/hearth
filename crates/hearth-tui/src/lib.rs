@@ -33,6 +33,9 @@ pub struct TuiOptions {
     pub persist: Option<PersistFn>,
     /// 仅 headless 冒烟：N 毫秒后自动触发优雅中断（验证 Esc 路径 + 落盘 + resume）。
     pub interrupt_after_ms: Option<u64>,
+    /// 仅 headless 冒烟：审批请求自动批准（验证审批面板事件 → dispatcher 放行全链）。
+    /// 交互模式**不使用**（真人按键才是产品语义）。
+    pub auto_approve: bool,
 }
 
 /// 界面可见的一行。`kind` 只影响配色，不参与逻辑。
@@ -458,6 +461,7 @@ pub struct TuiSummary {
     pub lines: usize,
     pub tokens_seen: usize,
     pub tool_calls: usize,
+    pub approvals: usize,
     pub done: bool,
 }
 
@@ -465,13 +469,14 @@ impl std::fmt::Display for TuiSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "TUI-SMOKE session={} status={} steps={} lines={} tokens={} tool_calls={} done={}",
+            "TUI-SMOKE session={} status={} steps={} lines={} tokens={} tool_calls={} approvals={} done={}",
             self.session,
             self.status,
             self.steps,
             self.lines,
             self.tokens_seen,
             self.tool_calls,
+            self.approvals,
             self.done
         )
     }
@@ -482,7 +487,8 @@ impl std::fmt::Display for TuiSummary {
 pub async fn run_headless(mut agent: AgentLoop, opts: TuiOptions) -> anyhow::Result<TuiSummary> {
     use tokio::sync::mpsc::unbounded_channel;
 
-    // 中断句柄必须在 agent move 进 task 之前取（与交互路径同一机制）。
+    // 中断句柄/审批调度器必须在 agent move 进 task 之前取（与交互路径同一机制）。
+    let dispatcher = agent.scheduler_arc();
     let interrupt_flag = agent.interrupt_handle();
     let interrupt_notify = agent.interrupt_notify();
     if let Some(ms) = opts.interrupt_after_ms {
@@ -514,14 +520,22 @@ pub async fn run_headless(mut agent: AgentLoop, opts: TuiOptions) -> anyhow::Res
     let mut state = TuiState::new(&opts.session_id);
     let mut tokens_seen = 0usize;
     let mut tool_calls = 0usize;
+    let mut approvals = 0usize;
     while let Some(evt) = rx.recv().await {
         match &evt {
             Event::Token(_) => tokens_seen += 1,
             Event::ToolCall(_) => tool_calls += 1,
+            Event::InteractionRequested { kind, .. } if kind == "approval" => approvals += 1,
             _ => {}
         }
         let done = matches!(evt, Event::Done(_));
         state.ingest(&evt);
+        if opts.auto_approve {
+            if let Some(pa) = state.pending_approval.take() {
+                resolve_approval(&dispatcher, &opts.session_id, &pa.id, true).await;
+                state.push(LineKind::System, "✔ 自动批准（headless 冒烟）".into());
+            }
+        }
         if done {
             break;
         }
@@ -537,6 +551,7 @@ pub async fn run_headless(mut agent: AgentLoop, opts: TuiOptions) -> anyhow::Res
         lines: state.lines.len(),
         tokens_seen,
         tool_calls,
+        approvals,
         done: state.last_done.is_some(),
     })
 }
