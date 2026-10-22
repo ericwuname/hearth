@@ -373,6 +373,124 @@ async fn test_p1_budget_exhausted_error() {
     eprintln!("P1-A5 PASS: budget exhaustion produces error termination");
 }
 
+// ── D-234（2026-10-22）：预算耗尽时**未执行的工具调用**必须留下结果事实 ──
+// 实测来源（M1-3 静默失败率首份读数，1/252）：T17 活体会话里有 1 次 `write_file`
+// 出现在 transcript 里却**没有任何 tool_result**——终端用户看到一张永远不返回的工具卡片。
+// 诊断日志（`.hearth-diag/<sid>.jsonl`）实证：step 24 = plan（模型给出 tool_calls）后
+// **没有 step 25 的 act**——预算在"执行前"耗尽，pending_tool_calls 被直接丢弃。
+// 门禁：预算压到刚好在工具执行前耗尽 ⇒ 每个 ToolCall 必须有一个配对的 ToolResult，
+// 且该结果是 **is_error=true**（如实说明"没执行"），不是静默消失。
+#[tokio::test]
+async fn test_d234_budget_exhausted_pending_calls_get_results() {
+    let mut responses = Vec::new();
+    for _ in 0..20 {
+        responses.push(ChatResponse {
+            content: Some("working".into()),
+            tool_calls: vec![agent_types::ToolCall {
+                call_id: format!("cx{}", responses.len()),
+                name: "bash".into(),
+                args: serde_json::json!({"cmd": "echo working"}),
+            }],
+            finish_reason: Some("tool_calls".into()),
+            usage: None,
+            reasoning_content: None,
+        });
+    }
+    let mut registry = ProviderRegistry::new();
+    registry.register(Arc::new(MockProvider::new(
+        "mock-d234",
+        MockScript {
+            chat_responses: responses,
+        },
+    )));
+    let mut dispatcher = ToolDispatcher::new();
+    dispatcher.register(Arc::new(BashTool::new()));
+    let mgr = Arc::new(service::session::SessionManager::new(
+        Arc::new(registry),
+        Arc::new(dispatcher),
+        ToolContext::default(),
+    ));
+
+    let resp = mgr
+        .create_session(SessionCreate {
+            provider: "mock-d234".into(),
+            model: None,
+            goal: "loop until budget".into(),
+            budget: Some(agent_types::Budget {
+                max_steps: 5,
+                max_tokens: None,
+                max_time_secs: None,
+                ..Default::default()
+            }),
+        })
+        .await
+        .unwrap();
+
+    let mut rx = mgr
+        .send_message(
+            &resp.session_id,
+            api::MessageReq {
+                content: "go".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let mut events: Vec<api::AgentEvent> = Vec::new();
+    let timeout = tokio::time::sleep(std::time::Duration::from_secs(20));
+    tokio::pin!(timeout);
+    loop {
+        tokio::select! {
+            result = rx.recv() => match result {
+                Ok(evt) => {
+                    let is_done = matches!(evt, api::AgentEvent::Done { .. });
+                    events.push(evt);
+                    if is_done { break; }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            },
+            _ = &mut timeout => break,
+        }
+    }
+
+    let mut calls: Vec<String> = Vec::new();
+    let mut results: Vec<(String, bool)> = Vec::new();
+    for e in &events {
+        match e {
+            api::AgentEvent::ToolCall { call_id, .. } => calls.push(call_id.clone()),
+            api::AgentEvent::ToolResult {
+                call_id, is_error, ..
+            } => results.push((call_id.clone(), *is_error)),
+            _ => {}
+        }
+    }
+    assert!(
+        calls.len() >= 2,
+        "预算 5 步应发起至少 2 次工具调用（plan/act 交替计数），实得 {}",
+        calls.len()
+    );
+    let orphan: Vec<&String> = calls
+        .iter()
+        .filter(|c| !results.iter().any(|(rid, _)| rid == *c))
+        .collect();
+    assert!(
+        orphan.is_empty(),
+        "预算耗尽后仍有 {len} 个工具调用没有结果（用户看到永不返回的卡片）：{orphan:?}",
+        len = orphan.len()
+    );
+    let abandoned: Vec<&(String, bool)> = results.iter().filter(|(_, err)| *err).collect();
+    assert!(
+        !abandoned.is_empty(),
+        "收尾时未执行的调用必须留下 is_error=true 的结果（如实说明没执行）"
+    );
+    eprintln!(
+        "D-234 PASS: {} calls / {} results（其中 {} 条如实标注未执行）",
+        calls.len(),
+        results.len(),
+        abandoned.len()
+    );
+}
+
 // ── P1: A5 — Natural done (ok:true) ──
 
 #[tokio::test]

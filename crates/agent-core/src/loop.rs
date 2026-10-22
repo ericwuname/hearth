@@ -2288,6 +2288,24 @@ impl AgentLoop {
         self.pending_user_messages.push(content);
     }
 
+    /// D-234：把**已发出但未执行**的工具调用逐条转成 `is_error=true` 的结果事实。
+    ///
+    /// 为什么必须补：`Event::ToolCall` 已经在事件流里出现过，没有配对的 `ToolResult`
+    /// 就等于告诉用户"这个工具还在跑"——实际永远不会返回。补的事实串显式写"未执行"
+    /// + 原因，既不冒充成功，也不静默。
+    fn abandon_pending_tool_calls(&mut self, why: &str) {
+        let abandoned: Vec<agent_types::ToolCall> = std::mem::take(&mut self.pending_tool_calls);
+        for call in abandoned {
+            self.emit(Event::ToolResult(agent_types::ToolResult {
+                call_id: call.call_id,
+                is_error: true,
+                output: format!("[not executed] {why}"),
+                artifacts: vec![],
+                error_kind: None,
+            }));
+        }
+    }
+
     /// Emit an event if a sender is configured.
     fn emit(&self, event: Event) {
         // D-219（2026-10-08, traecode）：`Done` **统一携带资源事实**（`usage` + 可空 `cost_usd`）
@@ -5446,6 +5464,12 @@ impl Agent for AgentLoop {
                 break report;
             }
             if self.ctx_mgr.budget_exhausted() && !self.fa01_budget_intercepted {
+                // D-234（2026-10-22）：预算在**工具执行前**耗尽时，模型上一步已发出、
+                // 尚未执行的 tool_calls 会被直接丢弃——transcript 里留下"永不返回的工具
+                // 卡片"，用户看不到任何结果/原因（M1-3 静默失败率首份读数抓到 1/252）。
+                // 处置：逐条补一条 `is_error=true` 的结果事实（"未执行 + 原因"），
+                // 让事件流自洽；幂等（pending 已被取走 ⇒ 重入为空）。
+                self.abandon_pending_tool_calls("步数预算耗尽，该工具调用未执行");
                 // ── FA01 Node 09（真机样本第二跑先红）：WS9 预算 ask 终止是
                 // GiveUp 的第三条旁路（Reflect 臂/T4 停滞之外）——模型完成全部
                 // 工作但不自报 Done 时，预算耗尽未核验即 abort。套用修 D 同款
