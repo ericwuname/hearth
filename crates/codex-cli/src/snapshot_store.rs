@@ -217,6 +217,11 @@ fn rollback_in(
 
 // ── 生产签名（env 解析 sessions_dir，薄包装）──────────────────────────
 
+/// M2-5：导出用——列出该会话的全部改前快照（seq 升序）。
+pub fn list_entries(sid: &str) -> Result<Vec<SnapshotEntry>> {
+    list_entries_in(&crate::session_store::sessions_dir(), sid)
+}
+
 /// 写类工具执行**前**调用（生产入口）。
 pub fn snapshot_before_write(sid: &str, cwd: &Path, rel_path: &str) -> Result<()> {
     snapshot_before_write_in(&crate::session_store::sessions_dir(), sid, cwd, rel_path)

@@ -24,6 +24,7 @@ members = [
   "crates/observer",
   "crates/agent-runtime",
   "crates/bounded-io",
+  "crates/hearth-tui",
 ]
 
 [workspace.package]

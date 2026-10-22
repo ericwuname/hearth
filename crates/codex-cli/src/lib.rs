@@ -5,6 +5,7 @@
 
 pub mod client;
 pub mod config;
+pub mod export;
 pub mod note;
 pub mod render;
 pub mod repl;
@@ -90,6 +91,18 @@ struct Cli {
     /// mode：auto（按 --url 自动判定，默认）| remote（强制远程，需 --url）。
     #[arg(long, global = true)]
     mode: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// 导出会话证据（改动 diff + 命令日志 + 每轮报告）为单个 JSON。
+    Export {
+        /// Session UUID.
+        id: String,
+        /// 输出路径（缺省 <cwd>/hearth-session-<id前8位>.json）。
+        #[arg(long)]
+        out: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -200,6 +213,31 @@ enum Commands {
 
     /// Interactive REPL: multi-turn conversation with approvals.
     Repl,
+
+    /// M2: Terminal IDE — full-screen TUI (streaming / approvals / interrupt).
+    Tui {
+        /// 启动即提交的目标（缺省 = 空白输入框等待输入）。
+        #[arg(long)]
+        goal: Option<String>,
+
+        /// Max steps budget.
+        #[arg(long, default_value = "40")]
+        budget: u64,
+
+        /// 无终端冒烟：跑一轮后打印 TUI-SMOKE 摘要（CI / 无 TTY 环境验证接线）。
+        #[arg(long)]
+        headless: bool,
+
+        /// 仅 headless：N 毫秒后自动优雅中断（验证 Esc 路径 / 落盘 / resume）。
+        #[arg(long, hide = true)]
+        interrupt_after_ms: Option<u64>,
+    },
+
+    /// M2-5: 会话证据——`hearth session export <id>` 导出 diff + 报告 + 命令日志。
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
 
     /// List active sessions.
     Sessions,
@@ -1214,6 +1252,64 @@ pub async fn hearth_main() -> Result<()> {
                 repl::run_local_repl(&resolved, repl::REPL_BUDGET).await?;
             }
         }
+
+        Commands::Tui {
+            goal,
+            budget,
+            headless,
+            interrupt_after_ms,
+        } => {
+            // M2：终端 IDE v1——本地进程内 TUI（不依赖 service / VM）。
+            let resolved = file_cfg.resolve(
+                cli.provider.as_deref(),
+                None,
+                cli.api_key.as_deref(),
+                cli.mode.as_deref(),
+                cli.model.as_deref(),
+            );
+            if let Some(w) = &resolved.url_warning {
+                eprintln!("{w}");
+            }
+            let session_id = uuid::Uuid::new_v4().to_string();
+            let mut agent = run_local::rebuild_agent(&resolved, &session_id, budget)?;
+            agent.set_interactive(true);
+            // 每轮结束落盘（与 REPL/chat 同源：session_store 单一实现）。
+            let sid = session_id.clone();
+            let persist: hearth_tui::PersistFn =
+                std::sync::Arc::new(move |a: &agent_core::AgentLoop| {
+                    if let Err(e) = crate::session_store::save_snapshot(&sid, &a.history_turns()) {
+                        tracing::warn!(error = %e, "TUI 会话落盘失败（不阻断）");
+                    }
+                    let next_rev = crate::session_store::load_taskgoal(&sid)
+                        .map(|(r, _)| r + 1)
+                        .unwrap_or(1);
+                    if let Err(e) =
+                        crate::session_store::save_taskgoal(&sid, &a.taskgoal_value(), next_rev)
+                    {
+                        tracing::warn!(error = %e, "TUI taskgoal 落盘失败（不阻断）");
+                    }
+                });
+            let opts = hearth_tui::TuiOptions {
+                session_id,
+                budget,
+                initial_goal: goal,
+                persist: Some(persist),
+                interrupt_after_ms,
+            };
+            if headless {
+                let summary = hearth_tui::run_headless(agent, opts).await?;
+                println!("{summary}");
+            } else {
+                hearth_tui::run(agent, opts).await?;
+            }
+        }
+
+        Commands::Session { action } => match action {
+            SessionAction::Export { id, out } => {
+                let path = export::export_session(&id, out.map(std::path::PathBuf::from))?;
+                println!("证据已导出 → {}", path.display());
+            }
+        },
 
         Commands::Sessions => {
             // X1-4 (v0.1.6): 本地直跑模式列出本地会话（resume 提示用）

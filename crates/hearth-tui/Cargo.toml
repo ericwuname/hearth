@@ -1,0 +1,17 @@
+[package]
+name = "hearth-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agent-core.workspace = true
+agent-types.workspace = true
+tool-runtime.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+# M2-1 选型：ratatui + crossterm（仓内 regression fixture 已证编译面可行；
+# 本 crate 是**产品**，与 `regression/fixtures/tui-sample` 语料明确划界）。
+ratatui = "0.29"
+crossterm = "0.28"
