@@ -44,6 +44,10 @@ import verify_exec  # noqa: E402
 DEFAULT_WORK = REPO / "target" / "local-run"
 DEFAULT_FIXTURES = HERE / "replay" / "fixtures"
 DEFAULT_OUT = HERE / "results" / "raw" / "local-replay.jsonl"
+
+# provider → 其真实 key 的 env 名（活体运行前置校验）。
+# 不在清单 = 不支持：拒绝而不是猜测（fail-closed，同本仓口径）。
+PROVIDER_KEY_ENV = {"agnes": "AGNES_API_KEY"}
 POST_TERMINAL = ("done", "completed", "error", "cancelled")
 
 
@@ -105,24 +109,33 @@ def fetch_claim(base, sid):
     实测 31 条录制语料里 `report.ok==true` 只有 1 条，其余 30 条自报 `budget_exhausted`，
     而 `phase` 全是 `done`——用 phase 会把 30 条"agent 自己承认没做完"的会话算成"自报完成"。
 
-    Returns: `(claim, status)`；claim ∈ {True, False, None}（None=取不到/无 `ok` 字段），
+    Returns: `(claim, status, usage, cost_usd)`；claim ∈ {True, False, None}（None=取不到/无 `ok` 字段），
     status 是 `report.status`（`completed` / `budget_exhausted` / …，仅诊断用）。
+    usage/cost_usd 在 **report 内层**——实证（2026-10-19 探针 dump）：`Event::Done` 的
+    payload 就是 report 本体，D-219 的 emit 注入即落在其中
+    （transcript 形状：`{"type":"done","report":{...,"usage":{...},"cost_usd":...}}`）。
+    【订正记录】本函数一度改读 payload 顶层——那是**错的方向**，恒 None（顶层只有
+    report+type）；若再见到"payload 顶层 usage"的声称，以探针 dump 为准。
     """
     try:
         hist = api(base, "GET", f"/api/v1/sessions/{sid}/messages", timeout=20)
     except Exception as e:  # noqa: BLE001
         log(f"    [warn] 取 transcript 失败（claim 记为未知）：{e}")
-        return None, None
+        return None, None, None, None
     msgs = (hist.get("messages") if isinstance(hist, dict) else hist) or []
     for m in reversed(msgs):
         if m.get("event_type") != "done":
             continue
-        rep = (m.get("payload") or {}).get("report") or {}
+        payload = m.get("payload") or {}
+        rep = payload.get("report") or {}
         status = rep.get("status")
+        # D-231：usage/cost_usd 在 **report 内层**（见 docstring 的实证与订正记录）
+        usage = rep.get("usage")
+        cost_usd = rep.get("cost_usd")
         if "ok" not in rep:
-            return None, status
-        return (True if rep.get("ok") is True else False), status
-    return None, None
+            return None, status, usage, cost_usd
+        return (True if rep.get("ok") is True else False), status, usage, cost_usd
+    return None, None, None, None
 
 
 # ---------------------------------------------------------------- 服务进程
@@ -153,17 +166,30 @@ class LocalService:
         env["REPLAY_DIR"] = str(self.replay_dir)
         env.setdefault("MEMORY_DIR", str(self.work / "memory"))
 
+        # service 启动**无条件**要求 OPENAI_API_KEY（openai provider 恒注册，fail-closed）。
+        # · provider=replay：注入占位值（不出网，D-228 三条硬约束）。
+        # · 真实 provider：先要求**该 provider 自己的 key** 在场（agnes→AGNES_API_KEY），
+        #   再注入占位值仅用于通过 openai 注册门——会话创建时**钉死** provider，
+        #   占位值不会被任何调用使用（靠的是会话级 provider 字段，不是靠自觉）。
         if not env.get("OPENAI_API_KEY"):
             if self.provider != "replay":
-                raise SystemExit(
-                    f"provider={self.provider} 需要真实 OPENAI_API_KEY（或对应的 provider key）；"
-                    "本脚本**只**在 provider=replay（不出网）时才注入占位值来通过启动门槛。"
-                )
-            env["OPENAI_API_KEY"] = "local-replay-placeholder-never-used"
+                key_env = PROVIDER_KEY_ENV.get(self.provider)
+                if not key_env:
+                    raise SystemExit(
+                        f"provider={self.provider} 不在本脚本支持清单（{sorted(PROVIDER_KEY_ENV)}）；"
+                        "如需支持请登记其 key env 名，不得静默放行。"
+                    )
+                if not env.get(key_env):
+                    raise SystemExit(
+                        f"provider={self.provider} 需要真实 {key_env}（由 .env 提供）；"
+                        "拒绝在缺真实 key 的情况下活体运行。"
+                    )
+            env["OPENAI_API_KEY"] = "local-runner-placeholder-never-called"
             self.openai_key_injected = True
             log(
-                "注意：OPENAI_API_KEY 未设置 ⇒ 已注入**占位值**仅为通过 service 启动门槛；"
-                "provider=replay 不会出网调用它。"
+                "注意：OPENAI_API_KEY 未设置 ⇒ 注入**占位值**仅为通过 service 启动门槛"
+                f"（openai provider 恒注册、无条件校验）；会话固定 provider={self.provider}，"
+                "占位值不会被任何调用使用。"
             )
 
         self.log_fh = open(self.log_path, "ab")
@@ -195,7 +221,7 @@ class LocalService:
 
 
 # ---------------------------------------------------------------- 单个 fixture
-def run_one(base, work, fx, tasks_dir, control_substr=None):
+def run_one(base, work, fx, tasks_dir, control_substr=None, provider="replay", deadline_s=300):
     stem = fx.stem
     try:
         d = json.loads(fx.read_text(encoding="utf-8"))
@@ -218,14 +244,15 @@ def run_one(base, work, fx, tasks_dir, control_substr=None):
             "why": f"找不到任务目录（{task_dir}）",
         }
 
-    marked = f"{goal}\n\n[replay-fixture: {stem}]"
+    # replay 才加 fixture 标记（便于溯源）；活体运行保持 goal 原样，不给 agent 额外噪声。
+    marked = goal if provider != "replay" else f"{goal}\n\n[replay-fixture: {stem}]"
     try:
         sess = api(
             base,
             "POST",
             "/api/v1/sessions",
             {
-                "provider": "replay",
+                "provider": provider,
                 "goal": marked,
                 "budget": {"max_steps": max(int(meta.get("steps", 20)) + 5, 25)},
             },
@@ -246,7 +273,7 @@ def run_one(base, work, fx, tasks_dir, control_substr=None):
     except Exception as e:  # noqa: BLE001
         return {"fixture": stem, "task": task, "ok": False, "why": f"发消息失败: {e}", "session_id": sid}
 
-    deadline = time.time() + 180
+    deadline = time.time() + deadline_s
     phase, steps = "created", 0
     while time.time() < deadline:
         time.sleep(0.5)
@@ -278,16 +305,19 @@ def run_one(base, work, fx, tasks_dir, control_substr=None):
     put, exec_ = verify_exec.local_shell_adapter(ws)
     ok, out, rc = verify_exec.verify_task(put, exec_, verify_file)
 
-    # agent **自报**的结论（D-230：不能用 /status.phase 代替）
-    claim, claim_status = fetch_claim(base, sid)
+    # agent **自报**的结论（D-230：不能用 /status.phase 代替）+ 真实用量（D-219，report 内层）
+    claim, claim_status, usage, cost_usd = fetch_claim(base, sid)
 
     rec = {
         "fixture": stem,
         "task": task,
+        "provider": provider,
         "ok": ok,
         "phase": phase,
         "claim": claim,
         "claim_status": claim_status,
+        "usage": usage,
+        "cost_usd": cost_usd,
         "steps": steps,
         "recorded_steps": meta.get("steps"),
         "wall_s": wall_s,
@@ -306,6 +336,12 @@ def main(argv=None):
     ap.add_argument("--only", default=None, help="只跑 fixture 名含该子串的")
     ap.add_argument("--limit", type=int, default=0, help="最多跑几个（0=全部）")
     ap.add_argument("--provider", default="replay")
+    ap.add_argument(
+        "--deadline",
+        type=int,
+        default=300,
+        help="单条会话等待终态的秒数（活体含 cargo 编译，默认 300；replay 用不了这么久）",
+    )
     ap.add_argument("--port", type=int, default=3011)
     ap.add_argument("--service-bin", default=str(REPO / "target" / "debug" / "service.exe")
                     if os.name == "nt" else str(REPO / "target" / "debug" / "service"))
@@ -346,7 +382,10 @@ def main(argv=None):
     try:
         log(f"=== 本地驱动：{len(fixtures)} 个 fixture，provider={a.provider} ===")
         for i, fx in enumerate(fixtures, 1):
-            rec = run_one(base, a.work, fx, a.tasks_dir, a.false_completion_control)
+            rec = run_one(
+                base, a.work, fx, a.tasks_dir,
+                a.false_completion_control, a.provider, a.deadline,
+            )
             rec["openai_key_injected"] = svc.openai_key_injected
             results.append(rec)
             log(

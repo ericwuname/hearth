@@ -30,6 +30,15 @@ struct OpenAiRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    /// D-231：流式用量开关（`include_usage`）——**尚未接线**（见 D-231，测试先红）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<OpenAiStreamOptions>,
+}
+
+/// D-231：OpenAI `stream_options`——流式请求显式要求服务端下发 usage 专用片。
+#[derive(Serialize, Debug)]
+struct OpenAiStreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -127,6 +136,9 @@ struct OpenAiUsage {
 #[derive(Deserialize, Debug)]
 struct OpenAiStreamChunk {
     choices: Vec<OpenAiChoice>,
+    /// D-231：usage 专用片携带（choices 为空）——**尚未解析**（测试先红）。
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Serialize)]
@@ -147,6 +159,67 @@ struct OpenAiEmbeddingData {
 }
 
 // ── SSE stream wrapper ──
+
+/// D-231：Finish/usage 分片合并缓冲。
+///
+/// 协议事实（2026-10-19 agnes 实测，OpenAI 规范同形）：`include_usage=true` 时，
+/// usage 专用片在 finish_reason 片**之后**、`[DONE]` 之前；而消费者
+/// （agent-core `stream_model_call`）收到**首个** Finish 即 break ⇒ 两片
+/// 分开投递必然丢 usage。生产者必须把 finish_reason 片**扣住**，等 usage 片
+/// （或流结束）合并后**一次性**投递。
+#[derive(Default)]
+struct FinishBuffer {
+    /// 已扣住的 (finish_reason, usage)。usage 先到而后到 reason 的形态
+    /// （非规范但宽容处理）合并进同一元组。
+    pending: Option<(String, Option<Usage>)>,
+}
+
+impl FinishBuffer {
+    fn new() -> Self {
+        Self { pending: None }
+    }
+
+    /// 吃一个已解析的事件；返回应当**立即投递**的事件（0 或 1 个）。
+    fn ingest(&mut self, event: StreamEvent) -> Vec<StreamEvent> {
+        match event {
+            StreamEvent::Finish {
+                finish_reason: Some(r),
+                usage,
+            } => {
+                // 结束原因片：只保留**首个** finish_reason（防 [DONE] 兜底合成的
+                // "stop" 覆盖真实原因，如 "tool_calls"）。
+                if self.pending.is_none() {
+                    self.pending = Some((r, usage));
+                }
+                Vec::new()
+            }
+            StreamEvent::Finish {
+                finish_reason: None,
+                usage: Some(u),
+            } => match self.pending.take() {
+                // usage 专用片：与 pending 合并，一次投递
+                Some((r, _)) => vec![StreamEvent::Finish {
+                    finish_reason: Some(r),
+                    usage: Some(u),
+                }],
+                // 无 pending 的宽容形态（某些后端先发 usage）：直接投递
+                None => vec![StreamEvent::Finish {
+                    finish_reason: None,
+                    usage: Some(u),
+                }],
+            },
+            other => vec![other],
+        }
+    }
+
+    /// 流结束（`[DONE]` 或字节流 EOF）时冲刷；无 pending ⇒ `None`。
+    fn flush(&mut self) -> Option<StreamEvent> {
+        self.pending.take().map(|(r, u)| StreamEvent::Finish {
+            finish_reason: Some(r),
+            usage: u,
+        })
+    }
+}
 
 fn parse_sse_line(line: &str) -> Option<Result<StreamEvent>> {
     let data = {
@@ -193,6 +266,22 @@ fn parse_sse_line(line: &str) -> Option<Result<StreamEvent>> {
                 }));
             }
         }
+    }
+
+    // D-231：usage 专用片（`include_usage=true` 时由服务端在 finish_reason 片之后
+    // 下发；choices 为空 ⇒ 上面的循环不动）。此前在此被**静默丢弃**（返回 None）
+    // ⇒ 流式会话 token 用量恒缺失（D-231 病灶的解析层一半）。
+    if let Some(u) = chunk.usage {
+        return Some(Ok(StreamEvent::Finish {
+            finish_reason: None,
+            usage: Some(Usage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+                prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
+                prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
+            }),
+        }));
     }
 
     None
@@ -568,6 +657,8 @@ impl LlmProvider for OpenAiProvider {
 
             let mut byte_stream = Box::pin(resp.bytes_stream());
             let mut buffer = String::new();
+            // D-231：Finish/usage 分片合并（消费者首个 Finish 即 break，见 FinishBuffer doc）
+            let mut fbuf = FinishBuffer::new();
 
             loop {
                 match byte_stream.as_mut().next().await {
@@ -577,10 +668,27 @@ impl LlmProvider for OpenAiProvider {
                         while let Some(pos) = buffer.find('\n') {
                             let line = buffer[..pos].trim().to_string();
                             buffer = buffer[pos + 1..].to_string();
-                            if let Some(event) = parse_sse_line(&line) {
-                                if tx.send(event).await.is_err() {
+                            if line == "data: [DONE]" {
+                                // D-231：流正式结束——冲刷 pending（后端不支持
+                                // include_usage 时兜底投递纯 finish 片）。
+                                if let Some(ev) = fbuf.flush() {
+                                    let _ = tx.send(Ok(ev)).await;
+                                }
+                                return;
+                            }
+                            match parse_sse_line(&line) {
+                                Some(Ok(ev)) => {
+                                    for ev in fbuf.ingest(ev) {
+                                        if tx.send(Ok(ev)).await.is_err() {
+                                            return;
+                                        }
+                                    }
+                                }
+                                Some(Err(e)) => {
+                                    let _ = tx.send(Err(e)).await;
                                     return;
                                 }
+                                None => {}
                             }
                         }
                         // D-55：残行缓冲必须有上限（对端若不发换行地狂推字节 → 无界增长）。
@@ -600,7 +708,13 @@ impl LlmProvider for OpenAiProvider {
                         let _ = tx.send(Err(anyhow!("stream read error: {e}"))).await;
                         return;
                     }
-                    None => return,
+                    None => {
+                        // D-231：字节流 EOF（对端未发 [DONE] 即断）——冲刷 pending
+                        if let Some(ev) = fbuf.flush() {
+                            let _ = tx.send(Ok(ev)).await;
+                        }
+                        return;
+                    }
                 }
             }
         });
@@ -810,6 +924,16 @@ impl OpenAiProvider {
             max_tokens: req.max_tokens,
             stream,
             tool_choice: None,
+            // D-231：流式请求显式要求下发 usage（否则多数 OpenAI 兼容后端根本不发
+            // usage 片）。后端若不认此参数而 400 ⇒ 流式报错，agent-core 既有
+            // "流失败降级非流式" 兜底接住（非流式响应本就携带 usage）。
+            stream_options: if stream {
+                Some(OpenAiStreamOptions {
+                    include_usage: true,
+                })
+            } else {
+                None
+            },
         })
     }
 }
@@ -965,6 +1089,137 @@ mod tests {
     fn test_parse_sse_done() {
         let result = parse_sse_line("data: [DONE]");
         assert!(result.is_some());
+    }
+
+    /// D-231（先红后绿）：usage 专用片——`include_usage=true` 时服务端在 finish_reason
+    /// 片**之后**下发（choices 为空、delta 空对象）。此前 parse_sse_line 把它**静默丢弃**
+    ///（choices 循环空转 → 返回 None）⇒ 流式会话（生产主路径）token 用量恒缺失 ⇒
+    /// CostMeter 恒空 ⇒ D-219 的 Done.usage / observer ④ 在生产恒 null。
+    /// 行内容取自 2026-10-19 agnes 真实响应（含 DeepSeek 风格 details 字段，需宽容反序列化）。
+    #[test]
+    fn test_d231_usage_only_chunk_yields_finish_with_usage() {
+        let line = r#"data: {"id":"a34dfa61ca5143b5a1c48d8d294eab6e","created":1792641659,"model":"agnes-3.0-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":6,"prompt_tokens":80,"total_tokens":86,"completion_tokens_details":{"reasoning_tokens":0}}}"#;
+        let Some(Ok(StreamEvent::Finish {
+            finish_reason,
+            usage,
+        })) = parse_sse_line(line)
+        else {
+            panic!("usage 专用片必须解析出 Finish（携带 usage）——静默丢弃即 D-231 病灶");
+        };
+        assert!(finish_reason.is_none(), "usage 片不带 finish_reason");
+        let u = usage.expect("usage 必须被带出");
+        assert_eq!(u.prompt_tokens, 80);
+        assert_eq!(u.completion_tokens, 6);
+        assert_eq!(u.total_tokens, 86);
+    }
+
+    /// D-231（先红后绿）：流式请求必须带 `stream_options.include_usage=true`——否则
+    /// 多数 OpenAI 兼容后端**根本不下发** usage 片（请求层缺失是 D-231 的另一半病灶）。
+    /// 非流式请求不得携带（契约只增不改，避免无关行为变化）。
+    #[test]
+    fn test_d231_stream_request_includes_usage_option() {
+        let p = OpenAiProvider::new("openai", "gpt-4o", None, "sk-test");
+        let mk = |stream: bool| ChatRequest {
+            messages: vec![],
+            tools: vec![],
+            temperature: None,
+            max_tokens: None,
+            stream,
+        };
+        let body = p.build_request(mk(true), true).unwrap();
+        assert!(
+            body.stream_options
+                .as_ref()
+                .is_some_and(|so| so.include_usage),
+            "流式请求必须携带 stream_options.include_usage=true"
+        );
+        let body = p.build_request(mk(false), false).unwrap();
+        assert!(
+            body.stream_options.is_none(),
+            "非流式请求不得携带 stream_options"
+        );
+    }
+
+    /// D-231（先红后绿）：Finish/usage 分片合并——消费者（agent-core
+    /// stream_model_call）收到**首个** Finish 即 break，而协议顺序是
+    /// finish_reason 片 → usage 片 → [DONE] ⇒ 生产者必须缓冲合并，不能分开投递。
+    #[test]
+    fn test_d231_finish_buffer_merges_usage_into_finish() {
+        let mut buf = FinishBuffer::new();
+        // 结束原因片：缓冲、不投递
+        assert!(buf
+            .ingest(StreamEvent::Finish {
+                finish_reason: Some("tool_calls".into()),
+                usage: None,
+            })
+            .is_empty());
+        // usage 专用片：与 pending 合并后**一次性**投递
+        let out = buf.ingest(StreamEvent::Finish {
+            finish_reason: None,
+            usage: Some(Usage {
+                prompt_tokens: 80,
+                completion_tokens: 6,
+                total_tokens: 86,
+                prompt_cache_hit_tokens: None,
+                prompt_cache_miss_tokens: None,
+            }),
+        });
+        let [StreamEvent::Finish {
+            finish_reason,
+            usage: Some(u),
+        }] = out.as_slice()
+        else {
+            panic!("usage 片必须触发合并投递，实得 {out:?}");
+        };
+        assert_eq!(finish_reason.as_deref(), Some("tool_calls"));
+        assert_eq!(u.total_tokens, 86);
+        // 已合并 ⇒ flush 无剩余
+        assert!(buf.flush().is_none());
+
+        // 另一路径：没有任何 usage 片（后端不支持 include_usage）⇒ flush 兜底投递
+        let mut buf = FinishBuffer::new();
+        assert!(buf
+            .ingest(StreamEvent::Finish {
+                finish_reason: Some("stop".into()),
+                usage: None,
+            })
+            .is_empty());
+        let flushed = buf.flush().expect("EOF 时必须冲刷 pending 的 Finish");
+        match flushed {
+            StreamEvent::Finish {
+                finish_reason,
+                usage,
+            } => {
+                assert_eq!(finish_reason.as_deref(), Some("stop"));
+                assert!(usage.is_none());
+            }
+            other => panic!("期望 Finish，实得 {other:?}"),
+        }
+
+        // 反向对照：真实 finish_reason 不被 [DONE] 的合成 "stop" 覆盖
+        let mut buf = FinishBuffer::new();
+        assert!(buf
+            .ingest(StreamEvent::Finish {
+                finish_reason: Some("tool_calls".into()),
+                usage: None,
+            })
+            .is_empty());
+        assert!(buf
+            .ingest(StreamEvent::Finish {
+                finish_reason: Some("stop".into()),
+                usage: None,
+            })
+            .is_empty());
+        match buf.flush().expect("flush 应保留首个 finish_reason") {
+            StreamEvent::Finish { finish_reason, .. } => {
+                assert_eq!(
+                    finish_reason.as_deref(),
+                    Some("tool_calls"),
+                    "首个 finish_reason 优先"
+                );
+            }
+            other => panic!("期望 Finish，实得 {other:?}"),
+        }
     }
 
     /// PC-1 修复：真实 agnes/OpenAI 分片行——后续片 id 为 null、只有 index +
