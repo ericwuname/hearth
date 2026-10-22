@@ -1,95 +1,40 @@
 #!/usr/bin/env python3
-"""Baseline report from JSONL — funnel chart + level breakdown."""
-import json, sys
-from pathlib import Path
-from collections import Counter
+"""评测报表入口（M1 退出判据里说的 `bench/report`）。
 
-RESULT = Path(__file__).parent / "results" / "raw" / "baseline-v12.jsonl"
+**实现只有一份**：口径与渲染全在 [`scorecard.py`]（通过率 / 假完成率 / 反向不一致 /
+每解 tokens / 每解成本 / 静默失败率 / 步数 / 墙钟）。本文件只是命令名兼容层——
+D-224 的教训是"同一能力多处各写一份"会导致口径分叉与静默错读数，这里不再复制任何逻辑。
 
-def load():
-    if not RESULT.exists():
-        print(f"No results at {RESULT}")
-        return []
-    records = []
-    for line in RESULT.read_text().splitlines():
-        if line.strip():
-            records.append(json.loads(line))
-    return records
+用法：
+  python bench/report.py bench/results/raw/live-agnes-full-v3.jsonl
+  python bench/report.py 公开集=bench/results/raw/live-agnes-full-v3.jsonl \
+                         held-out=bench/results/raw/live-agnes-heldout-v3.jsonl
+"""
+import argparse
+import pathlib
+import sys
 
-def report(records):
-    if not records:
-        print("No data.")
-        return
-    
-    total = len(records)
-    ok = sum(1 for r in records if r["success"])
-    pct = round(100 * ok / total, 1)
-    
-    # By level
-    by_level = {}
-    for r in records:
-        lv = r.get("level", "?")
-        by_level.setdefault(lv, []).append(r)
-    
-    # Phase/error distribution
-    phases = Counter(r.get("phase", r.get("error", "???")) for r in records)
-    wall_times = [r.get("wall_s", 0) for r in records]
-    avg_wall = round(sum(wall_times) / len(wall_times), 1) if wall_times else 0
-    
-    print(f"# v12.1 Baseline Report\n")
-    print(f"## Overview")
-    print(f"| metric | value |")
-    print(f"|--------|-------|")
-    print(f"| runs | {total} |")
-    print(f"| passed | {ok} ({pct}%) |")
-    print(f"| avg wall | {avg_wall}s |")
-    print(f"| provider | {records[0].get('provider','?')} |")
-    print()
-    
-    print(f"## Phase Distribution")
-    for phase, count in phases.most_common():
-        bar = "█" * min(40, count * 40 // total)
-        print(f"| {phase:15s} | {count:3d} | {bar} |")
-    print()
-    
-    print(f"## By Difficulty Level")
-    for lv in sorted(by_level.keys()):
-        recs = by_level[lv]
-        lv_ok = sum(1 for r in recs if r["success"])
-        avg = round(sum(r.get("wall_s",0) for r in recs) / len(recs), 1)
-        print(f"| {lv:5s} | {len(recs):3d} runs | {lv_ok:2d} pass | avg {avg}s |")
-    print()
-    
-    print(f"## Task Detail")
-    tasks = {}
-    for r in records:
-        t = r.get("task","?")
-        tasks.setdefault(t, []).append(r)
-    for t in sorted(tasks.keys()):
-        tr = tasks[t]
-        t_ok = sum(1 for r in tr if r["success"])
-        avg = round(sum(r.get("wall_s",0) for r in tr) / len(tr), 1)
-        ph = Counter(r.get("phase", "?") for r in tr).most_common(1)[0][0]
-        print(f"| {t:30s} | {tr[0].get('level','?'):3s} | {len(tr):2d} | {t_ok:3d} | {avg:5.1f}s | {ph:10s} |")
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 
-    # Funnel
-    print(f"\n## Failure Funnel")
-    err_types = Counter()
-    for r in records:
-        if not r["success"]:
-            ph = r.get("phase", "???")
-            steps = r.get("steps", 0)
-            if ph == "error" and steps == 0:
-                err_types["plan-fail (0 steps)"] += 1
-            elif ph == "error":
-                err_types[f"agent-error ({steps} steps)"] += 1
-            else:
-                err_types[ph] += 1
-    max_et = max(err_types.values()) if err_types else 1
-    for et, cnt in err_types.most_common():
-        bar = "█" * (cnt * 50 // max_et)
-        print(f"  {cnt:3d}  {et:40s} {bar}")
+import scorecard  # noqa: E402
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="评测报表（委托 scorecard）")
+    ap.add_argument("inputs", nargs="+", help="`套件=路径`，或直接给路径（套件名取文件名）")
+    ap.add_argument("--out", default=None, help="另存 markdown")
+    a = ap.parse_args(argv)
+
+    argv2 = []
+    for spec in a.inputs:
+        name = spec if "=" in spec else f"{pathlib.Path(spec).stem}={spec}"
+        argv2 += ["--input", name]
+    if a.out:
+        argv2 += ["--out", a.out]
+    scorecard.main(argv2)
+    return 0
+
 
 if __name__ == "__main__":
-    recs = load()
-    report(recs)
+    sys.exit(main())

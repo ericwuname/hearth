@@ -166,7 +166,7 @@ def render_fails(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="成绩单生成器（M1-1）")
     ap.add_argument(
         "--input",
@@ -175,7 +175,7 @@ def main():
         help="套件=路径（可多次）",
     )
     ap.add_argument("--out", default=None, help="另存 markdown 文件")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
     rows, fail_sections = [], []
     for spec in a.input:
