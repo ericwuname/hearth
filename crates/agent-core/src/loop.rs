@@ -1073,7 +1073,13 @@ pub struct AgentLoop {
     last_completion_decision: Option<String>,
     /// v0.1.2: workspace 根（轻/重校验用 cwd.join(path)）。
     cwd: std::path::PathBuf,
-    /// P5: CostMeter for tracking real token usage from ChatResponse.usage.
+    /// P5/D-233（2026-10-22）：CostMeter——**严格会话级** token 记账。
+    ///
+    /// D-233 病灶（已修）：SessionManager 曾把进程级唯一 meter 经 `set_cost_meter`
+    /// 覆盖本字段 ⇒ `RunReport.usage` / `Done.usage` 变成跨会话累计值（活体实测
+    /// 31 条单调递增 48,097 → 428 亿），收尾还会把累计值再记回同一 meter（复利）。
+    /// 共享注入点与 `set_cost_meter` 已删除；本字段只由 [`AgentLoop::new`] 构造，
+    /// 生命周期 = 本会话。
     cost_meter: std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>>,
     /// D-46（成本治理接通）：token → USD 换算价表。构造时由
     /// `HEARTH_PRICE_TABLE`（内联 JSON）/ `HEARTH_PRICE_FILE`（路径）覆盖，
@@ -2280,19 +2286,6 @@ impl AgentLoop {
     /// Messages are queued and injected after run() initializes ctx_mgr.
     pub fn add_user_message(&mut self, content: String) {
         self.pending_user_messages.push(content);
-    }
-
-    /// P5: Get a reference to the CostMeter for external inspection.
-    pub fn cost_meter(&self) -> std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>> {
-        self.cost_meter.clone()
-    }
-
-    /// P5: Set an external CostMeter (shared across sessions, e.g. from SessionManager).
-    pub fn set_cost_meter(
-        &mut self,
-        meter: std::sync::Arc<tokio::sync::Mutex<llm_gateway::CostMeter>>,
-    ) {
-        self.cost_meter = meter;
     }
 
     /// Emit an event if a sender is configured.

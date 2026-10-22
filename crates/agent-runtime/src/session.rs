@@ -7,7 +7,7 @@ use api::{
 /// D-33 收敛：有界读入 / 有界排空 / 树杀的共用实现。
 use bounded_io::{read_file_text_capped, MAX_CAPTURED_BYTES};
 use experience::ExperienceStore;
-use llm_gateway::{CostMeter, ProviderRegistry, Usage};
+use llm_gateway::ProviderRegistry;
 use memory::{MemoryStore, SessionRecord, StoredEvent};
 
 /// B3-3 (backend taskbook #01): URL 直开判定（http/https → 浏览器）。
@@ -212,8 +212,6 @@ pub struct SessionManager {
     /// D-175（2026-10-08, traecode）：经验库**工厂**——按 owner 构造 per-user 档。
     /// 设定后优先于 `experience_store`（后者退化为"无工厂时的回落单例"）。
     experience_factory: Option<ExperienceFactory>,
-    /// P4: CostMeter for session-scoped token accounting.
-    cost_meter: Arc<Mutex<CostMeter>>,
     /// P5: MemoryStore for session persistence across restarts.
     memory_store: Option<Arc<dyn MemoryStore>>,
     /// D-109（2026-10-02, traecode）：文明线写入器的**工厂**——按**归属用户**（owner）
@@ -240,7 +238,6 @@ impl SessionManager {
             ctx,
             experience_store: None,
             experience_factory: None,
-            cost_meter: Arc::new(Mutex::new(CostMeter::new())),
             memory_store: None,
             civ_writer_factory: None,
             observer: None,
@@ -362,11 +359,6 @@ impl SessionManager {
         }
     }
 
-    /// P4: Get a reference to the CostMeter for external inspection.
-    pub fn cost_meter(&self) -> Arc<Mutex<CostMeter>> {
-        self.cost_meter.clone()
-    }
-
     /// Create a new session（无归属上下文——owner 取 `"default"`）。
     ///
     /// D-109：需要按用户归属落档的调用方（HTTP handler）请用
@@ -442,8 +434,12 @@ impl SessionManager {
             agent.set_civ_writer(factory(owner));
         }
 
-        // P5: Inject shared CostMeter into AgentLoop for real usage tracking
-        agent.set_cost_meter(self.cost_meter.clone());
+        // D-233（2026-10-22）：**不再**把 SessionManager 级 CostMeter 注入 AgentLoop。
+        // 病灶：AgentLoop 自建 per-session meter（`AgentLoop::new`），此前被共享
+        // meter **覆盖** ⇒ RunReport.usage / Done.usage 变成进程累计值（活体实测
+        // 31 条 total_tokens 单调递增 48,097 → 428 亿），且 run 收尾还会把该累计值
+        // 再记回同一 meter（复利）。现在每个 AgentLoop 用自己的 meter，usage 语义
+        // = 本会话用量。
 
         // M2: scope this loop's approval state to the session id
         agent.set_session_id(session_id.clone());
@@ -729,7 +725,6 @@ impl SessionManager {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("session {} event stream closed", id))?
         };
-        let cost_meter = self.cost_meter.clone();
         let memory_store = self.memory_store.clone();
         // Q3: Observer 句柄——会话结束后评估事件流并落盘报告。
         let observer = self.observer.clone();
@@ -851,33 +846,10 @@ impl SessionManager {
                         s.steps = steps_used;
                         let ok = report.ok;
 
-                        // P5: Record real usage from RunReport into shared CostMeter
-                        if let Some(ref entry) = report.usage {
-                            // Merge the agent's accumulated usage into the session-scoped meter
-                            let mut cm = cost_meter.lock().await;
-                            // Use the entry data directly — agent already accumulated per-(provider,model)
-                            let provider = s.provider_name.clone();
-                            let model = s.model.clone();
-                            let usage = Usage {
-                                prompt_tokens: entry.prompt_tokens as u32,
-                                completion_tokens: entry.completion_tokens as u32,
-                                total_tokens: entry.total_tokens as u32,
-                                // P1-1 (v0.2.4): 会话级汇总不重复计缓存（agent 层已累计）
-                                prompt_cache_hit_tokens: None,
-                                prompt_cache_miss_tokens: None,
-                            };
-                            cm.record(&provider, &model, &usage);
-                            tracing::info!(
-                                provider = %provider,
-                                model = %model,
-                                prompt_tokens = entry.prompt_tokens,
-                                completion_tokens = entry.completion_tokens,
-                                calls = entry.calls,
-                                steps = steps_used,
-                                ok = ok,
-                                "P5: real usage recorded from RunReport"
-                            );
-                        }
+                        // D-233（2026-10-22）：**不再**把 RunReport.usage 记回任何
+                        // 共享 meter——旧代码在此把（已是累计值的）usage 再次 record
+                        // 进进程级 meter，是复利污染的第二级。会话用量已由 AgentLoop
+                        // 自己的 meter 记账并随 Done 事件/RunReport 外发，无需二次记录。
 
                         // Q3 (v24-post) / D-208（2026-10-08, traecode）：Observer 评估 →
                         // ① 报告落盘（report.md/json）；② **消费 `CircuitBreak`**——此前

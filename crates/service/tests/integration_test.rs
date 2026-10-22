@@ -1341,3 +1341,118 @@ fn test_p14_readyz_civ_degraded_threshold() {
     assert!(civ_store_degraded(100), "100 failures -> degraded");
     eprintln!("P1-4 PASS: civ failure threshold flips at >5 (readyz 503)");
 }
+
+// ── D-233（2026-10-22）：usage 必须会话级——跨会话污染回归门 ──
+// 病灶：SessionManager 把进程级唯一 CostMeter 注入每个 AgentLoop（`set_cost_meter`），
+// 且 run 收尾把 RunReport.usage（已是累计值）**再记回同一 meter** ⇒ 复利污染。
+// 实测（活体 agnes 31 条）：done.report.usage.total_tokens 严格单调递增
+// 48,097 → 42,867,589,347——是进程累计值，不是会话值。
+// 门禁：同 provider 同脚本连跑两个会话。反污染不变式：**两会话 usage 必须相等**
+//（mock 的 stream() 是空流 ⇒ 只有非流式调用入账，具体数值是拓扑产物不作硬编码；
+// 污染形态下 B 读到 A 的累计 + 收尾 record-back 复利 ⇒ B > A，必破此式）。
+#[tokio::test]
+async fn test_d233_usage_is_session_scoped() {
+    // 20 条**完全相同**的响应（usage 15）：两会话共用一个 provider 游标，但全同
+    // 响应保证消费段错位不影响拓扑；每会话 `max_steps: 4` 封顶 ⇒ 步数/入账确定。
+    let mut responses = Vec::new();
+    for i in 0..20 {
+        responses.push(ChatResponse {
+            content: Some(format!("work-{i}")),
+            tool_calls: vec![agent_types::ToolCall {
+                call_id: format!("cx{i}"),
+                name: "bash".into(),
+                args: serde_json::json!({"cmd": "echo working"}),
+            }],
+            finish_reason: Some("tool_calls".into()),
+            usage: Some(Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+                prompt_cache_hit_tokens: None,
+                prompt_cache_miss_tokens: None,
+            }),
+            reasoning_content: None,
+        });
+    }
+    let mut registry = ProviderRegistry::new();
+    registry.register(Arc::new(MockProvider::new(
+        "mock-d233",
+        MockScript {
+            chat_responses: responses,
+        },
+    )));
+    let registry = Arc::new(registry);
+
+    let mut dispatcher = ToolDispatcher::new();
+    dispatcher.register(Arc::new(BashTool::new()));
+    dispatcher.register(Arc::new(ReadTool::new()));
+    dispatcher.register(Arc::new(EditTool::new()));
+    dispatcher.register(Arc::new(GlobTool::new()));
+    dispatcher.register(Arc::new(GrepTool::new()));
+    let mgr = Arc::new(service::session::SessionManager::new(
+        registry,
+        Arc::new(dispatcher),
+        ToolContext::default(),
+    ));
+
+    let mut totals: Vec<Option<u64>> = Vec::new();
+    for label in ["d233-a", "d233-b"] {
+        let resp = mgr
+            .create_session(SessionCreate {
+                provider: "mock-d233".into(),
+                model: None,
+                goal: label.into(),
+                budget: Some(agent_types::Budget {
+                    max_steps: 4,
+                    max_tokens: None,
+                    max_time_secs: None,
+                    ..Default::default()
+                }),
+            })
+            .await
+            .unwrap();
+        let mut rx = mgr
+            .send_message(
+                &resp.session_id,
+                api::MessageReq {
+                    content: "go".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let timeout = tokio::time::sleep(std::time::Duration::from_secs(10));
+        tokio::pin!(timeout);
+        let mut total: Option<u64> = None;
+        loop {
+            tokio::select! {
+                result = rx.recv() => match result {
+                    Ok(api::AgentEvent::Done { report }) => {
+                        total = report
+                            .get("usage")
+                            .and_then(|u| u.get("total_tokens"))
+                            .and_then(|v| v.as_u64());
+                        break;
+                    }
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                },
+                _ = &mut timeout => break,
+            }
+        }
+        totals.push(total);
+    }
+
+    assert!(
+        totals[0].is_some(),
+        "会话 A 的 usage 应可得（已知正例对照：None 说明计费整坏）"
+    );
+    assert_eq!(
+        totals[0], totals[1],
+        "同脚本同 provider 的两个会话 usage 必须相等——B 读到 A 的累计即为 D-233 跨会话污染"
+    );
+    eprintln!(
+        "D-233 PASS: usage is session-scoped (A == B == {:?})",
+        totals[0]
+    );
+}
