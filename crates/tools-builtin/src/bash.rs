@@ -12,14 +12,16 @@ pub struct BashTool {
 /// S15（手术包二）：bash 会话 cwd 持久化——多步构建/长任务不再每次重敲路径。
 /// 进程级单例（hearth = 单进程跑一个会话）；`HEARTH_BASH_NO_PERSIST=1` 关闭
 /// （测试隔离用）。首次调用以 ToolContext.cwd 为起点，之后跟随命令内 cd。
-static SESSION_CWD: std::sync::OnceLock<std::sync::Mutex<Option<std::path::PathBuf>>> =
-    std::sync::OnceLock::new();
+static SESSION_CWD: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>>,
+> = std::sync::OnceLock::new();
 
 /// 会话 cwd 标记（钉死格式——与 [net] 审计同风格，LLM 可见）。
 pub const CWD_MARKER: &str = "__HEARTH_CWD__=";
 
-fn session_cwd_slot() -> &'static std::sync::Mutex<Option<std::path::PathBuf>> {
-    SESSION_CWD.get_or_init(|| std::sync::Mutex::new(None))
+fn session_cwd_slot(
+) -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>> {
+    SESSION_CWD.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 /// S15: 持久化开关（默认开；HEARTH_BASH_NO_PERSIST=1 关闭——测试/隔离场景）。
@@ -27,16 +29,28 @@ pub fn persist_enabled() -> bool {
     !matches!(std::env::var("HEARTH_BASH_NO_PERSIST"), Ok(v) if v == "1")
 }
 
-/// S15: 记录会话 cwd（执行后回写；测试可直接调用做隔离）。
-pub fn set_session_cwd(p: std::path::PathBuf) {
+/// S15/D-238: 记录会话 cwd——**按 workspace 分桶**（同一进程可并发多会话；
+/// 单值存储会让会话 A 的 `cd` 泄漏给会话 B）。
+pub fn set_session_cwd(workspace: &std::path::Path, p: std::path::PathBuf) {
     if let Ok(mut g) = session_cwd_slot().lock() {
-        *g = Some(p);
+        g.insert(workspace.to_path_buf(), p);
     }
 }
 
-/// S15: 读取会话 cwd（无则 None）。
-pub fn get_session_cwd() -> Option<std::path::PathBuf> {
-    session_cwd_slot().lock().ok().and_then(|g| g.clone())
+/// 测试隔离：清空进程级 cwd 分桶（避免并行测试互相污染）。
+#[cfg(test)]
+fn clear_session_cwd() {
+    if let Ok(mut g) = session_cwd_slot().lock() {
+        g.clear();
+    }
+}
+
+/// S15/D-238: 读取**该 workspace**的会话 cwd（无则 None）。
+pub fn get_session_cwd(workspace: &std::path::Path) -> Option<std::path::PathBuf> {
+    session_cwd_slot()
+        .lock()
+        .ok()
+        .and_then(|g| g.get(workspace).cloned())
 }
 
 /// S15: 命令包装——先 cd 会话 cwd（若有），执行用户命令，尾部打印新 cwd 标记，
@@ -128,8 +142,17 @@ pub fn extract_cwd_marker(formatted: &str) -> (Option<std::path::PathBuf>, Strin
 /// 返回 `Bash/Service/0x8007072c` + 乱码）。Git Bash 在场 ⇒ **默认**用它（绝对路径）；
 /// 不在场时保持 `bash`（由 spawn 如实报错，不静默降级）。
 fn resolve_bash_bin(env: &std::collections::HashMap<String, String>) -> String {
-    if let Some(v) = env.get("HEARTH_BASH_BIN") {
+    if let Some(v) = env.get("HEARTH_BASH_BIN").filter(|v| !v.trim().is_empty()) {
         return v.clone();
+    }
+    // 进程 env 回退：service/CLI 构造的 `ctx.env` **只注入** egress/read-roots
+    // （`main.rs` 的 ToolContext 从 default 起建），运维在 `.env` 里配的
+    // `HEARTH_BASH_BIN` 此前根本到不了这里（"文档有、生产不可达"）。
+    if let Some(v) = std::env::var("HEARTH_BASH_BIN")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        return v;
     }
     #[cfg(windows)]
     {
@@ -525,35 +548,67 @@ impl Tool for BashTool {
         // 无 deadline（None）→ 旧 args 语义（180 默认/600 cap）分毫不变。
         let timeout_secs = resolve_timeout_secs(&args, ctx.effective_timeout, &ctx.env);
 
-        let mut env: Vec<(&str, String)> = ctx
-            .env
+        // D-239：`NoopSandbox` 会 `env_clear()`，而此前这里只传 `ctx.env`
+        // （egress/read_roots）⇒ 子进程没有 PATH/TEMP/SystemRoot/HOME。实测后果：
+        // ① `cargo: command not found`；② MSVC `link.exe` 报
+        // `LNK1104 无法打开 C:\WINDOWS\lnk{…}.tmp`（TEMP 未定义 ⇒ 拿 C:\WINDOWS 当临时目录）。
+        // 只放行 **OS 必需** 白名单；API key 等秘密**不继承**（保留 env_clear 的意图）。
+        const OS_ENV_PASSTHROUGH: &[&str] = &[
+            "PATH",
+            "PATHEXT",
+            "HOME",
+            "USERPROFILE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+            "SystemRoot",
+            "windir",
+            "SystemDrive",
+            "COMSPEC",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "ProgramData",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "PROCESSOR_ARCHITECTURE",
+            "NUMBER_OF_PROCESSORS",
+            "USERNAME",
+            "RUSTUP_HOME",
+            "CARGO_HOME",
+        ];
+        let mut env: std::collections::HashMap<String, String> = OS_ENV_PASSTHROUGH
             .iter()
-            .map(|(k, v)| (k.as_str(), v.to_string()))
+            .filter_map(|k| std::env::var(k).ok().map(|v| ((*k).to_string(), v)))
             .collect();
+        env.extend(ctx.env.clone());
 
         // P3 (v24-post): 注入 Rust 工具链 PATH——agent 在 sandbox 内自测必需。
-        // 此前 sandbox 内 `cargo`/`rustc` 不在 PATH（"cargo: 未找到命令"），agent
-        // 把步数耗在修环境上、无法自测改动（10-run 实录 9/10 budget exhausted）。
         // 工具层注入：不碰 G0 sandbox crate、不污染 goal 文本。
-        if let Some(home) = std::env::var_os("HOME") {
+        // D-239：HOME 在 Windows 上通常未设 ⇒ 用 USERPROFILE；PATH 分隔符随平台。
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        if let Some(home) = home {
             let cargo_bin = std::path::PathBuf::from(&home).join(".cargo/bin");
-            let mut found = false;
-            for (k, v) in env.iter_mut() {
-                if *k == "PATH" {
-                    *v = format!("{}:{}", cargo_bin.display(), v);
-                    found = true;
-                    break;
+            let sep = if cfg!(windows) { ';' } else { ':' };
+            match env.get("PATH").filter(|v| !v.is_empty()) {
+                Some(v) => {
+                    env.insert(
+                        "PATH".to_string(),
+                        format!("{}{}{}", cargo_bin.display(), sep, v),
+                    );
+                }
+                None => {
+                    // 原 PATH 缺失时保留系统默认路径——否则 bash 自身都找不到
+                    env.insert(
+                        "PATH".to_string(),
+                        format!("{}{}/usr/local/bin:/usr/bin:/bin", cargo_bin.display(), sep),
+                    );
                 }
             }
-            if !found {
-                // 原 PATH 缺失时保留系统默认路径——否则 bash 自身都找不到
-                env.push((
-                    "PATH",
-                    format!("{}:/usr/local/bin:/usr/bin:/bin", cargo_bin.display()),
-                ));
-            }
         }
-        let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_refs: Vec<(&str, &str)> =
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
         // S1: elapsed 计时（结构化 timeout 载荷用）。
         let t0 = std::time::Instant::now();
@@ -594,7 +649,7 @@ impl Tool for BashTool {
         }
         // S15: 会话 cwd 持久化——包装命令（cd 会话 cwd → 执行 → 尾部回写标记）。
         let wrapped = if persist_enabled() {
-            wrap_with_cwd(cmd, &ctx.cwd, get_session_cwd().as_deref())
+            wrap_with_cwd(cmd, &ctx.cwd, get_session_cwd(&ctx.cwd).as_deref())
         } else {
             cmd.to_string()
         };
@@ -648,7 +703,7 @@ impl Tool for BashTool {
             (None, base_formatted)
         };
         if let Some(p) = &new_cwd {
-            set_session_cwd(p.clone());
+            set_session_cwd(&ctx.cwd, p.clone());
         }
         // S1: 64KB 工具层截断（sandbox 零触碰——在本层收口防膨胀）。
         let formatted = truncate_output(&formatted, S1_MAX_OUTPUT_BYTES);
@@ -1430,13 +1485,84 @@ mod s15_tests {
 
     #[test]
     fn test_session_cwd_roundtrip_and_toggle() {
-        // 直读写回（测试隔离：本测试只碰自己的值，不依赖 env）
+        // 直读写回（测试隔离：本测试只碰自己的 key，不依赖 env）
+        let ws = std::env::temp_dir().join(format!("hearth-s15-roundtrip-{}", std::process::id()));
         let p = std::path::PathBuf::from("/tmp/s15-roundtrip");
-        set_session_cwd(p.clone());
-        assert_eq!(get_session_cwd(), Some(p));
+        set_session_cwd(&ws, p.clone());
+        assert_eq!(get_session_cwd(&ws), Some(p));
         // 开关确定性（不设 env 时默认开）
         if std::env::var("HEARTH_BASH_NO_PERSIST").is_err() {
             assert!(persist_enabled(), "默认开启持久化");
         }
+    }
+
+    /// D-238（先红后绿）：会话 cwd 持久化曾是**进程级单值**——会话 A 的 `cd` 会被
+    /// 会话 B 的第一次 bash 继承（实测 T00 run1：agent 在自己工作区改文件，bash 却在
+    /// **上一个会话**的目录里编译）。修复后按 workspace 分桶：B 必须从自己的 cwd 起。
+    #[tokio::test]
+    async fn test_d238_bash_cwd_does_not_leak_across_workspaces() {
+        if !persist_enabled() {
+            return; // 关闭持久化时无泄漏面
+        }
+        clear_session_cwd(); // 并行测试不得共享分桶
+        let root = std::env::temp_dir().join(format!("hearth-d238-{}", std::process::id()));
+        let wa = root.join("ws-a");
+        let wb = root.join("ws-b");
+        let nested = wa.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(&wb).unwrap();
+        let tool = BashTool::new();
+        let ctx_a = ToolContext {
+            cwd: wa.clone(),
+            ..Default::default()
+        };
+        let ctx_b = ToolContext {
+            cwd: wb.clone(),
+            ..Default::default()
+        };
+        // 会话 A：cd 进子目录（触发 cwd 回写）
+        tool.execute(serde_json::json!({"cmd": "cd nested"}), &ctx_a)
+            .await
+            .expect("会话 A 的 cd 必须成功");
+        // 会话 B：第一条 bash 必须落在自己的 workspace，而不是 A 的 nested
+        let out = tool
+            .execute(serde_json::json!({"cmd": "pwd"}), &ctx_b)
+            .await
+            .expect("会话 B 的 pwd 必须成功");
+        assert!(
+            !out.contains("nested"),
+            "会话 B 继承了会话 A 的 cd（pwd={out:?}）"
+        );
+    }
+
+    /// D-239（先红后绿）：`NoopSandbox` 会 `env_clear()`，而 bash 工具只传 ctx.env
+    /// （egress/read_roots）⇒ Windows 子进程没有 PATH/TEMP/SystemRoot/HOME——实测
+    /// `cargo: command not found` 与 `link.exe` 的 `LNK1104 无法打开 C:\WINDOWS\lnk{…}.tmp`。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_d239_bash_child_env_has_os_essentials() {
+        let tool = BashTool::new();
+        let ctx = ToolContext::default();
+        let out = tool
+            .execute(
+                // Git Bash 把 Windows 的 SystemRoot 暴露为 **SYSTEMROOT**（大写）
+                serde_json::json!({"cmd": "printf '%s\\n' \"$TEMP\" \"$SYSTEMROOT\" \"$PATH\""}),
+                &ctx,
+            )
+            .await
+            .expect("env 探针必须可执行");
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(
+            !lines.first().unwrap_or(&"").trim().is_empty(),
+            "TEMP 必须传入子进程（link.exe LNK1104 的根因）: {out}"
+        );
+        assert!(
+            !lines.get(1).unwrap_or(&"").trim().is_empty(),
+            "SystemRoot 必须传入子进程: {out}"
+        );
+        assert!(
+            lines.get(2).unwrap_or(&"").contains(".cargo"),
+            "PATH 必须含 cargo bin（agent 才能自测）: {out}"
+        );
     }
 }
