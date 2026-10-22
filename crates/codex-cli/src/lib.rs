@@ -1277,7 +1277,12 @@ pub async fn hearth_main() -> Result<()> {
             }
             let session_id = uuid::Uuid::new_v4().to_string();
             let mut agent = run_local::rebuild_agent(&resolved, &session_id, budget)?;
-            agent.set_interactive(true);
+            // headless 无真人：auto-approve 冒烟用 Interactive（由 TUI 自动批准）；
+            // 其余 headless 一律 fail-closed，避免审批请求把 smoke 永久挂住。
+            agent.set_interactive(!headless || auto_approve);
+            if headless && !auto_approve {
+                agent.set_approval_policy(agent_core::ApprovalPolicy::DenyAllNonInteractive);
+            }
             // 每轮结束落盘（与 REPL/chat 同源：session_store 单一实现）。
             let sid = session_id.clone();
             let persist: hearth_tui::PersistFn =

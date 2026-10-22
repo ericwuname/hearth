@@ -667,6 +667,43 @@ mod tests {
         assert!(st.done_line.is_some());
     }
 
+    /// 渲染层快照测试（无 TTY）：头栏 / 正文 / 审批面板必须出现在缓冲区里。
+    #[test]
+    fn render_snapshot_shows_header_transcript_and_approval() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let mut st = TuiState::new("abcdefgh-0000");
+        st.ingest(&Event::Token("hello world".into()));
+        st.ingest(&Event::InteractionRequested {
+            id: "a1".into(),
+            kind: "approval".into(),
+            blocking: true,
+            timeout: None,
+            on_timeout: Some("abort".into()),
+            payload: serde_json::json!({
+                "action": "execute bash tool",
+                "tools": ["bash: rm -rf ./build"],
+            }),
+        });
+        let backend = TestBackend::new(90, 24);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| ui::draw(f, &st)).unwrap();
+        let buf = term.backend().buffer();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        assert!(text.contains("Hearth"), "{text}");
+        assert!(text.contains("hello world"), "{text}");
+        // TestBackend 的双宽字符占两格（第二格是空 symbol）——按"去空格"比对 CJK。
+        let compact = text.replace(' ', "");
+        assert!(compact.contains("待审批"), "{text}");
+        assert!(compact.contains("rm-rf./build"), "{text}");
+    }
+
     #[test]
     fn transcript_is_bounded() {
         let mut st = TuiState::new("s");

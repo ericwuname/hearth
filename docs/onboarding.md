@@ -72,5 +72,6 @@ hearth resume <id> --budget 4 "继续"
   若仍出现，设 `HEARTH_BASH_BIN` 指到 Git Bash。
 - `cargo: command not found`：确认 `%USERPROFILE%\.cargo\bin` 在 PATH；bash 子进程会继承
   OS 必需环境变量（PATH/TEMP/SystemRoot/HOME）。
-- 审批一直不动：交互模式下必须按 `y`/`n`；headless/非交互模式请加 `--approve-within session`
-  （仅 `chat` 支持）。
+- 审批一直不动：交互模式下必须按 `y`/`n`；`chat` 非交互请加 `--approve-within session`。
+  `tui --headless` **默认 fail-closed**（破坏性操作直接拒绝，不会挂住）；只做审批链冒烟时
+  可加隐藏旗标 `--auto-approve`。
