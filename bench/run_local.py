@@ -55,6 +55,17 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def write_results(out, results, append=False):
+    """D-240：批次写入默认**清空式**——append 曾让一次"任务目录填错"的失败跑（8 条）
+    与紧随其后的正确跑（8 条）叠在同一份 jsonl 里，scorecard 读成 8/16 = 50%
+    （真实是 8/8）。要留历史必须显式 `--append`。"""
+    out = pathlib.Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "a" if append else "w", encoding="utf-8") as f:
+        for rec in results:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 # ---------------------------------------------------------------- .env 读取
 def load_dotenv(path) -> dict:
     """极简 .env 解析（不引依赖）。只做 `KEY=VALUE`，忽略注释/空行/引号。"""
@@ -588,6 +599,11 @@ def main(argv=None):
         "replay 轨忽略此参数——回放产物不能当录制（自我循环）。",
     )
     ap.add_argument(
+        "--append",
+        action="store_true",
+        help="追加写入 --out（默认**清空式**：D-240——重跑会把旧批次留下，读数被重复计入）",
+    )
+    ap.add_argument(
         "--false-completion-control",
         default=None,
         help="**仅用于自测指标**：名字含该子串的 fixture，在会话结束后把工作区打回原始 "
@@ -672,14 +688,10 @@ def main(argv=None):
         + "**（分子：空错误 + 工具结果丢失——失败发生了但用户看不到原因；分母：工具调用总数）"
     )
 
-    out = pathlib.Path(a.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "a", encoding="utf-8") as f:
-        for rec in results:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    write_results(a.out, results, append=a.append)
 
     ok = sum(1 for r in results if r.get("ok"))
-    log(f"=== 结果：{ok}/{len(results)} 判通过（明细：{out}）===")
+    log(f"=== 结果：{ok}/{len(results)} 判通过（明细：{a.out}）===")
     return 0
 
 
