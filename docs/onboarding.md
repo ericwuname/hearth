@@ -5,6 +5,12 @@
 ## 0. 前置（一次性）
 
 - **Rust**：仓库根 `rust-toolchain.toml` 已钉 1.98.1；`cargo build -p codex-cli` 能过即可。
+- **安装 `hearth` 命令**（一次性，否则会报"术语 'hearth' 不被识别"）：
+  ```powershell
+  Copy-Item .\target\debug\hearth.exe "$env:USERPROFILE\.cargo\bin\hearth.exe" -Force
+  ```
+  或正式安装：`cargo install --path crates/codex-cli`（release 编译，较慢）。
+  没安装时，把下文的 `hearth` 换成 `.\target\debug\hearth.exe` 也能跑。
 - **Windows 的 bash**：产品会**自动**用 `C:\Program Files\Git\bin\bash.exe`（45 位/32 位标准路径）；
   装在别处时设 `HEARTH_BASH_BIN=<bash.exe 绝对路径>`。**不要**指向 `cmd.exe`（工具会 fail-loud 拒绝）。
 - **模型 key**：在仓库根 `.env` 写 `AGNES_API_KEY=…`（可加 `AGNES_BASE_URL` / `AGNES_MODEL`），
@@ -12,10 +18,11 @@
 
 ## 1. 第一例：无终端也能验接线（推荐先跑）
 
-```bash
-hearth tui --headless --provider agnes --budget 6 \
-  --goal "运行 bash 命令 echo HELLO，并告诉我输出"
+```powershell
+hearth tui --headless --provider agnes --budget 6 --goal "运行 bash 命令 echo HELLO，并告诉我输出"
 ```
+
+> PowerShell **不认** bash 的 `\` 续行；要换行请用反引号 `` ` ``，或干脆写成一行。
 
 看到 `TUI-SMOKE session=… status=completed … tool_calls=1 done=true` 即说明
 **事件管线 + agent + 工具**都通了。`--headless` 只跳过全屏渲染，走的是同一套事件摄入。
