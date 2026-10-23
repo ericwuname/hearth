@@ -8,23 +8,22 @@ use tool_runtime::{Tool, ToolContext, ToolDescription};
 
 pub struct GrepTool {
     sandbox: Arc<dyn Sandbox>,
-    /// PERF-1 (global-audit): cache the `rg --version` sandbox probe result —
-    /// it can't change while the process is running, so probing once is enough.
-    has_rg_cache: tokio::sync::OnceCell<bool>,
+    /// PERF-1：缓存解析结果（命令绝对路径 + 是否 rg）——进程内不会变，探测一次即可。
+    search_bin_cache: tokio::sync::OnceCell<Option<(String, bool)>>,
 }
 
 impl GrepTool {
     pub fn new() -> Self {
         Self {
             sandbox: Arc::from(sandbox::create_sandbox(SandboxConfig::default())),
-            has_rg_cache: tokio::sync::OnceCell::new(),
+            search_bin_cache: tokio::sync::OnceCell::new(),
         }
     }
 
     pub fn with_sandbox(sandbox: Arc<dyn Sandbox>) -> Self {
         Self {
             sandbox,
-            has_rg_cache: tokio::sync::OnceCell::new(),
+            search_bin_cache: tokio::sync::OnceCell::new(),
         }
     }
 }
@@ -51,7 +50,7 @@ impl Tool for GrepTool {
                  边界: 正则语法（rg）；命中过多时输出按上限截断——换更特异的 pattern；\n\
                  只读不改——找到位置后必须落到 read/write_file/apply_patch 才算推进。\n\
                  错误解读: \"no matches\"=零命中（换词/放宽 pattern，不要原样重试）；\n\
-                 \"command failed\"=rg 不在环境（改用内置 fallback 自动发生，重试即可）。"
+                 \"command failed\"=rg/grep 都不在环境（会自动回退到 Git grep 等可用路径；仍失败请设 HEARTH_RG_BIN）。"
                 .into(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -126,19 +125,28 @@ impl Tool for GrepTool {
         // Try rg first, fall back to grep. The rg availability probe itself runs
         // THROUGH the sandbox (X5 fix); the actual search also runs sandboxed. (M7)
         // PERF-1: the probe result is cached after the first call.
-        let rg_available = *self
-            .has_rg_cache
-            .get_or_init(|| has_rg(self.sandbox.clone(), ctx.cwd.clone()))
-            .await;
+        // D-245：先解析一个**可用**的搜索二进制。PATH 里的 rg/grep 会随宿主
+        // 环境变化而消失（实测：Trae 更新后 PATH 丢了 ripgrep，Windows 又无 grep）
+        // ⇒ 回退到 Git for Windows 自带的 grep 绝对路径；全都没有时给可行动错误。
+        let resolved = self
+            .search_bin_cache
+            .get_or_init(|| resolve_search_bin(self.sandbox.clone(), ctx.cwd.clone()))
+            .await
+            .clone();
+        let Some((cmd, is_rg)) = resolved else {
+            return Err(anyhow!(
+                "grep 不可用：未找到 rg / grep。Windows 可安装 Git for Windows（自带 grep），\
+                 或用 HEARTH_RG_BIN 指定 rg.exe 的绝对路径"
+            ));
+        };
         // 2026-10-01 安全修复（traecode）：argv 构造抽为纯函数 `build_search_argv`，
         // 其中强制插入 `--` 终止选项解析——防 pattern/path 被当选项（见该函数文档）。
-        let (cmd, argv) =
-            build_search_argv(rg_available, file_glob.as_deref(), &pattern, &search_path);
+        let (_, argv) = build_search_argv(is_rg, file_glob.as_deref(), &pattern, &search_path);
 
         let arg_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
         let output = self
             .sandbox
-            .spawn(cmd, &arg_refs, &ctx.cwd, &[], Duration::from_secs(30))
+            .spawn(&cmd, &arg_refs, &ctx.cwd, &[], Duration::from_secs(30))
             .await
             .map_err(|e| anyhow!("grep failed: {e}"))?;
 
@@ -159,16 +167,52 @@ impl Tool for GrepTool {
     }
 }
 
-async fn has_rg(sandbox: Arc<dyn Sandbox>, cwd: PathBuf) -> bool {
-    // X5 fix: probe rg availability THROUGH the sandbox. The probe previously ran
-    // `rg --version` directly in the service process (outside landlock/seccomp);
-    // a poisoned `rg` on PATH could then execute unsandboxed. Running it via the
-    // sandbox means even a malicious `rg` is confined.
-    sandbox
-        .spawn("rg", &["--version"], &cwd, &[], Duration::from_secs(2))
-        .await
-        .map(|o| o.exit_code == 0)
-        .unwrap_or(false)
+/// D-245：搜索二进制候选（按优先级）。纯函数（注入 env/PATH 便于单测）。
+/// 顺序：`HEARTH_RG_BIN` > PATH 的 rg > `%LOCALAPPDATA%` 的 Trae 内置 rg >
+/// Git for Windows 的 grep（标准路径）> PATH 的 grep。
+fn search_bin_candidates(
+    env: &std::collections::HashMap<String, String>,
+    localappdata: Option<&str>,
+) -> Vec<(String, bool)> {
+    let mut out: Vec<(String, bool)> = Vec::new();
+    if let Some(v) = env.get("HEARTH_RG_BIN").filter(|v| !v.trim().is_empty()) {
+        out.push((v.clone(), true));
+    }
+    out.push(("rg".to_string(), true));
+    if let Some(la) = localappdata {
+        out.push((
+            format!(r"{la}\Programs\Trae CN\resources\app\node_modules\@vscode\ripgrep\bin\rg.exe"),
+            true,
+        ));
+    }
+    out.push((r"C:\Program Files\Git\usr\bin\grep.exe".to_string(), false));
+    out.push((
+        r"C:\Program Files (x86)\Git\usr\bin\grep.exe".to_string(),
+        false,
+    ));
+    out.push(("grep".to_string(), false));
+    out
+}
+
+/// 依次探测候选，返回第一个可执行的 `(命令, 是否 rg)`。
+/// 探测**经沙箱**（X5）：即使 PATH 上有恶意同名程序，也只会被执行于沙箱内。
+async fn resolve_search_bin(sandbox: Arc<dyn Sandbox>, cwd: PathBuf) -> Option<(String, bool)> {
+    let env = std::env::vars().collect::<std::collections::HashMap<_, _>>();
+    for (cmd, is_rg) in search_bin_candidates(&env, std::env::var("LOCALAPPDATA").ok().as_deref()) {
+        // 绝对路径候选不存在时直接跳过（省一次 spawn）。
+        if cmd.contains('\\') && !std::path::Path::new(&cmd).is_file() {
+            continue;
+        }
+        let ok = sandbox
+            .spawn(&cmd, &["--version"], &cwd, &[], Duration::from_secs(2))
+            .await
+            .map(|o| o.exit_code == 0)
+            .unwrap_or(false);
+        if ok {
+            return Some((cmd, is_rg));
+        }
+    }
+    None
 }
 
 /// 构造搜索命令 argv。**抽成纯函数，以便对「选项注入」防护做单测。**
@@ -210,6 +254,23 @@ fn build_search_argv(
 mod tests {
     use super::*;
     use tool_runtime::ToolContext;
+
+    /// D-245：候选顺序与来源（env 优先 / Trae 内置 rg / Git grep 绝对路径兜底）。
+    #[test]
+    fn test_d245_search_bin_candidates_order() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("HEARTH_RG_BIN".to_string(), r"D:\bin\rg.exe".to_string());
+        let c = search_bin_candidates(&env, Some(r"C:\Users\x\AppData\Local"));
+        assert_eq!(c[0].0, r"D:\bin\rg.exe");
+        assert!(c[0].1, "显式 rg 必须按 rg 语义构造参数");
+        assert!(c
+            .iter()
+            .any(|(p, is_rg)| !*is_rg && p.contains(r"Git\usr\bin\grep.exe")));
+        assert!(c
+            .iter()
+            .any(|(p, _)| p.contains("@vscode") && p.contains("ripgrep")));
+        assert_eq!(c.last().map(|(p, _)| p.as_str()), Some("grep"));
+    }
 
     /// 2026-10-01 安全修复回归（**先红后绿**）：`--` 必须存在，且位于 pattern 之前。
     /// 修复前 argv 为 `[...flags, pattern, path]`——`pattern` 以 `-` 开头即被当选项

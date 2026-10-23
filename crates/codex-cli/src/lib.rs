@@ -51,6 +51,72 @@ fn parse_taskgoal_lists(tg: &serde_json::Value) -> (Vec<String>, Vec<String>, Op
     (constraints, criteria, note)
 }
 
+/// D-244：平台规范安装位置（Windows = `%USERPROFILE%\.cargo\bin\hearth.exe`；
+/// Unix = `/usr/local/bin/hearth`）。空串 = 无法确定（此时只信开发构建目录）。
+fn expected_hearth_path() -> String {
+    if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+            .map(|h| {
+                std::path::PathBuf::from(h)
+                    .join(".cargo")
+                    .join("bin")
+                    .join("hearth.exe")
+            })
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    } else {
+        "/usr/local/bin/hearth".to_string()
+    }
+}
+
+/// 路径是否可信：规范安装位置（大小写不敏感）或开发构建目录（`target` / `.workbuddy`）。
+/// 纯函数（可单测；反斜杠归一化后比较）。
+fn path_is_trusted(exe: &str, canonical: &str) -> bool {
+    if !canonical.is_empty() && exe.eq_ignore_ascii_case(canonical) {
+        return true;
+    }
+    let norm = exe.replace('\\', "/").to_ascii_lowercase();
+    norm.contains("/target/") || norm.contains("/.workbuddy/")
+}
+
+#[cfg(test)]
+mod path_guard_tests {
+    use super::{expected_hearth_path, path_is_trusted};
+
+    #[test]
+    fn canonical_install_is_trusted_case_insensitively() {
+        let canon = r"C:\Users\x\.cargo\bin\hearth.exe";
+        assert!(path_is_trusted(r"c:\users\X\.CARGO\bin\hearth.exe", canon));
+    }
+
+    #[test]
+    fn dev_build_paths_are_trusted() {
+        let canon = r"C:\Users\x\.cargo\bin\hearth.exe";
+        assert!(path_is_trusted(r"C:\repo\target\debug\hearth.exe", canon));
+        assert!(path_is_trusted(
+            r"C:\Users\x\.workbuddy\bin\hearth.exe",
+            canon
+        ));
+    }
+
+    #[test]
+    fn unknown_location_is_flagged() {
+        let canon = r"C:\Users\x\.cargo\bin\hearth.exe";
+        assert!(!path_is_trusted(r"D:\old\hearth.exe", canon));
+    }
+
+    #[test]
+    fn expected_path_is_platform_shaped() {
+        let p = expected_hearth_path();
+        if cfg!(windows) {
+            assert!(p.ends_with(r".cargo\bin\hearth.exe"), "{p}");
+        } else {
+            assert_eq!(p, "/usr/local/bin/hearth");
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "hearth",
@@ -526,17 +592,21 @@ pub async fn hearth_main() -> Result<()> {
         });
     }
 
-    // RC27 (P3-BACKLOG): PATH 同名护栏——hearth 解析到非 /usr/local/bin/hearth 时告警
-    // （E1 家族防线：陈旧 binary 经 PATH 混入）。仅告警不阻断（开发态 cargo run 合法）。
+    // RC27/D-244：PATH 同名护栏——只有**非规范安装位置且非开发构建**才告警
+    // （E1 家族防线：陈旧 binary 经 PATH 混入）。仅告警不阻断。
+    // 修复前按 Linux 的 `/usr/local/bin/hearth` 判定，Windows 的规范位置
+    // `%USERPROFILE%\.cargo\bin\hearth.exe` 每次启动都被误报（用户实测）。
     if let Ok(exe) = std::env::current_exe() {
         let exe_str = exe.to_string_lossy().to_string();
-        if !exe_str.contains("/usr/local/bin/hearth")
-            && !exe_str.contains("target")
-            && !exe_str.contains(".workbuddy")
-        {
+        let canonical = expected_hearth_path();
+        if !path_is_trusted(&exe_str, &canonical) {
+            let expected = if canonical.is_empty() {
+                "平台规范安装位置（未知）".to_string()
+            } else {
+                canonical
+            };
             eprintln!(
-                "WARN hearth 解析自 {}（非 /usr/local/bin/hearth）——PATH 中可能存在陈旧 binary，真机结论请核对版本与 sha256",
-                exe_str
+                "WARN hearth 解析自 {exe_str}（非 {expected}）——PATH 中可能存在陈旧 binary；请用 `hearth --version` 核对 commit 与 sha256"
             );
         }
     }
