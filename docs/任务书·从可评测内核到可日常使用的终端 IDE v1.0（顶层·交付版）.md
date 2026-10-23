@@ -267,6 +267,22 @@
 > **M2 v1 交付（2026-10-22，D-241）**：`hearth tui` 已可启动并跑真实任务（headless E2E：**completed / 3 步 / 1 次工具 / 66 token 事件**）；审批面板、`Esc` 优雅中断（**paused → 会话档落盘 → `hearth resume` 实测续跑**）、`hearth session export <id>`（diff + 报告 + 命令日志单 JSON）已落地。**审批链 headless E2E**：`--auto-approve` + 真破坏性命令 ⇒ `approvals=1`、目标目录被删、completed（InteractionRequested → dispatcher 放行全链）。**视觉验收已通过（2026-10-22）**：真 TTY（Windows Terminal）下全屏渲染、审批面板（含参数/原因，按 `n` 后目标目录未被动）、`Esc` 中断（`paused`·上下文保留）均**人工目测通过**；验收中抓到并修复 **D-242**（`RUST_LOG` 日志画花全屏 ⇒ TUI 日志强制落文件）。**负结果**：硬杀进程时当前未完成轮不落盘，只能恢复到上一轮。
 > 上手指南：[onboarding.md](file:///c:/Users/87465/Desktop/codex-rust-v1.0-final/docs/onboarding.md)。**安装与启动**：`hearth` 装到 `%USERPROFILE%\.cargo\bin\` 后单命令可用；Windows 上"规范位置被 PATH 护栏误报"已修（D-244），启动不再刷 WARN。
 
+#### M2-G · 原生桌面 GUI（2026-10-23，用户决策：IDE 形态改为 GUI，TUI 保留）
+
+**决策变更**：§7 第 3 项的默认值原为"终端 TUI（非 GUI / 非 Web）"；用户明确要求 **GUI**。处置＝**新增** GUI 前端（不删除 TUI），两者共用同一内核与同一套会话落盘，**不引入 service/VM 依赖**。
+
+**选型**：`eframe/egui 0.29`（纯 Rust、单进程、无 WebView/Node 工具链）。最新 0.37 要求 Rust ≥1.95 且为全新 Ui-first API（`TopBottomPanel` 不存在、`App` 必须实现 `ui`）——本仓钉 0.29，避免为一版 UI 框架抬高整仓工具链。
+
+**架构裁决**：`codex-cli → hearth-gui → hearth-tui`——GUI **复用** `TuiState` 的事件→状态模型（单一实现，GUI 只换渲染层）；provider / dispatcher / 会话落盘仍由 CLI 单一构造。GUI 持独立 tokio Runtime，agent 在 `rt.spawn` 跑，事件/完成经 channel 回流；**不用 `block_on`**。
+
+**交付**：`hearth gui [--goal] [--budget]`；顶栏（session / phase / 步数 / 运行中·就绪 / 中断 / 一键导出证据）、流式正文 + 工具行、底部输入（Enter 发送）、**审批条**（要执行什么 + 具体参数 + 批准/拒绝）。CJK 字体从系统加载。
+
+**视觉验收（Computer Use 截图）**：mock provider 驱动真实 agent 内核 ⇒ 流式正文、`write_file`/`bash` 工具行与真实输出、破坏性命令审批（点「批准」→ 执行 → 最终答复 → `completed · 7 步`）、导出证据按钮——全部实测通过。
+
+**验收中修掉的 GUI 独有缺陷**：① floating `egui::Window` 的审批按钮落在裁剪区外 ⇒ 点击无效（只能等内核 60s 超时被拒）→ 改**底部固定审批条**；② run 结束（含超时拒绝）后未清 `pending_approval` ⇒ 残留失效审批条 → done 分支清理并如实提示；③ 首帧未给输入框焦点 → 首帧 `request_focus`。
+
+**如实登记**：GUI 无 headless 渲染单测（需窗口环境），本轮以真机截图验收为准；用户机器当前 Agnes key 被服务端 401 拒绝（与 GUI 无关，换有效 key 后即可使用）。
+
 ---
 
 ### M3 · HA / 多租户产品化 + 性能/吞吐专题
@@ -304,7 +320,7 @@
 |---|---|---|---|
 | 1 | **活体 E2E 的 provider** | 用 `.env` 中已配置的 provider 先跑通（key 已在 `.gitignore`，任何 key 不进被跟踪文件） | 影响成本与真实度；若你只想离线，则 M1-1 只做 replay |
 | 2 | **成本上界** | 单轮活体跑批设 `HEARTH_COST_BUDGET_USD` 上界，超限即停（复用 D-214 的预算机制） | 防止跑批烧钱 |
-| 3 | **IDE 形态** | 终端 TUI（非 GUI / 非 Web） | 若你要 GUI/Web，M2 选型要换 |
+| 3 | **IDE 形态** | **已决策（2026-10-23）**：原生桌面 GUI（eframe/egui）+ 保留 TUI 双前端 | 用户明确要 GUI；实现见 M2-G（D-246） |
 | 4 | **是否允许改 `bench` 判据** | 允许（这是 M0 的全部内容） | 会改变历史通过率口径，历史数字需重跑 |
 | 5 | **是否接受"历史通过率需重测"** | 接受——**重测后可能变低**，但那才是真实值 | 这是诚实性选择，需你知情 |
 

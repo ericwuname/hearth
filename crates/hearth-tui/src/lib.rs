@@ -98,6 +98,11 @@ impl TuiState {
         }
     }
 
+    /// 供其它前端（GUI）追加系统行；与事件摄入共用同一有界策略。
+    pub fn push_line(&mut self, kind: LineKind, text: String) {
+        self.push(kind, text);
+    }
+
     fn push(&mut self, kind: LineKind, text: String) {
         self.lines.push(TranscriptLine { kind, text });
         // 有界：TUI 长跑不得让内存随输出无界增长（只保留最近 2000 行）。

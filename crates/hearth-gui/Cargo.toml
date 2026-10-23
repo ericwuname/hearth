@@ -1,0 +1,19 @@
+[package]
+name = "hearth-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agent-core.workspace = true
+agent-types.workspace = true
+tool-runtime.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+# 复用 TUI 的事件→状态模型（单一实现；GUI 只换渲染层）。
+hearth-tui = { path = "../hearth-tui" }
+# M2-G：纯 Rust 原生 GUI（免 Node/WebView 工具链）。
+# 钉 0.29：0.37 刚切到 Ui-first 新 API，生态示例/文档尚未跟上；0.29 的
+# `App::update(ctx)` + 面板 API 稳定且与 ratatui 0.29 同代。
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }

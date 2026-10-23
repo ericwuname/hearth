@@ -44,6 +44,20 @@ hearth tui
 审批面板显示「要改什么（含参数）+ 为什么（破坏性命令 / workspace 外写入）+ 批不批」。
 **全屏渲染需真 TTY**；CI / 重定向环境请用 `--headless`。
 
+### 2.1 桌面 GUI（`hearth gui`）
+
+```powershell
+hearth gui                                  # 打开窗口，输入任务后 Enter
+hearth gui --goal "修复 src 里失败的测试"   # 启动即提交
+```
+
+- 同一内核与同一会话落盘：单进程、无 WebView/Node 依赖（eframe/egui）。
+- 顶栏：phase / 步数 / 运行状态 / **中断** / **导出证据**（等价 `hearth session export`）。
+- 审批：破坏性命令会在**输入框上方**出现审批条（参数 + 批准/拒绝）；
+  60 秒未处理按**拒绝**处理，本轮结束时会如实标注。
+- 窗口打开后输入框**自动获得焦点**，可直接打字。
+
+
 ## 3. 可复核证据（一条命令）
 
 ```bash
@@ -83,4 +97,6 @@ hearth resume <id> --budget 4 "继续"
   （或 `~/.config/hearth/diagnostics.log`），避免画花全屏。排障时看该文件。
 - 审批一直不动：交互模式下必须按 `y`/`n`；`chat` 非交互请加 `--approve-within session`。
   `tui --headless` **默认 fail-closed**（破坏性操作直接拒绝，不会挂住）；只做审批链冒烟时
-  可加隐藏旗标 `--auto-approve`。
+  可加隐藏旗标 `--auto-approve`。`gui` 的审批条 60 秒未处理按拒绝处理（内核等待上限）。
+- `gui` 报 `HTTP 401 无效的令牌`：是 key 失效（不是界面问题）。更新仓库根 `.env` 的
+  `AGNES_API_KEY` 或 `hearth config set api-key <新 key>` 后重启 `hearth gui`。

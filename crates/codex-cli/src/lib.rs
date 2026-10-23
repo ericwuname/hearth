@@ -303,6 +303,17 @@ enum Commands {
         auto_approve: bool,
     },
 
+    /// M2-G: 原生桌面 GUI（egui，单进程；复用同一 agent 内核）。
+    Gui {
+        /// 启动即提交的目标（缺省 = 空白输入框等待输入）。
+        #[arg(long)]
+        goal: Option<String>,
+
+        /// Max steps budget.
+        #[arg(long, default_value = "40")]
+        budget: u64,
+    },
+
     /// M2-5: 会话证据——`hearth session export <id>` 导出 diff + 报告 + 命令日志。
     Session {
         #[command(subcommand)]
@@ -1402,6 +1413,51 @@ pub async fn hearth_main() -> Result<()> {
             } else {
                 hearth_tui::run(agent, opts).await?;
             }
+        }
+
+        Commands::Gui { goal, budget } => {
+            // M2-G：原生 GUI——与 TUI 共用 provider/dispatcher/落盘构造，只换渲染层。
+            let resolved = file_cfg.resolve(
+                cli.provider.as_deref(),
+                None,
+                cli.api_key.as_deref(),
+                cli.mode.as_deref(),
+                cli.model.as_deref(),
+            );
+            if let Some(w) = &resolved.url_warning {
+                eprintln!("{w}");
+            }
+            let session_id = uuid::Uuid::new_v4().to_string();
+            let mut agent = run_local::rebuild_agent(&resolved, &session_id, budget)?;
+            agent.set_interactive(true);
+            let sid = session_id.clone();
+            let persist: hearth_tui::PersistFn =
+                std::sync::Arc::new(move |a: &agent_core::AgentLoop| {
+                    if let Err(e) = crate::session_store::save_snapshot(&sid, &a.history_turns()) {
+                        tracing::warn!(error = %e, "GUI 会话落盘失败（不阻断）");
+                    }
+                    let next_rev = crate::session_store::load_taskgoal(&sid)
+                        .map(|(r, _)| r + 1)
+                        .unwrap_or(1);
+                    if let Err(e) =
+                        crate::session_store::save_taskgoal(&sid, &a.taskgoal_value(), next_rev)
+                    {
+                        tracing::warn!(error = %e, "GUI taskgoal 落盘失败（不阻断）");
+                    }
+                });
+            let export: std::sync::Arc<
+                dyn Fn(&str) -> anyhow::Result<std::path::PathBuf> + Send + Sync,
+            > = std::sync::Arc::new(|id| export::export_session(id, None));
+            hearth_gui::run(
+                agent,
+                hearth_gui::GuiOptions {
+                    session_id,
+                    budget,
+                    initial_goal: goal,
+                    persist: Some(persist),
+                    export: Some(export),
+                },
+            )?;
         }
 
         Commands::Session { action } => match action {
