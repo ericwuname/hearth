@@ -289,6 +289,8 @@
 
 **B 路线首个可运行 fork（2026-10-25，D-249）**：源码 `deepseek-harness @22ddee37` 浅克隆到独立目录；品牌改为 **Hearth**（productName/appId `com.hearth.desktop`/artifact/协议显示名）、自绘房子+火焰图标与托盘 ICO、侧栏 Hearth 字标（不再 gate official profile）、19 处用户可见文案与安装器语言、本地构建标签 `Hearth 本地构建`；unsigned 本地构建跳过 mandatory-update policy。`build:official` 10/10 gates；`package-target win-x64 --dir --unsigned`（electron-builder 镜像走 npmmirror）产出 `Hearth.exe` 并启动成功，窗口标题显示 `… — Hearth 本地构建`；packaged smoke 通过。**边界**：未签名、无 NSIS 安装器；与 DSH 共用 `~/.dsh`（互斥运行）；插件暂未打进 runtime；macOS 未验证。
 
+**B 路线第二批（2026-10-25，D-250）**：① 未签名 NSIS 安装器 `hearth-0.2.1-rc.3-win-x64-unsigned.exe`（314 MB）；② `dsh-plugin-hearth` 打进 runtime（`contrib/` 副本 + 额外 pack + `ROOT_PACKAGES` + `web` 模板），新 profile 离线可用；③ 默认 home 改 `~/.hearth`，`scripts/migrate-dsh-home.ps1` 迁移 sessions/credentials/provider patch（修掉 PS 5.1 UTF-8 BOM 导致的 Host JSON 解析失败）；④ 桌面 locale/CLI/安装器品牌审计完成，Chromium userData 迁到 `%APPDATA%\Hearth Desktop`。**防漂移**：`engines.hearth>=0.2.27`、`hearth_status` 兼容性行、`test/contract.mjs`（版本/会话行/导出 JSON 形状）；fork 钉上游 commit。
+
 ---
 
 ### M3 · HA / 多租户产品化 + 性能/吞吐专题

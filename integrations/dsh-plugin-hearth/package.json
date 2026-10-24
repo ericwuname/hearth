@@ -11,7 +11,11 @@
   ],
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.1-rc.1 <0.3.0"
+    "dsh": ">=0.2.1-rc.1 <0.3.0",
+    "hearth": ">=0.2.27"
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs && node test/contract.mjs"
   },
   "dsh": {
     "bundle": {

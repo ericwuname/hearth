@@ -19,6 +19,23 @@ export const name = 'hearth-tools'
 export const inject = ['tools']
 
 const MAX_TEXT = 6000
+// CLI surface this plugin relies on (`sessions`, `session export`, `chat --budget`).
+// Bump when the plugin needs a newer Hearth; the status tool reports incompatibility.
+const MIN_HEARTH_VERSION = [0, 2, 27]
+
+function parseVersion(text) {
+  const match = String(text ?? '').match(/(\d+)\.(\d+)\.(\d+)/)
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+function versionAtLeast(actual, minimum) {
+  if (!actual) return false
+  for (let index = 0; index < minimum.length; index += 1) {
+    if (actual[index] > minimum[index]) return true
+    if (actual[index] < minimum[index]) return false
+  }
+  return true
+}
 
 function hearthBin() {
   const fromEnv = process.env.HEARTH_BIN
@@ -137,8 +154,11 @@ const statusTool = {
       sessions.code === 0
         ? sessions.stdout.split(/\r?\n/).filter((line) => /\[local\]/.test(line)).length
         : null
+    const versionText = version.code === 0 ? version.stdout.trim() : ''
+    const compatible = versionAtLeast(parseVersion(versionText), MIN_HEARTH_VERSION)
     const lines = [
-      `version: ${version.code === 0 ? version.stdout.trim() : `failed (exit ${version.code})`}`,
+      `version: ${versionText || `failed (exit ${version.code})`}`,
+      `plugin compatibility: ${compatible ? 'ok' : `requires hearth >= ${MIN_HEARTH_VERSION.join('.')}`}`,
       `provider: ${provider.code === 0 ? provider.stdout.trim() : `failed (exit ${provider.code})`}`,
       `local sessions: ${count === null ? 'unknown' : count}`,
       `binary: ${hearthBin()}`,
