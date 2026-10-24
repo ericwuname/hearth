@@ -68,6 +68,8 @@ struct HearthApp {
     focus_composer_once: bool,
     /// 下一次运行的步数预算（顶栏可调；只影响后续提交）。
     budget: u64,
+    /// 上一帧最后一张工具卡片的块序号——新卡片出现时把上一张折叠起来。
+    last_tool_seen: Option<usize>,
 }
 
 impl HearthApp {
@@ -99,6 +101,7 @@ impl HearthApp {
             last_export: None,
             err: None,
             budget: opts.budget,
+            last_tool_seen: None,
             opts,
             running: false,
             focus_composer_once: true,
@@ -217,14 +220,7 @@ impl HearthApp {
                     .add_enabled(!self.running, egui::Button::new("导出证据"))
                     .clicked()
                 {
-                    if let Some(export) = &self.opts.export {
-                        match export(&self.opts.session_id) {
-                            Ok(p) => {
-                                self.last_export = Some(format!("证据已导出 → {}", p.display()))
-                            }
-                            Err(e) => self.last_export = Some(format!("导出失败：{e:#}")),
-                        }
-                    }
+                    self.export_evidence();
                 }
             });
         });
@@ -247,12 +243,40 @@ impl HearthApp {
         });
     }
 
-    fn transcript(&self, ui: &mut egui::Ui) {
+    /// Esc：有待审批先拒绝；否则运行中则请求中断（与 TUI 的 Esc 语义一致）。
+    fn escape_action(&mut self) {
+        if let Some(pa) = self.state.pending_approval.take() {
+            self.resolve(&pa.id, false);
+            self.state
+                .push_line(LineKind::System, "✘ 已拒绝（Esc）".into());
+        } else if self.running {
+            self.interrupt();
+        }
+    }
+
+    fn export_evidence(&mut self) {
+        let Some(export) = &self.opts.export else {
+            return;
+        };
+        match export(&self.opts.session_id) {
+            Ok(p) => self.last_export = Some(format!("证据已导出 → {}", p.display())),
+            Err(e) => self.last_export = Some(format!("导出失败：{e:#}")),
+        }
+    }
+
+    fn transcript(&mut self, ui: &mut egui::Ui) {
         let blocks = group_blocks(&self.state.lines);
         let last_tool = blocks
             .iter()
             .rposition(|b| matches!(b, Block::Tool { .. }))
             .unwrap_or(usize::MAX);
+        // 新卡片出现 ⇒ 把上一张折叠（只折叠“上一张”，不碰用户手动展开的旧卡片）。
+        let last_tool_opt = (last_tool != usize::MAX).then_some(last_tool);
+        let mut collapse_target = None;
+        if self.last_tool_seen != last_tool_opt {
+            collapse_target = self.last_tool_seen;
+            self.last_tool_seen = last_tool_opt;
+        }
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .auto_shrink([false, false])
@@ -279,30 +303,39 @@ impl HearthApp {
                                 ("✓", egui::Color32::from_rgb(110, 210, 120))
                             };
                             let header = format!("{status} {}", tool_name(&call.text));
-                            // 用 push_id 限定折叠状态的作用域（egui 0.29 的
-                            // CollapsingHeader 无 `.id()`，靠父 ui 的 id 派生）。
-                            ui.push_id(("hearth-tool", idx), |ui| {
-                                egui::CollapsingHeader::new(
+                            // 显式持有折叠状态：新卡片出现时把上一张合上（egui 0.29
+                            // 的 CollapsingHeader 无 `.id()`，用固定 Id 才能跨帧改状态）。
+                            let id = egui::Id::new(("hearth-tool", idx));
+                            let mut st =
+                                egui::collapsing_header::CollapsingState::load_with_default_open(
+                                    ui.ctx(),
+                                    id,
+                                    idx == last_tool,
+                                );
+                            if Some(idx) == collapse_target {
+                                st.set_open(false);
+                            }
+                            st.show_header(ui, |ui| {
+                                ui.label(
                                     egui::RichText::new(header)
                                         .monospace()
                                         .strong()
                                         .color(color),
-                                )
-                                .default_open(idx == last_tool)
-                                .show(ui, |ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&call.text)
-                                                .monospace()
-                                                .small()
-                                                .color(egui::Color32::from_rgb(160, 160, 160)),
-                                        )
-                                        .wrap(),
-                                    );
-                                    for r in results {
-                                        render_result(ui, r);
-                                    }
-                                });
+                                );
+                            })
+                            .body(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&call.text)
+                                            .monospace()
+                                            .small()
+                                            .color(egui::Color32::from_rgb(160, 160, 160)),
+                                    )
+                                    .wrap(),
+                                );
+                                for r in results {
+                                    render_result(ui, r);
+                                }
                             });
                         }
                     }
@@ -396,6 +429,24 @@ impl eframe::App for HearthApp {
         self.drain();
         if let Some(g) = self.pending_initial.take() {
             self.submit(g);
+        }
+
+        // 键盘：Esc=拒绝/中断，Ctrl+E=导出，Ctrl+Q=空闲时退出。
+        let (esc, ctrl_e, ctrl_q) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::Escape),
+                i.key_pressed(egui::Key::E) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::Q) && i.modifiers.ctrl,
+            )
+        });
+        if esc {
+            self.escape_action();
+        }
+        if ctrl_e && !self.running {
+            self.export_evidence();
+        }
+        if ctrl_q && !self.running {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
         egui::TopBottomPanel::top("hearth-top").show(ctx, |ui| {
