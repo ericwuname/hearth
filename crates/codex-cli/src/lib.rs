@@ -1445,9 +1445,16 @@ pub async fn hearth_main() -> Result<()> {
                         tracing::warn!(error = %e, "GUI taskgoal 落盘失败（不阻断）");
                     }
                 });
-            let export: std::sync::Arc<
-                dyn Fn(&str) -> anyhow::Result<std::path::PathBuf> + Send + Sync,
-            > = std::sync::Arc::new(|id| export::export_session(id, None));
+            let export: hearth_gui::ExportFn =
+                std::sync::Arc::new(|id| export::export_session(id, None));
+            let provider = resolved.provider.clone();
+            let model = resolved
+                .model
+                .clone()
+                .unwrap_or_else(|| "(default)".to_string());
+            let workspace = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
             hearth_gui::run(
                 agent,
                 hearth_gui::GuiOptions {
@@ -1456,6 +1463,9 @@ pub async fn hearth_main() -> Result<()> {
                     initial_goal: goal,
                     persist: Some(persist),
                     export: Some(export),
+                    provider,
+                    model,
+                    workspace,
                 },
             )?;
         }

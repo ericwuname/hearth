@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use agent_core::{AgentLoop, Event, Goal};
 use eframe::egui;
-use hearth_tui::{LineKind, PersistFn, TuiState};
+use hearth_tui::{LineKind, PersistFn, TranscriptLine, TuiState};
 use tool_runtime::ToolDispatcher;
 
 /// 一键证据导出（由 CLI 注入 `hearth session export` 同源实现）。
@@ -26,6 +26,10 @@ pub struct GuiOptions {
     pub initial_goal: Option<String>,
     pub persist: Option<PersistFn>,
     pub export: Option<ExportFn>,
+    /// 顶栏展示用：provider / model / workspace（由 CLI 注入，GUI 不改它们）。
+    pub provider: String,
+    pub model: String,
+    pub workspace: String,
 }
 
 pub fn run(agent: AgentLoop, opts: GuiOptions) -> anyhow::Result<()> {
@@ -62,6 +66,8 @@ struct HearthApp {
     err: Option<String>,
     /// 首帧把焦点给输入框（打开即可打字，无需先点一下）。
     focus_composer_once: bool,
+    /// 下一次运行的步数预算（顶栏可调；只影响后续提交）。
+    budget: u64,
 }
 
 impl HearthApp {
@@ -92,6 +98,7 @@ impl HearthApp {
             pending_initial: opts.initial_goal.clone(),
             last_export: None,
             err: None,
+            budget: opts.budget,
             opts,
             running: false,
             focus_composer_once: true,
@@ -112,7 +119,7 @@ impl HearthApp {
         self.state.steps = 0;
         self.running = true;
         self.err = None;
-        let budget = self.opts.budget;
+        let budget = self.budget;
         let done_tx = self.done_tx.clone();
         self.rt.spawn(async move {
             let goal = Goal::with_budget(
@@ -189,7 +196,8 @@ impl HearthApp {
         ui.horizontal(|ui| {
             ui.heading(egui::RichText::new("Hearth").strong());
             ui.add_space(8.0);
-            ui.label(format!("session {}", self.state.session_short));
+            ui.label(format!("session {}", self.state.session_short))
+                .on_hover_text(&self.opts.session_id);
             ui.separator();
             ui.label(format!("phase {}", self.state.phase));
             ui.label(format!("{} 步", self.state.steps));
@@ -220,19 +228,84 @@ impl HearthApp {
                 }
             });
         });
+        ui.horizontal(|ui| {
+            let meta = format!("{} / {}", self.opts.provider, self.opts.model);
+            ui.label(egui::RichText::new(meta).small().weak());
+            ui.separator();
+            let ws = short_path(&self.opts.workspace);
+            ui.label(egui::RichText::new(ws).small().weak())
+                .on_hover_text(&self.opts.workspace);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new("步").small().weak());
+                ui.add(
+                    egui::DragValue::new(&mut self.budget)
+                        .range(4..=200)
+                        .speed(1.0),
+                );
+                ui.label(egui::RichText::new("预算").small().weak());
+            });
+        });
     }
 
     fn transcript(&self, ui: &mut egui::Ui) {
+        let blocks = group_blocks(&self.state.lines);
+        let last_tool = blocks
+            .iter()
+            .rposition(|b| matches!(b, Block::Tool { .. }))
+            .unwrap_or(usize::MAX);
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for line in &self.state.lines {
-                    let color = line_color(&line.kind);
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&line.text).monospace().color(color))
-                            .wrap(),
-                    );
+                for (idx, block) in blocks.iter().enumerate() {
+                    match block {
+                        Block::Single(line) => {
+                            let color = line_color(&line.kind);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&line.text).monospace().color(color),
+                                )
+                                .wrap(),
+                            );
+                        }
+                        Block::Tool { call, results } => {
+                            let failed = results.iter().any(|r| r.kind == LineKind::ToolErr);
+                            let pending = results.is_empty();
+                            let (status, color) = if pending {
+                                ("…", egui::Color32::from_rgb(230, 200, 90))
+                            } else if failed {
+                                ("✗", egui::Color32::from_rgb(240, 110, 110))
+                            } else {
+                                ("✓", egui::Color32::from_rgb(110, 210, 120))
+                            };
+                            let header = format!("{status} {}", tool_name(&call.text));
+                            // 用 push_id 限定折叠状态的作用域（egui 0.29 的
+                            // CollapsingHeader 无 `.id()`，靠父 ui 的 id 派生）。
+                            ui.push_id(("hearth-tool", idx), |ui| {
+                                egui::CollapsingHeader::new(
+                                    egui::RichText::new(header)
+                                        .monospace()
+                                        .strong()
+                                        .color(color),
+                                )
+                                .default_open(idx == last_tool)
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&call.text)
+                                                .monospace()
+                                                .small()
+                                                .color(egui::Color32::from_rgb(160, 160, 160)),
+                                        )
+                                        .wrap(),
+                                    );
+                                    for r in results {
+                                        render_result(ui, r);
+                                    }
+                                });
+                            });
+                        }
+                    }
                 }
             });
     }
@@ -345,6 +418,104 @@ impl eframe::App for HearthApp {
     }
 }
 
+/// 渲染块：连续的「工具调用 + 结果」合成一张可折叠卡片，其余行原样渲染。
+#[derive(Debug)]
+enum Block<'a> {
+    Single(&'a TranscriptLine),
+    Tool {
+        call: &'a TranscriptLine,
+        results: Vec<&'a TranscriptLine>,
+    },
+}
+
+/// 只做**相邻**配对（调用行后紧跟的结果行）：跨行的迟到结果仍按普通行渲染，
+/// 不猜归属（宁可少折叠，不误导）。
+fn group_blocks(lines: &[TranscriptLine]) -> Vec<Block<'_>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].kind == LineKind::Tool {
+            let mut results = Vec::new();
+            let mut j = i + 1;
+            while j < lines.len() && matches!(lines[j].kind, LineKind::ToolOk | LineKind::ToolErr) {
+                results.push(&lines[j]);
+                j += 1;
+            }
+            out.push(Block::Tool {
+                call: &lines[i],
+                results,
+            });
+            i = j;
+        } else {
+            out.push(Block::Single(&lines[i]));
+            i += 1;
+        }
+    }
+    out
+}
+
+/// 从「→ bash {json}」里取工具名；取不到时退回 `tool`（不空标题）。
+fn tool_name(text: &str) -> String {
+    let t = text.trim_start_matches('→').trim();
+    let name = t
+        .split(|c: char| c.is_whitespace() || c == '{')
+        .next()
+        .unwrap_or("");
+    if name.is_empty() {
+        "tool".into()
+    } else {
+        name.into()
+    }
+}
+
+/// 是否像 diff（有 hunk 头或增删行）——只有像 diff 才逐行着色，
+/// 避免把 shell 输出里的 `+`/`-` 误当补丁。
+fn is_diff_text(text: &str) -> bool {
+    text.lines().any(|l| {
+        l.starts_with("@@ ")
+            || (l.starts_with('+') && !l.starts_with("+++"))
+            || (l.starts_with('-') && !l.starts_with("---"))
+    })
+}
+
+/// diff 行色；文件头（`+++`/`---`）刻意不着色，返回 `None` 表示用基础色。
+fn diff_line_color(line: &str) -> Option<egui::Color32> {
+    if line.starts_with("+++") || line.starts_with("---") {
+        None
+    } else if line.starts_with('+') {
+        Some(egui::Color32::from_rgb(110, 210, 120))
+    } else if line.starts_with('-') {
+        Some(egui::Color32::from_rgb(240, 110, 110))
+    } else if line.starts_with("@@") {
+        Some(egui::Color32::from_rgb(110, 200, 255))
+    } else {
+        None
+    }
+}
+
+fn render_result(ui: &mut egui::Ui, line: &TranscriptLine) {
+    let base = line_color(&line.kind);
+    if is_diff_text(&line.text) {
+        for l in line.text.lines() {
+            let color = diff_line_color(l).unwrap_or(base);
+            ui.add(egui::Label::new(egui::RichText::new(l).monospace().color(color)).wrap());
+        }
+    } else {
+        ui.add(egui::Label::new(egui::RichText::new(&line.text).monospace().color(base)).wrap());
+    }
+}
+
+/// 顶栏路径：过长时保留尾部（按**字符**截，CJK 路径不会切坏 UTF-8）。
+fn short_path(path: &str) -> String {
+    let norm = path.replace('\\', "/");
+    let chars: Vec<char> = norm.chars().collect();
+    if chars.len() <= 64 {
+        norm
+    } else {
+        format!("…{}", chars[chars.len() - 60..].iter().collect::<String>())
+    }
+}
+
 fn line_color(kind: &LineKind) -> egui::Color32 {
     match kind {
         LineKind::User => egui::Color32::from_rgb(110, 200, 255),
@@ -410,5 +581,95 @@ fn install_cjk_font(ctx: &egui::Context) {
         }
         ctx.set_fonts(fonts);
         return;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(kind: LineKind, text: &str) -> TranscriptLine {
+        TranscriptLine {
+            kind,
+            text: text.to_string(),
+        }
+    }
+
+    #[test]
+    fn groups_tool_call_with_adjacent_results_only() {
+        let lines = vec![
+            line(LineKind::Assistant, "开始"),
+            line(LineKind::Tool, "→ bash {\"cmd\":\"echo hi\"}"),
+            line(LineKind::ToolOk, "hi"),
+            line(LineKind::Assistant, "完成"),
+        ];
+        let blocks = group_blocks(&lines);
+        assert_eq!(blocks.len(), 3);
+        match &blocks[1] {
+            Block::Tool { call, results } => {
+                assert_eq!(tool_name(&call.text), "bash");
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].kind, LineKind::ToolOk);
+            }
+            other => panic!("expected tool block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_call_without_result_stays_pending_and_separate_from_next_call() {
+        let lines = vec![
+            line(LineKind::Tool, "→ read {\"path\":\"a.rs\"}"),
+            line(LineKind::Tool, "→ glob {\"pattern\":\"*.rs\"}"),
+            line(LineKind::ToolErr, "no matches"),
+        ];
+        let blocks = group_blocks(&lines);
+        assert_eq!(blocks.len(), 2);
+        match (&blocks[0], &blocks[1]) {
+            (
+                Block::Tool { results: first, .. },
+                Block::Tool {
+                    call,
+                    results: second,
+                    ..
+                },
+            ) => {
+                assert!(first.is_empty());
+                assert_eq!(tool_name(&call.text), "glob");
+                assert_eq!(second.len(), 1);
+                assert_eq!(second[0].kind, LineKind::ToolErr);
+            }
+            other => panic!("unexpected blocks: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn diff_coloring_ignores_file_headers_and_plain_lines() {
+        assert!(diff_line_color("+added").is_some());
+        assert!(diff_line_color("-removed").is_some());
+        assert!(diff_line_color("@@ -1 +2 @@").is_some());
+        assert!(diff_line_color("+++ b/src/lib.rs").is_none());
+        assert!(diff_line_color("--- a/src/lib.rs").is_none());
+        assert!(diff_line_color("plain output").is_none());
+        assert!(is_diff_text("@@ -1 +1 @@\n-a\n+b"));
+        assert!(!is_diff_text("hello\nworld"));
+        assert!(!is_diff_text("+++ b/x\n--- a/x"));
+    }
+
+    #[test]
+    fn tool_name_falls_back_and_trims_arrow() {
+        assert_eq!(tool_name("→ bash {\"cmd\":\"x\"}"), "bash");
+        assert_eq!(tool_name("→apply_patch{...}"), "apply_patch");
+        assert_eq!(tool_name(""), "tool");
+    }
+
+    #[test]
+    fn short_path_keeps_utf8_tail_for_long_cjk_paths() {
+        let p = format!("C:\\用户\\{}", "很长的目录\\".repeat(12));
+        let s = short_path(&p);
+        assert!(s.starts_with('…'));
+        assert!(s.chars().count() <= 61);
+        // 不含 Windows 反斜杠（统一成 /），且仍是合法 UTF-8。
+        assert!(!s.contains('\\'));
+        assert!(s.ends_with('/'));
     }
 }
