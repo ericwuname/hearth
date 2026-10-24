@@ -1,0 +1,4 @@
+# Local Hearth plugin: registers hearth_* tools on the harness root.
+- insert:
+    - id: hearth-tools
+      name: dsh-plugin-hearth

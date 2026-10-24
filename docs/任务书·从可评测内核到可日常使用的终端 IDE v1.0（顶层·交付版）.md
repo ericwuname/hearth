@@ -285,6 +285,8 @@
 
 **产品化第一批（2026-10-25，D-247）**：顶栏第二行显示 provider/model 与工作区（字符级截尾、悬停看全路径）；预算 `DragValue`（4~200 步，仅影响后续提交）；相邻「工具调用 + 结果」合成**可折叠卡片**（`✓/✗/…` + 工具名；最新一张展开，新卡出现自动折叠上一张）；结果像 diff 时逐行着色；快捷键 `Esc`（拒绝待审批 / 中断运行）、`Ctrl+E`（导出证据）、`Ctrl+Q`（空闲退出）。5 条纯函数单测（相邻配对/无结果独立/diff 识别/工具名/长 CJK 路径）。真 Agnes 实跑 create→run→patch→run ⇒ 四张卡片 + `completed · 9 步`；`sleep 60` 运行中 `Esc` ⇒ 已请求中断。
 
+**DSH 生态接入（2026-10-25，D-248，用户决策 A 试点）**：`integrations/dsh-plugin-hearth` 零依赖 host 插件，向 DeepSeek Harness 注册 `hearth_sessions / hearth_export / hearth_status / hearth_run`。默认 fail-closed（不委托审批）、`execFile` 不经 shell、cwd 必须绝对路径。安装到 `~/.dsh/profiles/desktop`（备份后加 `link:` 依赖 + bundles + junction），重启 DSH 后插件页可见且 ON；模型实际调用三工具并引用 59 个本地会话/审计闭环/预算/审批差异。**后续产品路线（用户已选）**：**B. Fork DSH Desktop（MIT）** 作为正式外壳；OpenCode Desktop 仅作测试对照壳。
+
 ---
 
 ### M3 · HA / 多租户产品化 + 性能/吞吐专题
