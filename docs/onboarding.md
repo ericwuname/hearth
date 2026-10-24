@@ -100,3 +100,5 @@ hearth resume <id> --budget 4 "继续"
   可加隐藏旗标 `--auto-approve`。`gui` 的审批条 60 秒未处理按拒绝处理（内核等待上限）。
 - `gui` 报 `HTTP 401 无效的令牌`：是 key 失效（不是界面问题）。更新仓库根 `.env` 的
   `AGNES_API_KEY` 或 `hearth config set api-key <新 key>` 后重启 `hearth gui`。
+  **Windows 上 `hearth config set` 写的是 `%APPDATA%\hearth\config.toml`**；手工去改
+  `~/.config/hearth/config.toml` 不会生效。`.env` 从**启动目录**加载——在仓库根启动最稳。
