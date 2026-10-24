@@ -287,6 +287,8 @@
 
 **DSH 生态接入（2026-10-25，D-248，用户决策 A 试点）**：`integrations/dsh-plugin-hearth` 零依赖 host 插件，向 DeepSeek Harness 注册 `hearth_sessions / hearth_export / hearth_status / hearth_run`。默认 fail-closed（不委托审批）、`execFile` 不经 shell、cwd 必须绝对路径。安装到 `~/.dsh/profiles/desktop`（备份后加 `link:` 依赖 + bundles + junction），重启 DSH 后插件页可见且 ON；模型实际调用三工具并引用 59 个本地会话/审计闭环/预算/审批差异。**后续产品路线（用户已选）**：**B. Fork DSH Desktop（MIT）** 作为正式外壳；OpenCode Desktop 仅作测试对照壳。
 
+**B 路线首个可运行 fork（2026-10-25，D-249）**：源码 `deepseek-harness @22ddee37` 浅克隆到独立目录；品牌改为 **Hearth**（productName/appId `com.hearth.desktop`/artifact/协议显示名）、自绘房子+火焰图标与托盘 ICO、侧栏 Hearth 字标（不再 gate official profile）、19 处用户可见文案与安装器语言、本地构建标签 `Hearth 本地构建`；unsigned 本地构建跳过 mandatory-update policy。`build:official` 10/10 gates；`package-target win-x64 --dir --unsigned`（electron-builder 镜像走 npmmirror）产出 `Hearth.exe` 并启动成功，窗口标题显示 `… — Hearth 本地构建`；packaged smoke 通过。**边界**：未签名、无 NSIS 安装器；与 DSH 共用 `~/.dsh`（互斥运行）；插件暂未打进 runtime；macOS 未验证。
+
 ---
 
 ### M3 · HA / 多租户产品化 + 性能/吞吐专题
