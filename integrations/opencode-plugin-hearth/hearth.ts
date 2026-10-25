@@ -74,6 +74,8 @@ const emptySchema = { type: 'object', properties: {}, additionalProperties: fals
 export default Plugin.define({
   id: 'hearth',
   async setup(ctx) {
+    // Default Hearth tasks to the OpenCode project directory, not the app cwd.
+    const workspace = ctx.location?.directory
     await ctx.tool.transform((editor) => {
       editor.add({
         name: 'hearth_sessions',
@@ -160,6 +162,8 @@ export default Plugin.define({
             cwd = String(args.cwd)
             if (!isAbsolute(cwd)) throw new Error('cwd must be an absolute path')
             if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('cwd is not a directory')
+          } else if (workspace && existsSync(workspace) && statSync(workspace).isDirectory()) {
+            cwd = workspace
           }
           const argv = ['chat', goal, '--budget', String(budget)]
           if (args.approve_within_session === true) argv.push('--approve-within', 'session')

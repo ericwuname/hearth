@@ -291,7 +291,7 @@
 
 **B 路线第二批（2026-10-25，D-250）**：① 未签名 NSIS 安装器 `hearth-0.2.1-rc.3-win-x64-unsigned.exe`（314 MB）；② `dsh-plugin-hearth` 打进 runtime（`contrib/` 副本 + 额外 pack + `ROOT_PACKAGES` + `web` 模板），新 profile 离线可用；③ 默认 home 改 `~/.hearth`，`scripts/migrate-dsh-home.ps1` 迁移 sessions/credentials/provider patch（修掉 PS 5.1 UTF-8 BOM 导致的 Host JSON 解析失败）；④ 桌面 locale/CLI/安装器品牌审计完成，Chromium userData 迁到 `%APPDATA%\Hearth Desktop`。**防漂移**：`engines.hearth>=0.2.27`、`hearth_status` 兼容性行、`test/contract.mjs`（版本/会话行/导出 JSON 形状）；fork 钉上游 commit。
 
-**OpenCode 测试壳接入（2026-10-25，D-251）**：OpenCode Desktop **v2.1.4** 使用 Promise 插件 API（`Plugin.define` + `ctx.tool.transform`），已新增 `integrations/opencode-plugin-hearth/hearth.ts` 并安装到 `~/.config/opencode/plugins/hearth.ts`；注册 `hearth_sessions / hearth_export / hearth_status / hearth_run`。日志确认插件加载 ×2、无 ERROR；UI 内模型实调尚未复验。
+**OpenCode 测试壳接入（2026-10-25，D-251）**：OpenCode Desktop **v2.1.4** 使用 Promise 插件 API（`Plugin.define` + `ctx.tool.transform`），已新增 `integrations/opencode-plugin-hearth/hearth.ts` 并安装到 `~/.config/opencode/plugins/hearth.ts`；注册 `hearth_sessions / hearth_export / hearth_status / hearth_run`。日志确认插件加载 ×2、无 ERROR；**用户 UI 内实调 `hearth_status` 成功**：`hearth 0.2.27 (20e737c)`、兼容性 ok、provider agnes、77 个本地会话。`hearth_run` 默认 `cwd` 已改为 OpenCode 当前项目目录。
 
 ---
 
