@@ -293,6 +293,8 @@
 
 **OpenCode 测试壳接入（2026-10-25，D-251）**：OpenCode Desktop **v2.1.4** 使用 Promise 插件 API（`Plugin.define` + `ctx.tool.transform`），已新增 `integrations/opencode-plugin-hearth/hearth.ts` 并安装到 `~/.config/opencode/plugins/hearth.ts`；注册 `hearth_sessions / hearth_export / hearth_status / hearth_run`。日志确认插件加载 ×2、无 ERROR；**用户 UI 内实调 `hearth_status` 成功**：`hearth 0.2.27 (20e737c)`、兼容性 ok、provider agnes、77 个本地会话。`hearth_run` 默认 `cwd` 已改为 OpenCode 当前项目目录。
 
+**插件产品化第三批（2026-10-25，D-252）**：**真实文件落盘实证**——在 `C:\Users\87465\Desktop\hearth-changes-test` 让 Hearth 创建 `note.txt`（14B），session `f6edac21-c40d-4011-9823-0b70c8e07ffe` 的导出 `changes=1`（`created:true`、`path`、`lines_before/after`、`state:"present"`、diff `+ HELLO_CHANGES`），磁盘报告 `.hearth/reports/<id>/run-001.md`。据此：OpenCode 插件 `hearth_export` 增加 `cwd/out`，默认落 **项目内** `<cwd>/.hearth/exports/<id>.json`；`hearth_run` 收尾自动导出并回传 `changed files: N` + 逐路径（created/行数）+ 最新报告路径；**插件宿主模拟实跑** session `510cd064-2aca-4931-81ed-66159e9b4d68` 创建 `plugin-check-2.txt`（21B）⇒ 输出 `changed files: 1` / `(created) (0→1 lines)` / 报告路径；期间发现 CLI 进度行只印 8 位短 id，补 `resolveSessionId`（全 UUID 优先 → `hearth sessions` 前缀反查）。DSH 插件同构（显式 cwd → session workingDirectory → host cwd），`npm test`（SMOKE + CONTRACT）通过，并同步 fork `contrib/`。**边界**：export 的 `reports[]` 仍为空数组（磁盘有报告，路径由插件推导）；已安装 Hearth 的 runtime 仍带旧插件，重打包后才会更新。
+
 ---
 
 ### M3 · HA / 多租户产品化 + 性能/吞吐专题

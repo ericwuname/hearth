@@ -6,9 +6,9 @@
  * from the host, so no local node_modules are required.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { Plugin } from '@opencode/plugin'
 
@@ -69,6 +69,56 @@ function textContent(text: string) {
   return [{ type: 'text' as const, text }]
 }
 
+interface Change {
+  path?: string
+  created?: boolean
+  state?: string
+  lines_before?: number
+  lines_after?: number
+}
+
+/**
+ * Resolve the full session id a run printed. Hearth's progress line may show
+ * only an 8-char prefix, while export needs the full UUID.
+ */
+async function resolveSessionId(combined: string, signal?: AbortSignal): Promise<string | null> {
+  const full = combined.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)
+  if (full) return full[0]
+  const short = combined.match(/session\s+([0-9a-fA-F]{8,})/i)
+  if (!short) return null
+  const listed = await runHearth(['sessions'], { timeout: 30000, signal })
+  if (listed.code !== 0) return null
+  const line = listed.stdout
+    .split(/\r?\n/)
+    .find((entry) => entry.trim().toLowerCase().startsWith(short[1].toLowerCase()))
+  const id = line?.match(/^([0-9a-fA-F-]{36})/)
+  return id ? id[1] : null
+}
+
+/** Read the exported evidence after a run and return its file changes. */
+async function readChanges(sessionId: string, cwd: string | undefined): Promise<Change[] | null> {
+  const out = join(tmpdir(), `hearth-run-${sessionId}.json`)
+  const result = await runHearth(['session', 'export', sessionId, '--out', out], { cwd, timeout: 60000 })
+  if (result.code !== 0) return null
+  try {
+    const document = JSON.parse(readFileSync(out, 'utf8')) as { changes?: Change[] }
+    return Array.isArray(document.changes) ? document.changes : []
+  } catch {
+    return null
+  }
+}
+
+/** Latest markdown report Hearth wrote for this session, when one exists. */
+function latestReport(cwd: string, sessionId: string): string | null {
+  const directory = join(cwd, '.hearth', 'reports', sessionId)
+  try {
+    const files = readdirSync(directory).filter((file) => file.endsWith('.md')).sort()
+    return files.length > 0 ? join(directory, files[files.length - 1]) : null
+  } catch {
+    return null
+  }
+}
+
 const emptySchema = { type: 'object', properties: {}, additionalProperties: false }
 
 export default Plugin.define({
@@ -93,16 +143,36 @@ export default Plugin.define({
         description: 'Export one Hearth session as a self-contained evidence JSON. Read-only.',
         input: {
           type: 'object',
-          properties: { id: { type: 'string', description: 'Hearth session UUID' } },
+          properties: {
+            id: { type: 'string', description: 'Hearth session UUID' },
+            cwd: { type: 'string', description: 'Absolute working directory for the default export path' },
+            out: { type: 'string', description: 'Absolute output JSON path' },
+          },
           required: ['id'],
           additionalProperties: false,
         },
         execute: async (input, tool) => {
-          const id = String((input as { id?: string })?.id ?? '').trim()
+          const args = input as { id?: string; cwd?: string; out?: string }
+          const id = String(args.id ?? '').trim()
           if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) throw new Error('invalid Hearth session id')
-          const result = await runHearth(['session', 'export', id], { timeout: 60000, signal: tool.signal })
+          const cwd = args.cwd
+            ? String(args.cwd)
+            : workspace && existsSync(workspace) && statSync(workspace).isDirectory()
+              ? workspace
+              : homedir()
+          if (!isAbsolute(cwd)) throw new Error('cwd must be an absolute path')
+          const out = args.out
+            ? String(args.out)
+            : join(cwd, '.hearth', 'exports', `${id}.json`)
+          if (!isAbsolute(out)) throw new Error('out must be an absolute path')
+          mkdirSync(dirname(out), { recursive: true })
+          const result = await runHearth(['session', 'export', id, '--out', out], {
+            cwd,
+            timeout: 60000,
+            signal: tool.signal,
+          })
           if (result.code !== 0) return { content: textContent(fail('hearth session export failed', result)) }
-          return { content: textContent(clip(result.stdout.trim() || '(exported, no output)')) }
+          return { content: textContent(`exported → ${out}`) }
         },
       })
 
@@ -170,9 +240,27 @@ export default Plugin.define({
           const result = await runHearth(argv, { cwd, timeout: 600000, signal: tool.signal })
           if (result.code !== 0) return { content: textContent(fail('hearth chat failed', result)) }
           const combined = `${result.stdout}\n${result.stderr}`
-          const session = combined.match(/session\s+([0-9a-fA-F-]{36})/i)
+          const session = await resolveSessionId(combined, tool.signal)
           const head = `ok (budget ${budget}${args.approve_within_session === true ? ', approval delegated' : ''})`
-          return { content: textContent(`${head}${session ? `\nsession: ${session[1]}` : ''}\n${clip(combined.trim(), 5000)}`) }
+          let summary = ''
+          if (session) {
+            summary += `\nsession: ${session}`
+            const changes = await readChanges(session, cwd)
+            if (changes) {
+              summary += `\nchanged files: ${changes.length}`
+              for (const change of changes.slice(0, 10)) {
+                const lines = change.lines_before !== undefined && change.lines_after !== undefined
+                  ? ` (${change.lines_before}→${change.lines_after} lines)`
+                  : ''
+                summary += `\n- ${change.path}${change.created ? ' (created)' : ''}${lines}`
+              }
+            }
+            if (cwd) {
+              const report = latestReport(cwd, session)
+              if (report) summary += `\nreport: ${report}`
+            }
+          }
+          return { content: textContent(`${head}${summary}\n${clip(combined.trim(), 5000)}`) }
         },
       })
     })

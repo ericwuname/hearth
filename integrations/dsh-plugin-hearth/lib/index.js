@@ -8,9 +8,9 @@
 // - 默认不开启会话级审批委托：`hearth chat` 在非交互下会拒绝破坏性操作（fail-closed）
 
 import { execFile } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -98,6 +98,74 @@ function fail(prefix, result) {
   return parts.join('\n')
 }
 
+/**
+ * Resolve the directory a Hearth call should run in: explicit argument first,
+ * then the agent's session working directory, then the host process cwd.
+ */
+async function resolveCwd(ctx, exec, explicit) {
+  if (explicit) {
+    const cwd = String(explicit)
+    if (!isAbsolute(cwd)) throw new Error('cwd must be an absolute path')
+    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('cwd is not a directory')
+    return cwd
+  }
+  const workingDirectory = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : undefined
+  if (workingDirectory && exec?.agent) {
+    try {
+      const cwd = await workingDirectory.ensure(exec.agent, exec.signal)
+      if (cwd && existsSync(cwd)) return cwd
+    } catch {
+      // Fall back to the host cwd when the session directory cannot be resolved.
+    }
+  }
+  return process.cwd()
+}
+
+/**
+ * Resolve the full session id a run printed. Hearth's progress line may show
+ * only an 8-char prefix, while export needs the full UUID.
+ */
+async function resolveSessionId(combined, signal) {
+  const full = combined.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)
+  if (full) return full[0]
+  const short = combined.match(/session\s+([0-9a-fA-F]{8,})/i)
+  if (!short) return null
+  const listed = await runHearthSafe(['sessions'], { timeout: 30000, signal })
+  if (listed.code !== 0) return null
+  const line = listed.stdout
+    .split(/\r?\n/)
+    .find((entry) => entry.trim().toLowerCase().startsWith(short[1].toLowerCase()))
+  const id = line?.match(/^([0-9a-fA-F-]{36})/)
+  return id ? id[1] : null
+}
+
+/** Export a finished run to a temp file and read back its file changes. */
+async function readChanges(sessionId, cwd) {
+  const out = join(tmpdir(), `hearth-run-${sessionId}.json`)
+  const result = await runHearthSafe(['session', 'export', sessionId, '--out', out], {
+    cwd,
+    timeout: 60000,
+  })
+  if (result.code !== 0) return null
+  try {
+    const document = JSON.parse(readFileSync(out, 'utf8'))
+    return Array.isArray(document.changes) ? document.changes : []
+  } catch {
+    return null
+  }
+}
+
+/** Latest markdown report Hearth wrote for this session, when one exists. */
+function latestReport(cwd, sessionId) {
+  const directory = join(cwd, '.hearth', 'reports', sessionId)
+  try {
+    const files = readdirSync(directory).filter((file) => file.endsWith('.md')).sort()
+    return files.length > 0 ? join(directory, files[files.length - 1]) : null
+  } catch {
+    return null
+  }
+}
+
 const sessionsTool = {
   name: 'hearth_sessions',
   description:
@@ -112,29 +180,38 @@ const sessionsTool = {
   },
 }
 
-const exportTool = {
-  name: 'hearth_export',
-  description:
-    'Export one Hearth session as a self-contained evidence JSON (diffs + reports + transcript). Read-only on the session. 导出指定会话的证据 JSON，返回落盘路径。',
-  parameters: {
-    type: 'object',
-    properties: {
-      id: { type: 'string', description: 'Hearth session UUID (from hearth_sessions)' },
+function exportTool(ctx) {
+  return {
+    name: 'hearth_export',
+    description:
+      'Export one Hearth session as a self-contained evidence JSON (diffs + reports + transcript). Read-only on the session. 导出指定会话的证据 JSON，返回落盘路径。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Hearth session UUID (from hearth_sessions)' },
+        cwd: { type: 'string', description: 'Absolute working directory for the default export path' },
+        out: { type: 'string', description: 'Absolute output JSON path' },
+      },
+      required: ['id'],
+      additionalProperties: false,
     },
-    required: ['id'],
-    additionalProperties: false,
-  },
-  output: textOutput(),
-  async execute(args, exec) {
-    const id = String(args?.id ?? '').trim()
-    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) throw new Error('invalid Hearth session id')
-    const result = await runHearthSafe(['session', 'export', id], {
-      timeout: 60000,
-      signal: exec?.signal,
-    })
-    if (result.code !== 0) return { text: fail('hearth session export failed', result) }
-    return { text: clip(result.stdout.trim() || '(exported, no output)') }
-  },
+    output: textOutput(),
+    async execute(args, exec) {
+      const id = String(args?.id ?? '').trim()
+      if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) throw new Error('invalid Hearth session id')
+      const cwd = await resolveCwd(ctx, exec, args?.cwd)
+      const out = args?.out ? String(args.out) : join(cwd, '.hearth', 'exports', `${id}.json`)
+      if (!isAbsolute(out)) throw new Error('out must be an absolute path')
+      mkdirSync(dirname(out), { recursive: true })
+      const result = await runHearthSafe(['session', 'export', id, '--out', out], {
+        cwd,
+        timeout: 60000,
+        signal: exec?.signal,
+      })
+      if (result.code !== 0) return { text: fail('hearth session export failed', result) }
+      return { text: `exported → ${out}` }
+    },
+  }
 }
 
 const statusTool = {
@@ -167,64 +244,76 @@ const statusTool = {
   },
 }
 
-const runTool = {
-  name: 'hearth_run',
-  description:
-    'Run one Hearth task in a working directory and return its summary. Non-interactive: destructive commands are DENIED unless approve_within_session=true (that delegates session-wide approval — use only when the user explicitly trusts the task). 运行一次 Hearth 任务；默认 fail-closed，破坏性命令会被拒绝。',
-  parameters: {
-    type: 'object',
-    properties: {
-      goal: { type: 'string', description: 'Task goal passed to `hearth chat`' },
-      budget: { type: 'integer', description: 'Max steps (4-80, default 20)' },
-      cwd: {
-        type: 'string',
-        description: 'Absolute working directory; defaults to the DSH process cwd',
+function runTool(ctx) {
+  return {
+    name: 'hearth_run',
+    description:
+      'Run one Hearth task in a working directory and return its summary. Non-interactive: destructive commands are DENIED unless approve_within_session=true (that delegates session-wide approval — use only when the user explicitly trusts the task). 运行一次 Hearth 任务；默认 fail-closed，破坏性命令会被拒绝。',
+    parameters: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: 'Task goal passed to `hearth chat`' },
+        budget: { type: 'integer', description: 'Max steps (4-80, default 20)' },
+        cwd: {
+          type: 'string',
+          description: 'Absolute working directory; defaults to the session working directory',
+        },
+        approve_within_session: {
+          type: 'boolean',
+          description:
+            'Delegate destructive-command approval for this Hearth session (default false). 高风险：开启后命令表级破坏性操作自动放行。',
+        },
       },
-      approve_within_session: {
-        type: 'boolean',
-        description:
-          'Delegate destructive-command approval for this Hearth session (default false). 高风险：开启后命令表级破坏性操作自动放行。',
-      },
+      required: ['goal'],
+      additionalProperties: false,
     },
-    required: ['goal'],
-    additionalProperties: false,
-  },
-  output: textOutput(),
-  async execute(args, exec) {
-    const goal = String(args?.goal ?? '').trim()
-    if (!goal) throw new Error('goal is required')
-    const rawBudget = Number(args?.budget ?? 20)
-    if (!Number.isFinite(rawBudget)) throw new Error('budget must be an integer')
-    const budget = Math.min(80, Math.max(4, Math.trunc(rawBudget)))
-    let cwd
-    if (args?.cwd) {
-      cwd = String(args.cwd)
-      if (!isAbsolute(cwd)) throw new Error('cwd must be an absolute path')
-      if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('cwd is not a directory')
-    }
-    const argv = ['chat', goal, '--budget', String(budget)]
-    if (args?.approve_within_session === true) argv.push('--approve-within', 'session')
-    const result = await runHearthSafe(argv, {
-      cwd,
-      timeout: 600000,
-      signal: exec?.signal,
-    })
-    if (result.code !== 0) return { text: fail('hearth chat failed', result) }
-    const combined = `${result.stdout}\n${result.stderr}`
-    const session = combined.match(/session\s+([0-9a-fA-F-]{36})/i)
-    const head = [
-      `ok (budget ${budget}${args?.approve_within_session === true ? ', approval delegated' : ''})`,
-      session ? `session: ${session[1]}` : null,
-    ]
-      .filter(Boolean)
-      .join('\n')
-    return { text: `${head}\n${clip(combined.trim(), 5000)}` }
-  },
+    output: textOutput(),
+    async execute(args, exec) {
+      const goal = String(args?.goal ?? '').trim()
+      if (!goal) throw new Error('goal is required')
+      const rawBudget = Number(args?.budget ?? 20)
+      if (!Number.isFinite(rawBudget)) throw new Error('budget must be an integer')
+      const budget = Math.min(80, Math.max(4, Math.trunc(rawBudget)))
+      const cwd = await resolveCwd(ctx, exec, args?.cwd)
+      const argv = ['chat', goal, '--budget', String(budget)]
+      if (args?.approve_within_session === true) argv.push('--approve-within', 'session')
+      const result = await runHearthSafe(argv, {
+        cwd,
+        timeout: 600000,
+        signal: exec?.signal,
+      })
+      if (result.code !== 0) return { text: fail('hearth chat failed', result) }
+      const combined = `${result.stdout}\n${result.stderr}`
+      const session = await resolveSessionId(combined, exec?.signal)
+      const head = [
+        `ok (budget ${budget}${args?.approve_within_session === true ? ', approval delegated' : ''})`,
+        session ? `session: ${session}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      let summary = head
+      if (session) {
+        const changes = await readChanges(session, cwd)
+        if (changes) {
+          summary += `\nchanged files: ${changes.length}`
+          for (const change of changes.slice(0, 10)) {
+            const lines =
+              change.lines_before !== undefined && change.lines_after !== undefined
+                ? ` (${change.lines_before}→${change.lines_after} lines)`
+                : ''
+            summary += `\n- ${change.path}${change.created ? ' (created)' : ''}${lines}`
+          }
+        }
+        const report = latestReport(cwd, session)
+        if (report) summary += `\nreport: ${report}`
+      }
+      return { text: `${summary}\n${clip(combined.trim(), 5000)}` }
+    },
+  }
 }
 
-const TOOLS = [sessionsTool, exportTool, statusTool, runTool]
-
 export function apply(ctx) {
+  const TOOLS = [sessionsTool, exportTool(ctx), statusTool, runTool(ctx)]
   const disposers = TOOLS.map((tool) => ctx.tools.register(tool))
   return () => {
     for (const dispose of disposers.reverse()) {
